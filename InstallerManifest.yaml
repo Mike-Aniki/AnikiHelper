@@ -6,9 +6,10 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0.pext
     Changelog:
       - First public release build
- - Version: 1.0.1
+  - Version: 1.0.1
     RequiredApiVersion: 6.12.0
     ReleaseDate: 2025-10-14
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.1/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_1.pext
     Changelog:
       - Fix monthly tracking and settings view
+
