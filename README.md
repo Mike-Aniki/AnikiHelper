@@ -11,7 +11,7 @@ Originally created for [Aniki Themes](https://github.com/Mike-Aniki), this plugi
 **Global library statistics**
 - Total and average playtime  
 - Installed / Uninstalled / Hidden / Favorite games  
-- Completion progress (New / Completed / Platinum / Playing)  
+- Completion progress (New / Completed  / Playing)  
 - Source breakdown (Steam, Epic, Xbox Game Pass, etc.)
 
 **Top played games**
