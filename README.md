@@ -4,8 +4,6 @@
 
 Originally created for [Aniki Themes](https://github.com/Mike-Aniki), this plugin can also be integrated by **any theme creator** who wants to display player statistics, in their Fullscreen Themes.
 
----
-
 ## Features
 
 **Global library statistics**
@@ -25,12 +23,6 @@ Originally created for [Aniki Themes](https://github.com/Mike-Aniki), this plugi
 
 **Recently played / added / never played**
 - Lists of recently active, newly added, and untouched games
-
-**Storage overview (via MoData)**
-- Disk usage and available space for all drives  
-- Color-coded bars with used percentage indicators  
-
----
 
 ## How it works
 
@@ -69,7 +61,6 @@ Example panel:
   </ItemsControl>
 </GroupBox>
 ```
-
 ## Exposed Bindings
 
 | Property                                       | Description                        |
@@ -86,4 +77,11 @@ Example panel:
 | `ThisMonthTopGamePlaytime`                     | Time spent on that game this month |
 
 
+## Recommended Plugins
 
+To take full advantage of the plugin’s display capabilities:
+
+- [ThemeOptions](https://github.com/ashpynov/ThemeOptions)
+- [MoData](https://github.com/jonosellier/MoData)
+- [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin)
+- [SuccessStory Fullscreen Helper](https://github.com/saVantCZ/SuccessStoryFullscreenHelper)
