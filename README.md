@@ -79,8 +79,6 @@ Example panel:
 
 ## Recommended Plugins
 
-To take full advantage of the plugin’s display capabilities:
-
 - [ThemeOptions](https://github.com/ashpynov/ThemeOptions)
 - [MoData](https://github.com/jonosellier/MoData)
 - [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin)
