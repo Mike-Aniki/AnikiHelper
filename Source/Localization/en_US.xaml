@@ -2,4 +2,21 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
+<sys:String x:Key="AppTitle">Aniki Helper — Settings</sys:String>
+  <sys:String x:Key="GroupLibraryStats">Library stats</sys:String>
+  <sys:String x:Key="StatsHelp">These settings control what’s counted in the numbers shown by the theme.</sys:String>
+  <sys:String x:Key="IncludeHidden">Include hidden games in stats</sys:String>
+  <sys:String x:Key="AutoUpdate">Values update automatically when your library changes.</sys:String>
+  <sys:String x:Key="PreviewTotal">Preview — Total:</sys:String>
+  <sys:String x:Key="Installed">Installed:</sys:String>
+  <sys:String x:Key="NotInstalled">Not installed:</sys:String>
+
+  <sys:String x:Key="GroupMonthly">Monthly tracking</sys:String>
+  <sys:String x:Key="MonthlyHelp">At the beginning of each month, a baseline of your playtime is saved to compute “Monthly play time”, “Games played this month”, and “Most played game this month”.</sys:String>
+  <sys:String x:Key="CurrentMonthData">Current month data:</sys:String>
+  <sys:String x:Key="SnapshotTooltip">This shows when the current month’s baseline was created.</sys:String>
+  <sys:String x:Key="ResetBtn">Start fresh for this month</sys:String>
+    <sys:String x:Key="ResetBtnTooltip">Rebuild the monthly baseline now. Use this if numbers look wrong or you just want to restart the month’s tracking.</sys:String>
+    
+
 </ResourceDictionary>
