@@ -507,10 +507,26 @@ namespace AnikiHelper
             }
 
             s.NeverPlayed.Clear();
-            foreach (var g in games.Where(x => (x.Playtime / 60UL) == 0UL).OrderByDescending(x => x.Added).Take(5))
+
+            var neverPlayed = games
+                .Where(g => g.Playtime == 0UL && g.PlayCount == 0UL && g.LastActivity == null)
+                .OrderBy(g => g.Added.HasValue ? g.Added.Value : DateTime.MinValue) // force tri du plus ancien
+                .ThenBy(g => g.Name)
+                .Take(5);
+
+            foreach (var g in neverPlayed)
             {
-                s.NeverPlayed.Add(new QuickItem { Name = SafeName(g.Name), Value = "" });
+                var addedStr = g.Added.HasValue
+                    ? g.Added.Value.ToLocalTime().ToString("dd/MM/yyyy")
+                    : "";
+                s.NeverPlayed.Add(new QuickItem { Name = Safe(g.Name), Value = addedStr });
             }
+
+
+
+
+
+
 
             // === GAME PROVIDERS
             var provDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
