@@ -12,4 +12,14 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.1/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_1.pext
     Changelog:
       - Fix monthly tracking and settings view
+  - Version: 1.0.2
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-10-16
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.2/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_2.pext
+    Changelog:
+      - Fixed an issue where monthly stats didn’t work correctly in the portable version of Playnite.
+      - Monthly stats now update automatically after closing a game (no need to restart Playnite).
+      - Improved detection of manual playtime edits in game details.
+      - Better performance and reliability when updating monthly stats.
+      - Various internal improvements and code cleanup.
 
