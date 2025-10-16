@@ -1,0 +1,60 @@
+﻿<UserControl x:Class="AnikiHelper.AnikiHelperSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="420" d:DesignWidth="640">
+
+    <StackPanel Margin="12">
+        <TextBlock Text="{DynamicResource AppTitle}" FontWeight="Bold" FontSize="16" Margin="0,0,0,10"/>
+
+        <!-- LIBRARY STATS -->
+        <GroupBox Header="{DynamicResource GroupLibraryStats}" Margin="0,6,0,0">
+            <StackPanel Margin="10">
+                <TextBlock Foreground="Gray"
+                           Text="{DynamicResource StatsHelp}"
+                           Margin="0,0,0,8"/>
+
+                <CheckBox Content="{DynamicResource IncludeHidden}"
+                          IsChecked="{Binding Settings.IncludeHidden}"
+                          Margin="0,0,0,6"/>
+
+                <TextBlock Foreground="Gray"
+                           Text="{DynamicResource AutoUpdate}"
+                           Margin="0,6,0,8"/>
+
+                <WrapPanel Margin="0,4,0,0">
+                    <TextBlock Text="{DynamicResource PreviewTotal}"/>
+                    <TextBlock Text="{Binding Settings.TotalCount}" FontWeight="Bold" Margin="6,0,0,0"/>
+                    <TextBlock Margin="12,0,0,0" Text="{DynamicResource Installed}"/>
+                    <TextBlock Text="{Binding Settings.InstalledCount}" FontWeight="Bold" Margin="6,0,0,0"/>
+                    <TextBlock Margin="12,0,0,0" Text="{DynamicResource NotInstalled}"/>
+                    <TextBlock Text="{Binding Settings.NotInstalledCount}" FontWeight="Bold" Margin="6,0,0,0"/>
+                </WrapPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- MONTHLY TRACKING -->
+        <GroupBox Header="{DynamicResource GroupMonthly}" Margin="0,12,0,0">
+            <StackPanel Margin="10">
+                <TextBlock Foreground="Gray"
+               Text="{DynamicResource MonthlyHelp}"
+               TextWrapping="Wrap" />
+                <TextBlock Text="{DynamicResource CurrentMonthData}"
+               FontWeight="SemiBold"
+               Margin="0,8,0,0"/>
+                <TextBlock Text="{Binding Settings.SnapshotDateString}"
+               Margin="0,2,0,8"
+               ToolTip="{DynamicResource SnapshotTooltip}" />
+
+                <Button Content="{DynamicResource ResetBtn}"
+            HorizontalAlignment="Left"
+            Padding="12,6"
+            Click="ResetSnapshot_Click"
+            ToolTip="{DynamicResource ResetBtnTooltip}"/>
+            </StackPanel>
+        </GroupBox>
+
+    </StackPanel>
+</UserControl>
