@@ -24,29 +24,25 @@ Originally created for [Aniki Themes](https://github.com/Mike-Aniki), this plugi
 **Recently played / added / never played**
 - Lists of recently active, newly added, and untouched games
 
-## How it works
+## Integration for Theme Creators
 
-Aniki Helper reads your Playnite database and exposes **bindable properties** you can use in XAML via the `PluginSettings` markup extension:
+*How it works*
+
+**Aniki Helper** reads your Playnite database and exposes a set of **bindable properties** accessible from your Fullscreen theme through the `PluginSettings` markup extension.
+
+There are **two types of bindings** you can use:
+
+- **Direct bindings** → simple values (numbers, strings, paths) that can be displayed in a `TextBlock` or `Image`.
+- **Collection bindings** → lists of structured items that must be used inside an `ItemsControl` or `ListBox`.
+
+Example of direct bindings:
 
 ```
 <TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=TotalPlaytimeString}" />
 <TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=ThisMonthTopGameName}" />
 <TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=FavoriteCount}" />
 ```
-It can be combined with other plugins (like MoData, ThemeOptions, or SuccessStoryFullscreenHelper) to display complete dashboards inside your Fullscreen theme.
-
-## Integration for Theme Creators
-
-To integrate Aniki Helper into your Fullscreen theme:
-Bind the exposed properties using PluginSettings (see examples above).
-You can use it to build :
-
-- Statistics panels
-- Player dashboards
-- Library insights
-- Monthly summaries
-
-Example panel:
+Example of collection binding:
 ```
 <GroupBox Header="Top Played Games">
   <ItemsControl ItemsSource="{PluginSettings Plugin=AnikiHelper, Path=TopPlayed}">
@@ -61,21 +57,48 @@ Example panel:
   </ItemsControl>
 </GroupBox>
 ```
+
+It can be combined with other plugins like MoData, ThemeOptions, or SuccessStoryFullscreenHelper to display complete dashboards and statistics panels inside your Fullscreen theme.
+
 ## Exposed Bindings
 
-| Property                                       | Description                        |
-| ---------------------------------------------- | ---------------------------------- |
-| `TotalCount`                                   | Total number of games              |
-| `InstalledCount`, `NotInstalledCount`          | Installed / Uninstalled games      |
-| `TotalPlaytimeString`, `AveragePlaytimeString` | Global and average playtime        |
-| `TopPlayed`                                    | List of most played games          |
-| `CompletionStates`                             | Dictionary of completion stats     |
-| `GameProviders`                                | Breakdown by source/platform       |
-| `ThisMonthPlayedTotalString`                   | Total playtime this month          |
-| `ThisMonthPlayedCount`                         | Number of games played this month  |
-| `ThisMonthTopGameName`                         | Most played game name this month   |
-| `ThisMonthTopGamePlaytime`                     | Time spent on that game this month |
+Below is the list of all **bindable properties** exposed by Aniki Helper, divided into two categories:
 
+### Direct Value Bindings
+These properties can be used directly in elements like `<TextBlock>` or `<Image>`.
+
+| Property | Description |
+| ---------------------------------------------- | ---------------------------------- |
+| `TotalCount` | Total number of games |
+| `InstalledCount`, `NotInstalledCount` | Installed / Uninstalled games |
+| `HiddenCount`, `FavoriteCount` | Hidden and favorite games |
+| `TotalPlaytimeString`, `AveragePlaytimeString` | Global and average playtime (formatted) |
+| `ThisMonthPlayedTotalString` | Total playtime this month |
+| `ThisMonthPlayedCount` | Number of games played this month |
+| `ThisMonthTopGameName` | Most played game name this month |
+| `ThisMonthTopGamePlaytime` | Time spent on that game this month |
+| `ThisMonthTopGameCoverPath` | Cover image path of the most played game |
+| `AddonUpdatesCount` | Number of available addon updates |
+| `HasAddonUpdates` | True/False if addon updates are available |
+
+---
+
+### Collection Bindings (use with `ItemsControl`)
+These properties are **lists** and must be displayed using an `<ItemsControl>` with an `ItemTemplate`.
+
+| Property | Structure | Description |
+| ---------------------------------------------- | --------------------------- | ---------------------------------- |
+| `TopPlayed` | `{Name, PlaytimeString, PercentageString}` | List of most played games |
+| `CompletionStates` | `{Name, Value, PercentageString}` | Completion status breakdown |
+| `GameProviders` | `{Name, Value, PercentageString}` | Breakdown by source/platform |
+| `RecentPlayed` | `{Name, Value}` | Recently played games (Value = last activity date) |
+| `RecentAdded` | `{Name, Value}` | Recently added games (Value = added date) |
+| `NeverPlayed` | `{Name, Value}` | Games never played |
+| `RecentAchievements` | `{Game, Title, Desc, UnlockedString, IconPath}` | 3 most recent unlocked achievements |
+| `RareTop` | `{Game, Title, PercentString, IconPath}` | 3 rarest unlocked achievements this year |
+| `AddonUpdates` | `{Name, Current, New}` | List of detected addon updates |
+
+---
 
 ## Recommended Plugins
 
@@ -83,3 +106,8 @@ Example panel:
 - [MoData](https://github.com/jonosellier/MoData)
 - [SuccessStory](https://github.com/Lacro59/playnite-successstory-plugin)
 - [SuccessStory Fullscreen Helper](https://github.com/saVantCZ/SuccessStoryFullscreenHelper)
+
+---
+
+> **Note:** These bindings work only in **Fullscreen themes**.  
+> Ensure the **Aniki Helper** plugin is installed and enabled for data to appear correctly.
