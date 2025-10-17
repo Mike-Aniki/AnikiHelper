@@ -69,19 +69,19 @@ These properties can be used directly in elements like `<TextBlock>` or `<Image>
 
 | Property | Description |
 | ---------------------------------------------- | ---------------------------------- |
-| `TotalCount` | Total number of games |
-| `InstalledCount`, `NotInstalledCount` | Installed / Uninstalled games |
-| `HiddenCount`, `FavoriteCount` | Hidden and favorite games |
-| `TotalPlaytimeString`, `AveragePlaytimeString` | Global and average playtime (formatted) |
-| `ThisMonthPlayedTotalString` | Total playtime this month |
-| `ThisMonthPlayedCount` | Number of games played this month |
-| `ThisMonthTopGameName` | Most played game name this month |
-| `ThisMonthTopGamePlaytime` | Time spent on that game this month |
-| `ThisMonthTopGameCoverPath` | Cover image path of the most played game |
-| `SessionGameName` | Name of the game whose session just ended |
-| `SessionDurationString` | Duration of the last session |
-| `SessionTotalPlaytimeString` | Total accumulated playtime on that game after the session |
-| `SessionNewAchievementsCount` | Number of achievements earned during the last session |
+| TotalCount | Total number of games |
+| InstalledCount / NotInstalledCount | Installed / Uninstalled games |
+| HiddenCount / FavoriteCount | Hidden and favorite games |
+| TotalPlaytimeString / AveragePlaytimeString | Global and average playtime (formatted) |
+| ThisMonthPlayedTotalString | Total playtime this month |
+| ThisMonthPlayedCount | Number of games played this month |
+| ThisMonthTopGameName | Most played game name this month |
+| ThisMonthTopGamePlaytime | Time spent on that game this month |
+| ThisMonthTopGameCoverPath | Cover image path of the most played game |
+| SessionGameName | Name of the game whose session just ended |
+| SessionDurationString | Duration of the last session |
+| SessionTotalPlaytimeString | Total accumulated playtime on that game after the session |
+| SessionNewAchievementsCount | Number of achievements earned during the last session |
 
 ---
 
@@ -90,14 +90,14 @@ These properties are **lists** and must be displayed using an `<ItemsControl>` w
 
 | Property | Structure | Description |
 | ---------------------------------------------- | --------------------------- | ---------------------------------- |
-| `TopPlayed` | `{Name, PlaytimeString, PercentageString}` | List of most played games |
-| `CompletionStates` | `{Name, Value, PercentageString}` | Completion status breakdown |
-| `GameProviders` | `{Name, Value, PercentageString}` | Breakdown by source/platform |
-| `RecentPlayed` | `{Name, Value}` | Recently played games (Value = last activity date) |
-| `RecentAdded` | `{Name, Value}` | Recently added games (Value = added date) |
-| `NeverPlayed` | `{Name, Value}` | Games never played |
-| `RecentAchievements` | `{Game, Title, Desc, UnlockedString, IconPath}` | 3 most recent unlocked achievements |
-| `RareTop` | `{Game, Title, PercentString, IconPath}` | 3 rarest unlocked achievements this year |
+| TopPlayed | {Name, PlaytimeString, PercentageString} | List of most played games |
+| CompletionStates | {Name, Value, PercentageString} | Completion status breakdown |
+| GameProviders | {Name, Value, PercentageString} | Breakdown by source/platform |
+| RecentPlayed | {Name, Value} | Recently played games (Value = last activity date) |
+| RecentAdded | {Name, Value} | Recently added games (Value = added date) |
+| NeverPlayed | {Name, Value} | Games never played |
+| RecentAchievements | {Game, Title, Desc, UnlockedString, IconPath} | 3 most recent unlocked achievements |
+| RareTop | {Game, Title, PercentString, IconPath} | 3 rarest unlocked achievements this year |
 
 ---
 
@@ -106,8 +106,8 @@ These properties are useful for animating or conditionally displaying elements i
 
 | Property | Description |
 | ---------------------------------------------- | ---------------------------------- |
-| `SessionHasNewAchievements` | Boolean indicating whether new achievements were unlocked. Use this to show or hide the achievement line. |
-| `SessionNotificationFlip` | Boolean that toggles every time a game session ends. Use two DataTriggers (True/False) to start or replay your Storyboard animation. |
+| SessionHasNewAchievements | Boolean indicating whether new achievements were unlocked. Use this to show or hide the achievement line. |
+| SessionNotificationFlip | Boolean that toggles every time a game session ends. Use two DataTriggers (True/False) to start or replay your Storyboard animation. |
 
 
 ## Recommended Plugins
