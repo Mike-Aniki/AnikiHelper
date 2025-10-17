@@ -78,8 +78,10 @@ These properties can be used directly in elements like `<TextBlock>` or `<Image>
 | `ThisMonthTopGameName` | Most played game name this month |
 | `ThisMonthTopGamePlaytime` | Time spent on that game this month |
 | `ThisMonthTopGameCoverPath` | Cover image path of the most played game |
-| `AddonUpdatesCount` | Number of available addon updates |
-| `HasAddonUpdates` | True/False if addon updates are available |
+| `SessionGameName` | Name of the game whose session just ended |
+| `SessionDurationString` | Duration of the last session |
+| `SessionTotalPlaytimeString` | Total accumulated playtime on that game after the session |
+| `SessionNewAchievementsCount` | Number of achievements earned during the last session |
 
 ---
 
@@ -96,9 +98,17 @@ These properties are **lists** and must be displayed using an `<ItemsControl>` w
 | `NeverPlayed` | `{Name, Value}` | Games never played |
 | `RecentAchievements` | `{Game, Title, Desc, UnlockedString, IconPath}` | 3 most recent unlocked achievements |
 | `RareTop` | `{Game, Title, PercentString, IconPath}` | 3 rarest unlocked achievements this year |
-| `AddonUpdates` | `{Name, Current, New}` | List of detected addon updates |
 
 ---
+
+### UI triggers (advanced)
+These properties are useful for animating or conditionally displaying elements in your theme.
+
+| Property | Description |
+| ---------------------------------------------- | ---------------------------------- |
+| `SessionHasNewAchievements` | Boolean indicating whether new achievements were unlocked. Use this to show or hide the achievement line. |
+| `SessionNotificationFlip` | Boolean that toggles every time a game session ends. Use two DataTriggers (True/False) to start or replay your Storyboard animation. |
+
 
 ## Recommended Plugins
 
