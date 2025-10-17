@@ -101,7 +101,7 @@ These properties are **lists** and must be displayed using an `<ItemsControl>` w
 
 ---
 
-### UI triggers (advanced)
+### UI triggers 
 These properties are useful for animating or conditionally displaying elements in your theme.
 
 | Property | Description |
