@@ -1,6 +1,4 @@
-﻿using AnikiHelper.Models;
-using System.Collections.ObjectModel;
-using Playnite.SDK;
+﻿using Playnite.SDK;
 using Playnite.SDK.Data;
 using Playnite.SDK.Events;
 using Playnite.SDK.Plugins;
@@ -9,46 +7,12 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Threading.Tasks;
-using System.Windows.Controls;
 
 namespace AnikiHelper
 {
     public class AnikiHelper : GenericPlugin
     {
         private static readonly ILogger logger = LogManager.GetLogger();
-
-        // ===================== Helpers dynamiques (pour JSON sans Newtonsoft) =====================
-        private static IEnumerable<dynamic> AsDynEnumerable(object maybe)
-        {
-            if (maybe == null) yield break;
-            if (maybe is string) yield break;
-            if (maybe is System.Collections.IEnumerable en)
-            {
-                foreach (var x in en) yield return x;
-            }
-        }
-        private static string DynStr(object v) => v?.ToString();
-        private static DateTime? DynDate(object v)
-        {
-            if (v == null) return null;
-            if (DateTime.TryParse(v.ToString(), out var dt)) return dt;
-            if (long.TryParse(v.ToString(), out var unix)) return DateTimeOffset.FromUnixTimeSeconds(unix).LocalDateTime;
-            return null;
-        }
-        private static object DynProp(dynamic obj, string name)
-        {
-            try
-            {
-                var t = (object)obj;
-                var pi = t?.GetType().GetProperty(name);
-                return pi?.GetValue(t, null);
-            }
-            catch { return null; }
-        }
-        // ==========================================================================================
 
         // === Diagnostics et chemins ===
         private string GetDataRoot() => Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
@@ -62,6 +26,154 @@ namespace AnikiHelper
 
         // GUID du plugin
         public override Guid Id { get; } = Guid.Parse("96a983a3-3f13-4dce-a474-4052b718bb52");
+
+        // === Session tracking (start/stop) ===
+        private readonly Dictionary<Guid, DateTime> sessionStartAt = new Dictionary<Guid, DateTime>();
+        private readonly Dictionary<Guid, ulong> sessionStartPlaytimeMinutes = new Dictionary<Guid, ulong>(); // Playnite = secondes -> minutes stockées ici
+        private readonly Dictionary<Guid, HashSet<string>> sessionStartUnlocked = new Dictionary<Guid, HashSet<string>>();
+
+
+        // Format minutes -> "3h27"
+        private static string FormatHhMmFromMinutes(int minutes)
+        {
+            if (minutes < 0) minutes = 0;
+            var h = minutes / 60;
+            var m = minutes % 60;
+            return $"{h}h{m:00}";
+        }
+
+        // ====== SuccessStory helpers ======
+
+        // Essaie de trouver le dossier "SuccessStory" dans ExtensionsData
+        private string FindSuccessStoryRoot()
+        {
+            try
+            {
+                var root = PlayniteApi?.Paths?.ExtensionsDataPath;
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return null;
+
+                // cas "classique"
+                var classic = Path.Combine(root, "cebe6d32-8c46-4459-b993-5a5189d60788", "SuccessStory");
+                if (Directory.Exists(classic)) return classic;
+
+                // fallback: chercher récursivement un dossier se terminant par "SuccessStory"
+                foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
+                {
+                    if (dir.EndsWith("SuccessStory", StringComparison.OrdinalIgnoreCase))
+                        return dir;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        // Charge l'ensemble des succès "débloqués" pour un jeu (clés stables)
+        private HashSet<string> GetUnlockedAchievementKeysForGame(Playnite.SDK.Models.Game game)
+        {
+            var set = new HashSet<string>();
+            try
+            {
+                var ssRoot = FindSuccessStoryRoot();
+                if (string.IsNullOrEmpty(ssRoot) || game == null) return set;
+
+                var files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray();
+                if (files.Length == 0) return set;
+
+                foreach (var file in files)
+                {
+                    string text;
+                    try { text = File.ReadAllText(file); }
+                    catch { continue; }
+
+                    // Lecture “souple” via Playnite Serialization -> dynamic
+                    dynamic rootObj;
+                    try { rootObj = Serialization.FromJson<dynamic>(text); }
+                    catch { continue; }
+
+                    // Essayer de récupérer le nom du jeu dans le JSON sans types forts
+                    string fileGameName = null;
+                    try
+                    {
+                        // rootObj.Name ou rootObj.Game.Name (si présent)
+                        fileGameName = (string)(rootObj?.Name ?? rootObj?.Game?.Name);
+                    }
+                    catch { /* ignore */ }
+
+                    bool maybeSameGame;
+                    if (!string.IsNullOrWhiteSpace(fileGameName))
+                    {
+                        maybeSameGame = string.Equals(fileGameName, game.Name, StringComparison.OrdinalIgnoreCase);
+                    }
+                    else
+                    {
+                        // fallback large : chercher le nom du jeu dans le texte
+                        var gname = game.Name ?? "";
+                        maybeSameGame = !string.IsNullOrWhiteSpace(gname) &&
+                                        text.IndexOf(gname, StringComparison.OrdinalIgnoreCase) >= 0;
+                    }
+
+                    if (!maybeSameGame)
+                        continue;
+
+                    // Récupérer la collection d’items (Items ou Achievements)
+                    IEnumerable<object> items = null;
+                    try
+                    {
+                        items = (IEnumerable<object>)(rootObj?.Items);
+                        if (items == null)
+                            items = (IEnumerable<object>)(rootObj?.Achievements);
+                    }
+                    catch { items = null; }
+
+                    if (items == null)
+                        continue;
+
+                    foreach (var it in items)
+                    {
+                        bool unlocked = false;
+                        try
+                        {
+                            // accéder aux champs dynamiques prudemment
+                            var d = (dynamic)it;
+                            string dateUnlocked = null;
+                            try { dateUnlocked = (string)d.DateUnlocked; } catch { }
+                            long? unlockTime = null;
+                            try { unlockTime = (long?)d.UnlockTime; } catch { }
+                            string isUnlock = null, earned = null, unlockedStr = null;
+                            try { isUnlock = (string)d.IsUnlock; } catch { }
+                            try { earned = (string)d.Earned; } catch { }
+                            try { unlockedStr = (string)d.Unlocked; } catch { }
+
+                            if (!string.IsNullOrWhiteSpace(dateUnlocked) && !dateUnlocked.StartsWith("0001-01-01")) unlocked = true;
+                            if (unlockTime != null) unlocked = true;
+                            if (string.Equals(isUnlock, "true", StringComparison.OrdinalIgnoreCase)) unlocked = true;
+                            if (string.Equals(earned, "true", StringComparison.OrdinalIgnoreCase)) unlocked = true;
+                            if (string.Equals(unlockedStr, "true", StringComparison.OrdinalIgnoreCase)) unlocked = true;
+                        }
+                        catch { }
+
+                        if (!unlocked) continue;
+
+                        string id = null, name = null, title = null;
+                        try { id = (string)((dynamic)it).Id; } catch { }
+                        try { name = (string)((dynamic)it).Name; } catch { }
+                        try { title = (string)((dynamic)it).Title; } catch { }
+
+                        var key = !string.IsNullOrWhiteSpace(id) ? id
+                                : !string.IsNullOrWhiteSpace(name) ? name
+                                : !string.IsNullOrWhiteSpace(title) ? title
+                                : null;
+
+                        if (!string.IsNullOrWhiteSpace(key))
+                            set.Add(key);
+                    }
+                }
+            }
+            catch { }
+            return set;
+        }
+
+
 
         // === Snapshot mensuel (dans le dossier de CETTE extension) ===
         private string GetMonthlyDir()
@@ -180,87 +292,8 @@ namespace AnikiHelper
             }
         }
 
-        private void LogMonthlyDir()
-        {
-            try { logger.Info($"[AnikiHelper] monthly dir = {GetMonthlyDir()}"); }
-            catch { /* ignore */ }
-        }
-
-        // --- Optionnel : lecture GameActivity (si tu t'en sers plus tard) ---
-        private ulong GetMonthMinutesFromGameActivity(Guid gameId, DateTime monthStart, DateTime monthEnd)
-        {
-            try
-            {
-                var extData = PlayniteApi.Paths.ExtensionsDataPath;
-                if (!Directory.Exists(extData)) return 0UL;
-
-                foreach (var dir in Directory.GetDirectories(extData))
-                {
-                    var gaDir = Path.Combine(dir, "GameActivity");
-                    if (!Directory.Exists(gaDir)) continue;
-
-                    var jsonPath = Path.Combine(gaDir, $"{gameId}.json");
-                    if (!File.Exists(jsonPath)) continue;
-
-                    dynamic root;
-                    try { root = Serialization.FromJson<dynamic>(File.ReadAllText(jsonPath)); }
-                    catch { continue; }
-
-                    var sessions = AsDynEnumerable(DynProp(root, "Sessions"))
-                                   ?? AsDynEnumerable(DynProp(root, "Activities"))
-                                   ?? AsDynEnumerable(root);
-
-                    ulong total = 0UL;
-
-                    foreach (var tok in sessions)
-                    {
-                        var dateStr = DynStr(DynProp(tok, "DateSession")) ??
-                                      DynStr(DynProp(tok, "Date")) ??
-                                      DynStr(DynProp(tok, "Started")) ??
-                                      DynStr(DynProp(tok, "Start"));
-
-                        // secondes
-                        double secs = 0.0;
-                        var el = DynProp(tok, "ElapsedSeconds");
-                        var du = DynProp(tok, "Duration");
-                        var ms = DynProp(tok, "DurationMs");
-
-                        double v1 = 0.0, v2 = 0.0, v3 = 0.0;
-
-
-                        if (el != null && double.TryParse(el.ToString(), out v1)) secs = v1;
-                        else if (du != null && double.TryParse(du.ToString(), out v2)) secs = v2;
-                        else if (ms != null && double.TryParse(ms.ToString(), out v3)) secs = v3 / 1000.0;
-
-                        if (string.IsNullOrWhiteSpace(dateStr) || secs <= 0) continue;
-
-                        DateTime startUtcish;
-                        if (!DateTime.TryParse(dateStr, out startUtcish)) continue;
-
-                        DateTime start = startUtcish.ToLocalTime();
-                        DateTime end = start.AddSeconds(secs).ToLocalTime();
-
-                        if (end <= monthStart || start >= monthEnd) continue;
-
-                        DateTime clipStart = start < monthStart ? monthStart : start;
-                        DateTime clipEnd = end > monthEnd ? monthEnd : end;
-
-                        int mins = (int)(clipEnd - clipStart).TotalMinutes;
-                        if (mins > 0) total += (ulong)mins;
-                    }
-
-                    return total; // premier fichier trouvé suffit
-                }
-            }
-            catch { }
-
-            return 0UL;
-        }
-
-
         public AnikiHelper(IPlayniteAPI api) : base(api)
         {
-            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
 
             SettingsVM = new AnikiHelperSettingsViewModel(this);
             Properties = new GenericPluginProperties { HasSettings = true };
@@ -299,7 +332,7 @@ namespace AnikiHelper
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
             base.OnApplicationStarted(args);
-         
+
             EnsureMonthlySnapshotSafe();
             RecalcStatsSafe();
 
@@ -314,17 +347,100 @@ namespace AnikiHelper
                 coll.CollectionChanged += (_, __) => RecalcStatsSafe();
             }
 
-            // PlayniteApi.Database.Games.ItemUpdated += (_, __) => RecalcStatsSafe();
+            // --- Reset "safe" de la notification au démarrage ---
+            try
+            {
+                Settings.SessionGameName = string.Empty;
+                Settings.SessionDurationString = string.Empty;
+                Settings.SessionTotalPlaytimeString = string.Empty;
+                Settings.SessionNewAchievementsString = string.Empty;
+                Settings.SessionHasNewAchievements = false;
+                Settings.SessionNewAchievementsCount = 0;
+                Settings.SessionNotificationStamp = string.Empty;
+                Settings.SessionNotificationArmed = false;
+            }
+            catch { }
+        }
+
+
+        public override void OnGameStarted(OnGameStartedEventArgs args)
+        {
+            base.OnGameStarted(args);
+
+            var g = args?.Game;
+            if (g == null) return;
+
+            sessionStartAt[g.Id] = DateTime.Now;
+            sessionStartPlaytimeMinutes[g.Id] = (g.Playtime / 60UL);
+
+            sessionStartUnlocked[g.Id] = GetUnlockedAchievementKeysForGame(g);
         }
 
         public override void OnGameStopped(OnGameStoppedEventArgs args)
         {
             base.OnGameStopped(args);
+
+            var g = args?.Game;
+            if (g != null)
+            {
+                // --- 1) Durée de session ---
+                var start = sessionStartAt.ContainsKey(g.Id) ? sessionStartAt[g.Id] : DateTime.Now;
+                var elapsed = DateTime.Now - start;
+                var sessionMinutes = (int)Math.Max(0, Math.Round(elapsed.TotalMinutes));
+
+                // --- 2) Total playtime ---
+                var totalMinutes = (int)(g.Playtime / 60UL);
+                if (totalMinutes <= 0 && sessionStartPlaytimeMinutes.ContainsKey(g.Id))
+                {
+                    totalMinutes = (int)sessionStartPlaytimeMinutes[g.Id] + sessionMinutes;
+                }
+
+                // --- 3) Nouveaux succès ---
+                var before = sessionStartUnlocked.ContainsKey(g.Id) ? sessionStartUnlocked[g.Id] : new HashSet<string>();
+                var after = GetUnlockedAchievementKeysForGame(g);
+                var newCount = after.Except(before).Count();
+
+                // --- 4) Push vers Settings (pour le thème) ---
+                // ⚠️ TOUT ce qui est bindé par le XAML doit être mis à jour sur le thread UI
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    var s = Settings;
+
+                    s.SessionGameName = string.IsNullOrWhiteSpace(g.Name) ? "(Unnamed Game)" : g.Name;
+                    s.SessionDurationString = FormatHhMmFromMinutes(sessionMinutes);
+                    s.SessionTotalPlaytimeString = FormatHhMmFromMinutes(Math.Max(0, totalMinutes));
+
+                    // Si tu veux masquer la ligne trophées quand 0, mets chaîne vide + le bool pour ton DataTrigger
+                    s.SessionNewAchievementsString = newCount > 0
+                        ? $"+{newCount} trophée{(newCount > 1 ? "s" : "")}"
+                        : string.Empty;               // <- vide quand 0
+
+                    s.SessionNewAchievementsCount = newCount;
+                    s.SessionHasNewAchievements = newCount > 0;
+
+
+
+                    // Déclencheur : changer une valeur arbitraire + flip PUIS armer
+                    s.SessionNotificationStamp = Guid.NewGuid().ToString();
+                    s.SessionNotificationFlip = !s.SessionNotificationFlip;   // 1) change l’état cible
+                    s.SessionNotificationArmed = true;                         // 2) armé après → une seule branche s’active
+
+
+                });
+
+                // --- 5) Nettoyage cache ---
+                sessionStartAt.Remove(g.Id);
+                sessionStartPlaytimeMinutes.Remove(g.Id);
+                sessionStartUnlocked.Remove(g.Id);
+            }
+
             EnsureMonthlySnapshotSafe();
             RecalcStatsSafe();
         }
 
-        // plus de rescanTimer → pas besoin d’override ici
+
+
+
 
         #endregion
 
@@ -555,285 +671,14 @@ namespace AnikiHelper
 
         public override IEnumerable<MainMenuItem> GetMainMenuItems(GetMainMenuItemsArgs args)
         {
-            // Scan manuel des updates d’extensions
-            yield return new MainMenuItem
-            {
-                MenuSection = "@",
-                Description = "Scanner les mises à jour d’extensions",
-                Action = _ =>
-                {
-                    Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await ScanAndPublishAsync().ConfigureAwait(false);
-                            PlayniteApi.Dialogs.ShowMessage("Scan des mises à jour d’extensions terminé.", "AnikiHelper");
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.Error(ex, "[AnikiHelper] Manual scan failed");
-                            PlayniteApi.Dialogs.ShowErrorMessage($"Échec du scan des mises à jour : {ex.Message}", "AnikiHelper");
-                        }
-                    });
-                }
-            };
+            yield break; // aucun menu
         }
 
 
         #endregion
 
-        #region Add-ons: scan + notifications
+      
 
-        private async Task ScanAndPublishAsync()
-        {
-            var updates = await TryGetAddonUpdatesAsync().ConfigureAwait(false);
-            UpdateThemeBindings(updates);
-            if (!Settings.NotificationsEnabled) return;
-            PublishNotifications(updates);
-        }
-
-        private void UpdateThemeBindings(List<AddonUpdateItem> updates)
-        {
-            var s = Settings;
-            s.AddonUpdates.Clear();
-
-            foreach (var u in updates)
-            {
-                s.AddonUpdates.Add(new
-                {
-                    Id = u.AddonId,
-                    Name = u.Name,
-                    Current = u.CurrentVersion?.ToString(),
-                    New = u.NewVersion?.ToString(),
-                    Display = u.ToString()
-                });
-            }
-
-            s.AddonUpdatesCount = updates.Count;
-            s.HasAddonUpdates = updates.Count > 0;
-        }
-
-        private void PublishNotifications(List<AddonUpdateItem> updates)
-        {
-            if (updates.Count == 0) return;
-
-            if (Settings.NotifyIndividually)
-            {
-                foreach (var u in updates)
-                {
-                    PlayniteApi.Notifications.Add(new NotificationMessage(
-                        $"AnikiHelper-AddonUpdate-{u.AddonId}",
-                        $"Mise à jour disponible : {u.Name}\n{u.CurrentVersion} → {u.NewVersion}",
-                        NotificationType.Info,
-                        () => OpenAddonsManager()
-                    ));
-                }
-            }
-            else
-            {
-                var body = string.Join("\n", updates.Select(u => $"• {u.Name}  {u.CurrentVersion} → {u.NewVersion}"));
-                PlayniteApi.Notifications.Add(new NotificationMessage(
-                    "AnikiHelper-AddonUpdates",
-                    $"Mises à jour d’extensions disponibles ({updates.Count})\n{body}",
-                    NotificationType.Info,
-                    () => OpenAddonsManager()
-                ));
-            }
-        }
-
-        private void OpenAddonsManager()
-        {
-            try { PlayniteApi.Dialogs.ShowMessage("Paramètres → Add-ons pour mettre à jour.", "AnikiHelper"); }
-            catch { }
-        }
-
-        #endregion
-
-        #region Helpers (installed + online index)
-
-        private class InstalledAddonInfo { public string Name; public Version InstalledVersion; }
-        private class OnlineAddonInfo { public string Name; public Version LatestVersion; }
-
-        private Dictionary<string, InstalledAddonInfo> GetInstalledAddonsFromDisk()
-        {
-            var dict = new Dictionary<string, InstalledAddonInfo>(StringComparer.OrdinalIgnoreCase);
-
-            try
-            {
-                var roots = new List<string>();
-                var baseDir = Path.Combine(PlayniteApi.Paths.ConfigurationPath, "Extensions");
-                if (Directory.Exists(baseDir)) roots.Add(baseDir);
-
-                var devDir = Path.Combine(baseDir, "Dev");
-                if (Directory.Exists(devDir)) roots.Add(devDir);
-
-                foreach (var root in roots.Distinct())
-                {
-                    foreach (var dir in Directory.GetDirectories(root))
-                    {
-                        var manifest = Path.Combine(dir, "extension.yaml");
-                        if (!File.Exists(manifest)) manifest = Path.Combine(dir, "manifest.yaml");
-                        if (!File.Exists(manifest)) continue;
-
-                        string id, name; Version ver;
-                        if (TryReadIdVersionFromYaml(manifest, out id, out ver, out name))
-                        {
-                            if (!dict.ContainsKey(id))
-                            {
-                                dict[id] = new InstalledAddonInfo { Name = name, InstalledVersion = ver };
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Warn(ex, "[AnikiHelper] GetInstalledAddonsFromDisk failed");
-            }
-
-            return dict;
-        }
-
-        private bool TryReadIdVersionFromYaml(string path, out string id, out Version ver, out string name)
-        {
-            id = null; ver = null; name = null;
-            try
-            {
-                foreach (var line in File.ReadAllLines(path))
-                {
-                    var l = line.Trim();
-                    if (string.IsNullOrEmpty(l) || l.StartsWith("#")) continue;
-
-                    if (id == null && l.StartsWith("Id:", StringComparison.OrdinalIgnoreCase))
-                        id = l.Substring(3).Trim();
-                    else if (ver == null && l.StartsWith("Version:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var s = l.Substring(8).Trim();
-                        if (Version.TryParse(s, out var v)) ver = v;
-                    }
-                    else if (name == null && l.StartsWith("Name:", StringComparison.OrdinalIgnoreCase))
-                        name = l.Substring(5).Trim();
-
-                    if (id != null && ver != null && name != null) break;
-                }
-                return !string.IsNullOrEmpty(id);
-            }
-            catch (Exception ex)
-            {
-                logger.Warn(ex, $"[AnikiHelper] TryReadIdVersionFromYaml failed for {path}");
-                return false;
-            }
-        }
-
-        private async Task<Dictionary<string, OnlineAddonInfo>> FetchAddonsIndexAsync(string urlOverride)
-        {
-            var dict = new Dictionary<string, OnlineAddonInfo>(StringComparer.OrdinalIgnoreCase);
-            var url = string.IsNullOrWhiteSpace(urlOverride) ? "https://playnite.link/addons.json" : urlOverride;
-
-            try
-            {
-                using (var http = new HttpClient())
-                {
-                    http.Timeout = TimeSpan.FromSeconds(15);
-                    var json = await http.GetStringAsync(url).ConfigureAwait(false);
-                    if (string.IsNullOrWhiteSpace(json)) return dict;
-
-                    dynamic arr = Serialization.FromJson<dynamic>(json);
-                    if (arr == null) return dict;
-
-                    foreach (var a in arr)
-                    {
-                        try
-                        {
-                            string id = a?.AddonId;
-                            string nm = a?.Name;
-                            Version latest = null;
-
-                            var packages = a?.Packages;
-                            if (packages != null)
-                            {
-                                foreach (var p in packages)
-                                {
-                                    string vs = p?.Version;
-                                    if (Version.TryParse(vs, out var v))
-                                    {
-                                        if (latest == null || v > latest) latest = v;
-                                    }
-                                }
-                            }
-
-                            if (!string.IsNullOrEmpty(id) && latest != null)
-                            {
-                                dict[id] = new OnlineAddonInfo { Name = nm, LatestVersion = latest };
-                            }
-                        }
-                        catch { }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Warn(ex, $"[AnikiHelper] FetchAddonsIndexAsync failed for {url}");
-            }
-
-            return dict;
-        }
-
-        private Task<List<AddonUpdateItem>> TryGetAddonUpdatesAsync()
-        {
-            return Task.Run(async () =>
-            {
-                var result = new List<AddonUpdateItem>();
-
-                try
-                {
-                    var installed = GetInstalledAddonsFromDisk();
-                    logger.Info($"[AnikiHelper] Installed addons found: {installed.Count}");
-                    if (installed.Count == 0) return result;
-
-                    var latest = await FetchAddonsIndexAsync(null).ConfigureAwait(false);
-                    logger.Info($"[AnikiHelper] Online addons in index: {latest.Count}");
-                    if (latest.Count == 0) return result;
-
-                    foreach (var kv in installed)
-                    {
-                        var id = kv.Key;
-                        var inst = kv.Value.InstalledVersion;
-
-                        if (!latest.TryGetValue(id, out var info)) continue;
-
-                        var latestV = info.LatestVersion;
-                        if (latestV != null && inst != null && latestV > inst)
-                        {
-                            result.Add(new AddonUpdateItem
-                            {
-                                AddonId = id,
-                                Name = string.IsNullOrWhiteSpace(info.Name) ? (kv.Value.Name ?? id) : info.Name,
-                                CurrentVersion = inst,
-                                NewVersion = latestV
-                            });
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.Error(ex, "[AnikiHelper] TryGetAddonUpdatesAsync failed");
-                }
-
-                return result
-                    .GroupBy(u => string.IsNullOrEmpty(u.AddonId) ? u.Name : u.AddonId)
-                    .Select(g => g.OrderByDescending(x => x.NewVersion).First())
-                    .OrderBy(a => a.Name)
-                    .ToList();
-            });
-        }
-
-        // === Vues et paramètres (affiche la page Settings dans Playnite) ===
-        public override ISettings GetSettings(bool firstRunSettings) => SettingsVM;
-
-        public override UserControl GetSettingsView(bool firstRunSettings) =>
-            new AnikiHelperSettingsView { DataContext = SettingsVM };
-
-        #endregion
+        
     }
 }

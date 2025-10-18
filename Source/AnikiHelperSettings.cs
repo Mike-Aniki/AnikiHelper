@@ -1,16 +1,18 @@
-﻿// AnikiHelperSettings.cs
-using Playnite.SDK;
+﻿using Playnite.SDK;
 using Playnite.SDK.Data;
-using Playnite.SDK.Models;
+using Playnite.SDK.Events;
+using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
+using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
-using System.Security.Policy;
+using System.Collections.ObjectModel;
 using System.Timers;
-
+using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
+using System.Windows;
 
 namespace AnikiHelper
 {
@@ -53,10 +55,7 @@ namespace AnikiHelper
     }
 
     // --- DTOs pour SuccessStory (désérialisation typée) ---
-    internal class SsGame
-    {
-        public string Name { get; set; }
-    }
+    internal class SsGame { public string Name { get; set; } }
 
     internal class SsItem
     {
@@ -64,80 +63,62 @@ namespace AnikiHelper
         public string Title { get; set; }
         public string Description { get; set; }
         public string Desc { get; set; }
-
-        public string DateUnlocked { get; set; }   // ISO 8601
-        public long? UnlockTime { get; set; }     // unix (secondes)
+        public string DateUnlocked { get; set; }
+        public long? UnlockTime { get; set; }
         public string UnlockTimestamp { get; set; }
         public string LastUnlock { get; set; }
-
-        public string UrlUnlocked { get; set; }    // image
+        public string UrlUnlocked { get; set; }
         public string IconUnlocked { get; set; }
         public string ImageUrl { get; set; }
-
-        public string IsUnlock { get; set; }       // "true"/"false"
+        public string IsUnlock { get; set; }
         public string Earned { get; set; }
         public string Unlocked { get; set; }
-
-        public double? RarityValue { get; set; }   // souvent 0–100
-        public double? Percent { get; set; }       // parfois 0–100
-        public double? Percentage { get; set; }    // parfois 0–100
-        public string Rarity { get; set; }         // ex: "Ultra Rare", "Common", ou "3.4%"
-        public string RarityName { get; set; }     // variante textuelle
+        public double? RarityValue { get; set; }
+        public double? Percent { get; set; }
+        public double? Percentage { get; set; }
+        public string Rarity { get; set; }
+        public string RarityName { get; set; }
     }
 
     internal class SsFile
     {
-        public string Name { get; set; }           // nom du jeu
-        public SsGame Game { get; set; }           // parfois { "Game": { "Name": ... } }
-        public List<SsItem> Items { get; set; }    // format courant
-        public List<SsItem> Achievements { get; set; } // autres versions
+        public string Name { get; set; }
+        public SsGame Game { get; set; }
+        public List<SsItem> Items { get; set; }
+        public List<SsItem> Achievements { get; set; }
     }
 
     public class RareAchievementItem
     {
         public string Game { get; set; }
         public string Title { get; set; }
-        public double Percent { get; set; }               // plus petit = plus rare
+        public double Percent { get; set; }
         public string PercentString => $"{Percent:0.##}%";
         public DateTime Unlocked { get; set; }
         public string IconPath { get; set; }
     }
 
-
-
     public class DiskUsageItem
     {
-        public string Label { get; set; }              // "C:\"
-        public string TotalSpaceString { get; set; }   // "931 GB"
-        public string FreeSpaceString { get; set; }    // "636 GB"
-        public double UsedPercentage { get; set; }     // 0..100
+        public string Label { get; set; }
+        public string TotalSpaceString { get; set; }
+        public string FreeSpaceString { get; set; }
+        public double UsedPercentage { get; set; }
         public int UsedTenthsInt => (int)Math.Round(UsedPercentage / 10.0);
     }
 
-    public class AnikiHelperSettings : ObservableObject, ISettings, INotifyPropertyChanged
+    public class AnikiHelperSettings : ObservableObject, ISettings, System.ComponentModel.INotifyPropertyChanged
     {
         private readonly global::AnikiHelper.AnikiHelper plugin;
 
-        // ===== Updates d’extensions (optionnel) =====
-        private bool hasAddonUpdates;
-        private int addonUpdatesCount;
-        private ObservableCollection<object> addonUpdates = new ObservableCollection<object>();
-
-        // Info snapshot affichée en page de paramètres
+        // Info snapshot (affiché dans settings)
         private string snapshotDateString;
         public string SnapshotDateString { get => snapshotDateString; set => SetValue(ref snapshotDateString, value); }
 
-        // ===== Options générales =====
-        private bool notificationsEnabled = true;
-        private bool notifyIndividually = true;
-        private int rescanMinutes = 60;
-
-        // ===== Options stats =====
+        // ===== Options stats / affichage =====
         private bool includeHidden = false;
         private int topPlayedMax = 10;
-
-        // ===== Affichage temps de jeu =====
-        private bool playtimeStoredInHours = false; // Playnite = minutes
+        private bool playtimeStoredInHours = false;
         private bool playtimeUseDaysFormat = false;
 
         // ===== Stockage =====
@@ -167,30 +148,68 @@ namespace AnikiHelper
         private ulong thisMonthPlayedTotalMinutes;
 
         public int ThisMonthPlayedCount { get => thisMonthPlayedCount; set => SetValue(ref thisMonthPlayedCount, value); }
-
         public ulong ThisMonthPlayedTotalMinutes
         {
             get => thisMonthPlayedTotalMinutes;
             set { SetValue(ref thisMonthPlayedTotalMinutes, value); OnPropertyChanged(nameof(ThisMonthPlayedTotalString)); }
         }
+        public string ThisMonthPlayedTotalString => PlaytimeToString(ThisMonthPlayedTotalMinutes, PlaytimeUseDaysFormat);
 
-        public string ThisMonthPlayedTotalString =>
-            PlaytimeToString(ThisMonthPlayedTotalMinutes, PlaytimeUseDaysFormat);
+        // === Résumé de session (bindé par le thème) ===
+        private string sessionGameName;
+        public string SessionGameName { get => sessionGameName; set => SetValue(ref sessionGameName, value); }
+
+        private string sessionDurationString;
+        public string SessionDurationString { get => sessionDurationString; set => SetValue(ref sessionDurationString, value); }
+
+        private string sessionNewAchievementsString;
+        public string SessionNewAchievementsString { get => sessionNewAchievementsString; set => SetValue(ref sessionNewAchievementsString, value); }
+
+        private string sessionTotalPlaytimeString;
+        public string SessionTotalPlaytimeString { get => sessionTotalPlaytimeString; set => SetValue(ref sessionTotalPlaytimeString, value); }
+
+        // Stamp unique à chaque notif pour relancer storyboard (binding côté XAML)
+        private string sessionNotificationStamp;
+        public string SessionNotificationStamp { get => sessionNotificationStamp; set => SetValue(ref sessionNotificationStamp, value); }
+        // --- Session notification ---
+        private bool sessionNotificationFlip;
+        public bool SessionNotificationFlip
+        {
+            get => sessionNotificationFlip;
+            set => SetValue(ref sessionNotificationFlip, value);
+        }
+
+        private bool sessionNotificationArmed;
+        public bool SessionNotificationArmed
+        {
+            get => sessionNotificationArmed;
+            set => SetValue(ref sessionNotificationArmed, value);
+        }
+
+
+        // === Nouveaux trophées (comptage + état logique) ===
+        private int sessionNewAchievementsCount;
+        public int SessionNewAchievementsCount
+        {
+            get => sessionNewAchievementsCount;
+            set => SetValue(ref sessionNewAchievementsCount, value);
+        }
+
+        private bool sessionHasNewAchievements;
+        public bool SessionHasNewAchievements
+        {
+            get => sessionHasNewAchievements;
+            set => SetValue(ref sessionHasNewAchievements, value);
+        }
+
 
         // ===== Listes exposées =====
-        private ObservableCollection<TopPlayedItem> topPlayed = new ObservableCollection<TopPlayedItem>();
-        private ObservableCollection<CompletionStatItem> completionStates = new ObservableCollection<CompletionStatItem>();
-        private ObservableCollection<ProviderStatItem> gameProviders = new ObservableCollection<ProviderStatItem>();
-        private ObservableCollection<QuickItem> recentPlayed = new ObservableCollection<QuickItem>();
-        private ObservableCollection<QuickItem> recentAdded = new ObservableCollection<QuickItem>();
-        private ObservableCollection<QuickItem> neverPlayed = new ObservableCollection<QuickItem>();
-
-        public ObservableCollection<TopPlayedItem> TopPlayed { get => topPlayed; set => SetValue(ref topPlayed, value); }
-        public ObservableCollection<CompletionStatItem> CompletionStates { get => completionStates; set => SetValue(ref completionStates, value); }
-        public ObservableCollection<ProviderStatItem> GameProviders { get => gameProviders; set => SetValue(ref gameProviders, value); }
-        public ObservableCollection<QuickItem> RecentPlayed { get => recentPlayed; set => SetValue(ref recentPlayed, value); }
-        public ObservableCollection<QuickItem> RecentAdded { get => recentAdded; set => SetValue(ref recentAdded, value); }
-        public ObservableCollection<QuickItem> NeverPlayed { get => neverPlayed; set => SetValue(ref neverPlayed, value); }
+        public ObservableCollection<TopPlayedItem> TopPlayed { get; } = new ObservableCollection<TopPlayedItem>();
+        public ObservableCollection<CompletionStatItem> CompletionStates { get; } = new ObservableCollection<CompletionStatItem>();
+        public ObservableCollection<ProviderStatItem> GameProviders { get; } = new ObservableCollection<ProviderStatItem>();
+        public ObservableCollection<QuickItem> RecentPlayed { get; } = new ObservableCollection<QuickItem>();
+        public ObservableCollection<QuickItem> RecentAdded { get; } = new ObservableCollection<QuickItem>();
+        public ObservableCollection<QuickItem> NeverPlayed { get; } = new ObservableCollection<QuickItem>();
 
         // Succès récents (Top 3)
         public ObservableCollection<RecentAchievementItem> RecentAchievements { get; } = new ObservableCollection<RecentAchievementItem>();
@@ -198,21 +217,11 @@ namespace AnikiHelper
         // Succès rares (Top 3)
         public ObservableCollection<RareAchievementItem> RareTop { get; } = new ObservableCollection<RareAchievementItem>();
 
-
         // Watcher SuccessStory
         private FileSystemWatcher achievementsWatcher;
         private Timer debounceTimer;
 
-        #region Exposés au thème (updates)
-        public bool HasAddonUpdates { get => hasAddonUpdates; set => SetValue(ref hasAddonUpdates, value); }
-        public int AddonUpdatesCount { get => addonUpdatesCount; set => SetValue(ref addonUpdatesCount, value); }
-        public ObservableCollection<object> AddonUpdates { get => addonUpdates; set => SetValue(ref addonUpdates, value); }
-        #endregion
-
-        #region Options
-        public bool NotificationsEnabled { get => notificationsEnabled; set => SetValue(ref notificationsEnabled, value); }
-        public bool NotifyIndividually { get => notifyIndividually; set => SetValue(ref notifyIndividually, value); }
-        public int RescanMinutes { get => rescanMinutes; set => SetValue(ref rescanMinutes, Math.Max(0, value)); }
+        #region Options (bindables)
         public bool IncludeHidden { get => includeHidden; set => SetValue(ref includeHidden, value); }
 
         public int TopPlayedMax
@@ -296,13 +305,8 @@ namespace AnikiHelper
             var saved = plugin.LoadPluginSettings<AnikiHelperSettings>();
             if (saved != null)
             {
-                NotificationsEnabled = saved.NotificationsEnabled;
-                NotifyIndividually = saved.NotifyIndividually;
-                RescanMinutes = saved.RescanMinutes;
-
                 IncludeHidden = saved.IncludeHidden;
                 TopPlayedMax = saved.TopPlayedMax <= 0 ? 10 : saved.TopPlayedMax;
-
                 PlaytimeStoredInHours = saved.PlaytimeStoredInHours;
                 PlaytimeUseDaysFormat = saved.PlaytimeUseDaysFormat;
             }
@@ -312,14 +316,13 @@ namespace AnikiHelper
             LoadRareTop(3);
             TryStartAchievementsWatcher();
 
-            // Storage au démarrage
+            // Stockage au démarrage
             LoadDiskUsages();
         }
 
         // ====== SUCCÈS RÉCENTS ======
         public void RefreshRecentAchievements() => LoadRecentAchievements(3);
 
-        // Trouve automatiquement le dossier SuccessStory (portable/normal)
         private string FindSuccessStoryRoot()
         {
             try
@@ -327,13 +330,11 @@ namespace AnikiHelper
                 var root = plugin?.PlayniteApi?.Paths?.ExtensionsDataPath;
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return null;
 
-                // chemin "classique"
                 var classic = Path.Combine(root, "cebe6d32-8c46-4459-b993-5a5189d60788", "SuccessStory");
                 if (Directory.Exists(classic) &&
                     Directory.EnumerateFiles(classic, "*.json", SearchOption.AllDirectories).Any())
                     return classic;
 
-                // scan large : n'importe quel dossier nommé "SuccessStory" contenant des .json
                 foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
                 {
                     if (!dir.EndsWith("SuccessStory", StringComparison.OrdinalIgnoreCase)) continue;
@@ -341,23 +342,82 @@ namespace AnikiHelper
                         return dir;
                 }
             }
-            catch { /* ignore */ }
+            catch { }
+            return null;
+        }
 
+        private IEnumerable<string> EnumerateSsCacheDirs(string ssRoot)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Add(string p) { if (!string.IsNullOrWhiteSpace(p) && Directory.Exists(p)) set.Add(p); }
+
+            if (!string.IsNullOrWhiteSpace(ssRoot))
+                Add(Path.Combine(ssRoot, "CacheIcons"));
+
+            var cfg = plugin?.PlayniteApi?.Paths?.ConfigurationPath;
+            var extData = plugin?.PlayniteApi?.Paths?.ExtensionsDataPath;
+
+            if (!string.IsNullOrWhiteSpace(cfg))
+                Add(Path.Combine(cfg, "Cache", "SuccessStory"));
+
+            if (!string.IsNullOrWhiteSpace(cfg))
+            {
+                var root = Path.GetFullPath(Path.Combine(cfg, ".."));
+                Add(Path.Combine(root, "Cache", "SuccessStory"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(extData))
+            {
+                var p1 = Directory.GetParent(extData)?.FullName;
+                if (!string.IsNullOrWhiteSpace(p1)) Add(Path.Combine(p1, "Cache", "SuccessStory"));
+                var p2 = Directory.GetParent(p1 ?? string.Empty)?.FullName;
+                if (!string.IsNullOrWhiteSpace(p2)) Add(Path.Combine(p2, "Cache", "SuccessStory"));
+            }
+
+            return set;
+        }
+
+        private static string Md5Hex(string s)
+        {
+            using (var md5 = MD5.Create())
+            {
+                var bytes = Encoding.UTF8.GetBytes(s ?? string.Empty);
+                var hash = md5.ComputeHash(bytes);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (var b in hash) sb.Append(b.ToString("x2"));
+                return sb.ToString();
+            }
+        }
+
+        private string TryGetSsCachedImage(string url, string ssRoot)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return null;
+            var key = Md5Hex(url);
+
+            foreach (var dir in EnumerateSsCacheDirs(ssRoot))
+            {
+                var noExt = Path.Combine(dir, key);
+                if (File.Exists(noExt)) return noExt;
+
+                foreach (var ext in new[] { ".png", ".jpg", ".jpeg", ".webp" })
+                {
+                    var p = noExt + ext;
+                    if (File.Exists(p)) return p;
+                }
+            }
             return null;
         }
 
         private void LoadRecentAchievements(int take = 3)
         {
-            RecentAchievements.Clear();
+            List<RecentAchievementItem> computed;
 
             try
             {
-                if (plugin?.PlayniteApi == null)
-                    return;
+                if (plugin?.PlayniteApi == null) return;
 
                 var ssRoot = FindSuccessStoryRoot();
-                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot))
-                    return;
+                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
 
                 string[] files;
                 try { files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray(); }
@@ -366,32 +426,20 @@ namespace AnikiHelper
 
                 DateTime? ParseWhen(SsItem it)
                 {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && DateTime.TryParse(it.DateUnlocked, out var d1))
-                        return d1;
-
-                    if (it.UnlockTime != null)
-                        return DateTimeOffset.FromUnixTimeSeconds(it.UnlockTime.Value).LocalDateTime;
-
-                    if (!string.IsNullOrWhiteSpace(it.UnlockTimestamp) && DateTime.TryParse(it.UnlockTimestamp, out var d2))
-                        return d2;
-
-                    if (!string.IsNullOrWhiteSpace(it.LastUnlock) && DateTime.TryParse(it.LastUnlock, out var d3))
-                        return d3;
-
+                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && DateTime.TryParse(it.DateUnlocked, out var d1)) return d1;
+                    if (it.UnlockTime != null) return DateTimeOffset.FromUnixTimeSeconds(it.UnlockTime.Value).LocalDateTime;
+                    if (!string.IsNullOrWhiteSpace(it.UnlockTimestamp) && DateTime.TryParse(it.UnlockTimestamp, out var d2)) return d2;
+                    if (!string.IsNullOrWhiteSpace(it.LastUnlock) && DateTime.TryParse(it.LastUnlock, out var d3)) return d3;
                     return null;
                 }
 
                 bool IsUnlocked(SsItem it)
                 {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && !it.DateUnlocked.StartsWith("0001-01-01"))
-                        return true;
-
+                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && !it.DateUnlocked.StartsWith("0001-01-01")) return true;
                     if (it.UnlockTime != null) return true;
-
                     if (string.Equals(it.IsUnlock, "true", StringComparison.OrdinalIgnoreCase)) return true;
                     if (string.Equals(it.Earned, "true", StringComparison.OrdinalIgnoreCase)) return true;
                     if (string.Equals(it.Unlocked, "true", StringComparison.OrdinalIgnoreCase)) return true;
-
                     return false;
                 }
 
@@ -407,7 +455,6 @@ namespace AnikiHelper
                     }
                     catch
                     {
-                        // si le root est un tableau (cas rares), on tente comme liste directe
                         try
                         {
                             var arrOnly = Serialization.FromJson<List<SsItem>>(File.ReadAllText(file));
@@ -436,12 +483,20 @@ namespace AnikiHelper
                                    : !string.IsNullOrWhiteSpace(it.Title) ? it.Title
                                    : "(Achievement)";
 
-                        var desc = !string.IsNullOrWhiteSpace(it.Description) ? it.Description
-                                   : (it.Desc ?? "");
+                        var desc = !string.IsNullOrWhiteSpace(it.Description) ? it.Description : (it.Desc ?? "");
 
-                        var icon = !string.IsNullOrWhiteSpace(it.UrlUnlocked) ? it.UrlUnlocked
-                                   : !string.IsNullOrWhiteSpace(it.IconUnlocked) ? it.IconUnlocked
-                                   : (it.ImageUrl ?? "");
+                        var rawIcon = !string.IsNullOrWhiteSpace(it.UrlUnlocked) ? it.UrlUnlocked
+                                    : !string.IsNullOrWhiteSpace(it.IconUnlocked) ? it.IconUnlocked
+                                    : (it.ImageUrl ?? "");
+
+                        string icon = rawIcon;
+                        if (!string.IsNullOrWhiteSpace(rawIcon) &&
+                            rawIcon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var cached = TryGetSsCachedImage(rawIcon, ssRoot);
+                            if (!string.IsNullOrEmpty(cached))
+                                icon = cached;
+                        }
 
                         results.Add(new RecentAchievementItem
                         {
@@ -454,80 +509,67 @@ namespace AnikiHelper
                     }
                 }
 
-                foreach (var it in results
+                computed = results
                     .OrderByDescending(r => r.Unlocked)
-                    .Take(take))
-                {
-                    RecentAchievements.Add(it);
-                }
+                    .Take(take)
+                    .ToList();
             }
             catch
             {
-                // silencieux
+                return;
             }
+
+            Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                RecentAchievements.Clear();
+                foreach (var it in computed)
+                    RecentAchievements.Add(it);
+            });
         }
 
         public void RefreshRareAchievements() => LoadRareTop(3);
 
         private void LoadRareTop(int take = 3)
         {
-            RareTop.Clear();
+            List<RareAchievementItem> computed;
 
             try
             {
-                if (plugin?.PlayniteApi == null)
-                    return;
+                if (plugin?.PlayniteApi == null) return;
 
                 var ssRoot = FindSuccessStoryRoot();
-                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot))
-                    return;
+                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
 
                 string[] files;
                 try { files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray(); }
                 catch { return; }
                 if (files.Length == 0) return;
 
-                // util : lecture date de déblocage (même logique que les succès récents)
                 DateTime? ParseWhen(SsItem it)
                 {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && DateTime.TryParse(it.DateUnlocked, out var d1))
-                        return d1;
-
-                    if (it.UnlockTime != null)
-                        return DateTimeOffset.FromUnixTimeSeconds(it.UnlockTime.Value).LocalDateTime;
-
-                    if (!string.IsNullOrWhiteSpace(it.UnlockTimestamp) && DateTime.TryParse(it.UnlockTimestamp, out var d2))
-                        return d2;
-
-                    if (!string.IsNullOrWhiteSpace(it.LastUnlock) && DateTime.TryParse(it.LastUnlock, out var d3))
-                        return d3;
-
+                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && DateTime.TryParse(it.DateUnlocked, out var d1)) return d1;
+                    if (it.UnlockTime != null) return DateTimeOffset.FromUnixTimeSeconds(it.UnlockTime.Value).LocalDateTime;
+                    if (!string.IsNullOrWhiteSpace(it.UnlockTimestamp) && DateTime.TryParse(it.UnlockTimestamp, out var d2)) return d2;
+                    if (!string.IsNullOrWhiteSpace(it.LastUnlock) && DateTime.TryParse(it.LastUnlock, out var d3)) return d3;
                     return null;
                 }
 
                 bool IsUnlocked(SsItem it)
                 {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && !it.DateUnlocked.StartsWith("0001-01-01"))
-                        return true;
-
+                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && !it.DateUnlocked.StartsWith("0001-01-01")) return true;
                     if (it.UnlockTime != null) return true;
-
                     if (string.Equals(it.IsUnlock, "true", StringComparison.OrdinalIgnoreCase)) return true;
                     if (string.Equals(it.Earned, "true", StringComparison.OrdinalIgnoreCase)) return true;
                     if (string.Equals(it.Unlocked, "true", StringComparison.OrdinalIgnoreCase)) return true;
-
                     return false;
                 }
 
-                // Essaie plusieurs champs possibles pour la rareté (%)
                 double? TryGetRarityPercent(SsItem it)
                 {
-                    // 1) numériques directs (0–100)
                     if (it.RarityValue is double rv && rv >= 0 && rv <= 100) return rv;
                     if (it.Percent is double p && p >= 0 && p <= 100) return p;
                     if (it.Percentage is double pc && pc >= 0 && pc <= 100) return pc;
 
-                    // 2) textes "3.4%" / "3.4" dans Rarity / RarityName
                     string[] texts = { it.Rarity, it.RarityName };
                     foreach (var txt in texts)
                     {
@@ -536,11 +578,10 @@ namespace AnikiHelper
                         if (double.TryParse(raw, System.Globalization.NumberStyles.Any,
                             System.Globalization.CultureInfo.InvariantCulture, out var v))
                         {
-                            if (v >= 0 && v <= 100) return v;        // déjà %
-                            if (v > 0 && v <= 1) return v * 100.0;   // ratio → %
+                            if (v >= 0 && v <= 100) return v;
+                            if (v > 0 && v <= 1) return v * 100.0;
                         }
                     }
-
                     return null;
                 }
 
@@ -556,7 +597,6 @@ namespace AnikiHelper
                     }
                     catch
                     {
-                        // si le root est un tableau d’items
                         try
                         {
                             var arrOnly = Serialization.FromJson<List<SsItem>>(File.ReadAllText(file));
@@ -577,7 +617,8 @@ namespace AnikiHelper
                     foreach (var it in items)
                     {
                         if (!IsUnlocked(it)) continue;
-                        if (ParseWhen(it) == null) continue; // on garde uniquement ceux datés (cohérent avec “récents”)
+                        var when = ParseWhen(it);
+                        if (when == null) continue;
 
                         var r = TryGetRarityPercent(it);
                         if (r == null) continue;
@@ -586,9 +627,18 @@ namespace AnikiHelper
                                    : !string.IsNullOrWhiteSpace(it.Title) ? it.Title
                                    : "(Achievement)";
 
-                        var icon = !string.IsNullOrWhiteSpace(it.UrlUnlocked) ? it.UrlUnlocked
-                                   : !string.IsNullOrWhiteSpace(it.IconUnlocked) ? it.IconUnlocked
-                                   : (it.ImageUrl ?? "");
+                        var rawIcon = !string.IsNullOrWhiteSpace(it.UrlUnlocked) ? it.UrlUnlocked
+                                    : !string.IsNullOrWhiteSpace(it.IconUnlocked) ? it.IconUnlocked
+                                    : (it.ImageUrl ?? "");
+
+                        string icon = rawIcon;
+                        if (!string.IsNullOrWhiteSpace(rawIcon) &&
+                            rawIcon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var cached = TryGetSsCachedImage(rawIcon, ssRoot);
+                            if (!string.IsNullOrEmpty(cached))
+                                icon = cached;
+                        }
 
                         pool.Add(new RareAchievementItem
                         {
@@ -596,31 +646,31 @@ namespace AnikiHelper
                             Title = title,
                             Percent = r.Value,
                             IconPath = icon,
-                            Unlocked = ParseWhen(it) ?? DateTime.MinValue
+                            Unlocked = when.Value
                         });
                     }
                 }
 
                 var cutoff = DateTime.Now.AddYears(-1);
-
-                foreach (var it in pool
-                    .Where(x => x.Unlocked > cutoff)              // uniquement débloqués après 2023
-                    .OrderBy(x => x.Percent)                      // du plus rare au moins rare
-                    .ThenByDescending(x => x.Unlocked)            // et les plus récents d'abord
-                    .Take(take))
-                {
-                    RareTop.Add(it);
-                }
-
-
+                computed = pool
+                    .Where(x => x.Unlocked > cutoff)
+                    .OrderBy(x => x.Percent)
+                    .ThenByDescending(x => x.Unlocked)
+                    .Take(take)
+                    .ToList();
             }
             catch
             {
-                // silencieux
+                return;
             }
+
+            Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                RareTop.Clear();
+                foreach (var it in computed)
+                    RareTop.Add(it);
+            });
         }
-
-
 
         private void TryStartAchievementsWatcher()
         {
@@ -636,16 +686,28 @@ namespace AnikiHelper
                 {
                     IncludeSubdirectories = true,
                     EnableRaisingEvents = true,
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime,
+                    InternalBufferSize = 64 * 1024
                 };
 
                 debounceTimer?.Dispose();
-                debounceTimer = new Timer(400) { AutoReset = false };
-                debounceTimer.Elapsed += (_, __) =>
+                debounceTimer = new Timer(1500) { AutoReset = false };
+                debounceTimer.Elapsed += async (_, __) =>
                 {
-                    LoadRecentAchievements(3);
-                    LoadRareTop(3);
+                    try
+                    {
+                        LoadRecentAchievements(3);
+                        LoadRareTop(3);
+
+                        if (RecentAchievements.Count == 0)
+                        {
+                            await Task.Delay(1200);
+                            LoadRecentAchievements(3);
+                        }
+                    }
+                    catch { }
                 };
+
                 FileSystemEventHandler pulse = (_, __) => { debounceTimer.Stop(); debounceTimer.Start(); };
                 achievementsWatcher.Created += pulse;
                 achievementsWatcher.Changed += pulse;
@@ -655,17 +717,12 @@ namespace AnikiHelper
             catch { }
         }
 
-
         // ===== ISettings =====
         public void BeginEdit() { }
         public void CancelEdit() { }
         public void EndEdit() => plugin.SavePluginSettings(this);
 
-        public bool VerifySettings(out List<string> errors)
-        {
-            errors = null;
-            return true;
-        }
+        public bool VerifySettings(out List<string> errors) { errors = null; return true; }
 
         // ===== Helpers =====
         private static string PercentString(int part, int total) =>
@@ -740,10 +797,7 @@ namespace AnikiHelper
                 diskUsages.Clear();
                 foreach (var it in list) diskUsages.Add(it);
             }
-            catch
-            {
-                // jamais bloquer l’UI
-            }
+            catch { }
         }
     }
 
@@ -762,13 +816,8 @@ namespace AnikiHelper
         public void CancelEdit() { }
         public void EndEdit() => plugin.SavePluginSettings(Settings);
 
-        public bool VerifySettings(out List<string> errors)
-        {
-            errors = null;
-            return true;
-        }
+        public bool VerifySettings(out List<string> errors) { errors = null; return true; }
 
-        // Bouton de la page Settings (si tu l’utilises)
         public void ResetMonthlySnapshot()
         {
             try { plugin?.ResetMonthlySnapshot(); }
