@@ -106,10 +106,11 @@ These properties are useful for animating or conditionally displaying elements i
 
 | Property | Description |
 | ---------------------------------------------- | ---------------------------------- |
-| SessionHasNewAchievements | Boolean indicating whether new achievements were unlocked. Use this to show or hide the achievement line. |
-| SessionNotificationArmed | Boolean that becomes **True** right after a game session ends, allowing the notification panel to appear. It resets to **False** when Playnite starts. |
-| SessionNotificationFlip | Boolean that toggles between **True** and **False** each time a session ends. Use it together with **SessionNotificationArmed** to replay your Storyboard animation. |
-| SessionNotificationStamp | Unique string (GUID) refreshed at each session end. Useful if you prefer to trigger animations using value change instead of booleans. |
+| SessionHasNewAchievements | **True when new achievements were unlocked during the last ended session.** Use this to show or hide the achievement line inside the session-end notification. |
+| SessionNotificationArmed | **True immediately after a game session ends.** Works as a safety flag to allow the session-end notification to appear. Automatically resets to **False** when Playnite starts. |
+| SessionNotificationFlip | **Toggles between True and False each time a session ends.** Use together with `SessionNotificationArmed` to replay your Storyboard animation (one trigger for each state). |
+| SessionNotificationStamp | **Unique GUID refreshed at every session end.** Useful if you prefer triggering animations based on a value change instead of booleans. |
+
 
 
 
