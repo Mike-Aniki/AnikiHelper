@@ -30,3 +30,11 @@ Packages:
       - Fixed Recent achievements not showing (Limited to 3 items)
       - Added Top 3 rarest achievements of the year
       - Minor optimizations and fixes
+  - Version: 1.0.4
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-10-18
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.4/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_4.pext
+    Changelog:
+      - Added a session-end notification system.
+      - Trophy images now prioritize the local cache.
+      - General code cleanup and optimizations.
