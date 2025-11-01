@@ -1,0 +1,21 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" 
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+  <sys:String x:Key="AppTitle">Aniki Helper — Paramètres</sys:String>
+  <sys:String x:Key="GroupLibraryStats">Statistiques de la bibliothèque</sys:String>
+  <sys:String x:Key="StatsHelp">Ces paramètres déterminent ce qui est pris en compte dans les chiffres affichés par le thème.</sys:String>
+  <sys:String x:Key="IncludeHidden">Inclure les jeux masqués dans les statistiques</sys:String>
+  <sys:String x:Key="AutoUpdate">Les valeurs se mettent automatiquement à jour lorsque votre bibliothèque change.</sys:String>
+  <sys:String x:Key="PreviewTotal">Aperçu — Total :</sys:String>
+  <sys:String x:Key="Installed">Installés :</sys:String>
+  <sys:String x:Key="NotInstalled">Non installés :</sys:String>
+
+  <sys:String x:Key="GroupMonthly">Suivi mensuel</sys:String>
+  <sys:String x:Key="MonthlyHelp">Au début de chaque mois, une référence de votre temps de jeu est enregistrée afin de calculer le « Temps de jeu mensuel », les « Jeux joués ce mois-ci » et le « Jeu le plus joué du mois ».</sys:String>
+  <sys:String x:Key="CurrentMonthData">Données du mois en cours :</sys:String>
+  <sys:String x:Key="SnapshotTooltip">Indique la date de création de la référence pour le mois en cours.</sys:String>
+  <sys:String x:Key="ResetBtn">Réinitialiser pour ce mois</sys:String>
+  <sys:String x:Key="ResetBtnTooltip">Reconstruit la référence mensuelle immédiatement. À utiliser si les chiffres semblent incorrects ou si vous souhaitez simplement recommencer le suivi du mois.</sys:String>
+
+</ResourceDictionary>

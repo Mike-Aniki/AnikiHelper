@@ -7,6 +7,12 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Media;
+using System.Windows.Threading;
+
 
 namespace AnikiHelper
 {
@@ -26,6 +32,7 @@ namespace AnikiHelper
 
         // GUID du plugin
         public override Guid Id { get; } = Guid.Parse("96a983a3-3f13-4dce-a474-4052b718bb52");
+
 
         // === Session tracking (start/stop) ===
         private readonly Dictionary<Guid, DateTime> sessionStartAt = new Dictionary<Guid, DateTime>();
@@ -327,6 +334,7 @@ namespace AnikiHelper
             }
         }
 
+
         #region Lifecycle
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
@@ -360,7 +368,28 @@ namespace AnikiHelper
                 Settings.SessionNotificationArmed = false;
             }
             catch { }
+
+
+            // === UI Fullscreen : uniquement en Fullscreen ===
+            if (PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen)
+            {
+                AddonsUpdateStyler.Start();
+
+                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                    () => DynamicAuto.Init(PlayniteApi),
+                    System.Windows.Threading.DispatcherPriority.Loaded
+                );
+            }
+
+            // 👉 Fullscreen only
+            System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                () => SettingsWindowStyler.Start(),
+                System.Windows.Threading.DispatcherPriority.Loaded
+            );
+
+
         }
+
 
 
         public override void OnGameStarted(OnGameStartedEventArgs args)
@@ -638,12 +667,6 @@ namespace AnikiHelper
                 s.NeverPlayed.Add(new QuickItem { Name = Safe(g.Name), Value = addedStr });
             }
 
-
-
-
-
-
-
             // === GAME PROVIDERS
             var provDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var g in games)
@@ -676,9 +699,24 @@ namespace AnikiHelper
 
 
         #endregion
+    }
 
-      
+    // --- Helper visuel pour parcourir la hiérarchie WPF ---
+    public static class VisualTreeHelpers
+    {
+        public static IEnumerable<T> FindVisualChildren<T>(this DependencyObject depObj) where T : DependencyObject
+        {
+            if (depObj == null) yield break;
 
-        
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(depObj); i++)
+            {
+                var child = VisualTreeHelper.GetChild(depObj, i);
+                if (child is T match)
+                    yield return match;
+
+                foreach (var sub in FindVisualChildren<T>(child))
+                    yield return sub;
+            }
+        }
     }
 }
