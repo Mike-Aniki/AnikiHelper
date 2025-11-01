@@ -38,3 +38,11 @@ Packages:
       - Added a session-end notification system.
       - Trophy images now prioritize the local cache.
       - General code cleanup and optimizations.
+  - Version: 1.0.5
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-01
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.5/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_5.pext
+    Changelog:
+      - Added a dynamic color system.
+      - Added the ability to modify the Notification window.
+
