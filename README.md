@@ -3,6 +3,7 @@
 **Aniki Helper** is a Playnite plugin created to enhance the Fullscreen experience by adding advanced player statistics, dynamic visual effects, and other interactive features that can be displayed directly inside Fullscreen themes.
 
 ⚠️ Note for theme creators
+
 This plugin was originally developed for my own [Aniki Themes](https://github.com/Mike-Aniki), to add features that can’t be achieved with XAML alone in Playnite Fullscreen mode — such as dynamic color adaptation, session notifications, and advanced statistics.
 It is documented here only for reference, in case another theme creator wishes to integrate or adapt its features into their own Fullscreen theme.
 
