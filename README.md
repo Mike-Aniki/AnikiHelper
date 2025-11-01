@@ -1,8 +1,10 @@
 # Aniki Helper
 
-**Aniki Helper** is a Playnite plugin designed to enhance the **Fullscreen** experience by providing advanced library statistics and dynamic data that can be displayed directly in your custom themes.
+**Aniki Helper** is a Playnite plugin created to enhance the Fullscreen experience by adding advanced player statistics, dynamic visual effects, and other interactive features that can be displayed directly inside Fullscreen themes.
 
-Originally created for [Aniki Themes](https://github.com/Mike-Aniki), this plugin can also be integrated by **any theme creator** who wants to display player statistics, in their Fullscreen Themes.
+⚠️ Note for theme creators
+This plugin was originally developed for my own [Aniki Themes](https://github.com/Mike-Aniki), to add features that can’t be achieved with XAML alone in Playnite Fullscreen mode — such as dynamic color adaptation, session notifications, and advanced statistics.
+It is documented here only for reference, in case another theme creator wishes to integrate or adapt its features into their own Fullscreen theme.
 
 ## Features
 
@@ -111,8 +113,78 @@ These properties are useful for animating or conditionally displaying elements i
 | SessionNotificationFlip | **Toggles between True and False each time a session ends.** Use together with `SessionNotificationArmed` to replay your Storyboard animation (one trigger for each state). |
 | SessionNotificationStamp | **Unique GUID refreshed at every session end.** Useful if you prefer triggering animations based on a value change instead of booleans. |
 
+---
 
+## Dynamic Color System
 
+The DynamicAuto module adds a real-time color adaptation system to Fullscreen themes.
+When enabled, it automatically extracts the dominant color from the game’s background (or cover as a fallback) and applies it to the key color resources of your theme.
+
+Activation
+
+To enable this feature, make sure the following line is present in one of your constant.xaml files :
+
+```<sys:Boolean x:Key="DynamicAutoEnabled">True</sys:Boolean>```
+
+Once this key is set to True, Aniki Helper will continuously monitor the currently selected game and dynamically recolor your interface based on its dominant hue.
+
+When active, the system updates the following color and brush resources in real time :
+
+```
+GlyphColor
+GlowFocusColor
+DynamicGlowBackgroundPrimary
+OverlayMenu
+ButtonPlayColor
+FocusGameBorderBrush
+MenuBorderBrush
+NoFocusBorderButtonBrush
+SuccessMenu
+DynamicGlowBackgroundSuccess
+ShadeBackground
+```
+These keys are refreshed automatically with smooth animated transitions (≈200 ms) each time the user selects a new game.
+If DynamicAutoEnabled is later set to False, the theme immediately restores its original static colors.
+
+### Notes
+
+This system uses the exact same resource keys as those defined in the Aniki Themes color model.
+Because this plugin was originally created for Aniki Themes, it directly targets their key structure.
+However, it is fully documented here in case another theme creator wants to reuse or adapt it to their own Fullscreen theme.
+
+--- 
+
+## Addons Update Window Styling
+
+AnikiHelper gives theme creators full control over the appearance of Playnite’s Add-ons Update window in Fullscreen mode.
+
+When the update window appears, Aniki Helper automatically locates its inner panels and applies your custom styles if they exist in your theme resources.
+
+To use this feature, define two styles in your constants or theme resource files:
+
+```
+<Style x:Key="Aniki_AddonsUpdateWindowStyle_Top" TargetType="Border">
+  <Setter Property="Background" Value="{DynamicResource OverlayMenu}" />
+  <Setter Property="CornerRadius" Value="12" />
+  <Setter Property="BorderThickness" Value="0" />
+</Style>
+
+<Style x:Key="Aniki_AddonsUpdateWindowStyle_Bottom" TargetType="Border">
+  <Setter Property="Background" Value="{DynamicResource OverlayMenu}" />
+  <Setter Property="CornerRadius" Value="0,0,12,12" />
+  <Setter Property="BorderThickness" Value="0" />
+</Style>
+```
+
+These will be applied automatically:
+
+The top border (update content area) uses the Aniki_AddonsUpdateWindowStyle_Top style.
+
+The bottom border (buttons footer) uses the Aniki_AddonsUpdateWindowStyle_Bottom style.
+
+No additional setup is required — the system detects and applies your styles automatically each time the window opens.
+
+--- 
 
 ## Recommended Plugins
 
