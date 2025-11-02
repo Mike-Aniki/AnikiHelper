@@ -45,5 +45,10 @@ Packages:
     Changelog:
       - Added a dynamic color system.
       - Added the ability to modify the Addons Update Window.
-
-
+  - Version: 1.0.6
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-02
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.6/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_6.pext
+    Changelog:
+      - Improvement of dynamic colors function.
+      - Fix the view settings in desktop.
