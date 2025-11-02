@@ -18,4 +18,17 @@
   <sys:String x:Key="ResetBtn">Réinitialiser pour ce mois</sys:String>
   <sys:String x:Key="ResetBtnTooltip">Reconstruit la référence mensuelle immédiatement. À utiliser si les chiffres semblent incorrects ou si vous souhaitez simplement recommencer le suivi du mois.</sys:String>
 
+    <sys:String x:Key="GroupDynColors">Couleurs dynamiques</sys:String>
+    <sys:String x:Key="DynColors_Help">Couleurs d’accent auto depuis les backgrounds/covers. Vide le cache si les couleurs dérivent ou après beaucoup de changements d’images.</sys:String>
+    <sys:String x:Key="L_ClearColorCache">🧹 Vider le cache des couleurs</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Tooltip">Supprime le cache des palettes pour le reconstruire automatiquement.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Done_Title">Aniki Helper</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Done_Body">Cache des couleurs vidé. Il sera reconstruit automatiquement en parcourant les jeux.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Error_Title">Aniki Helper</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Error_Body">Échec lors du vidage du cache des couleurs :</sys:String>
+
+    <sys:String x:Key="ConfirmClearCache">Vider le cache des couleurs dynamiques ? Le fichier de palette sera supprimé puis recréé automatiquement.</sys:String>
+    <sys:String x:Key="CacheClearedMsg">Cache des couleurs vidé. Il se reconstruira automatiquement quand vous parcourez les jeux.</sys:String>
+
+
 </ResourceDictionary>

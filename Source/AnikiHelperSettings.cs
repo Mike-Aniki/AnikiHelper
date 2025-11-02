@@ -826,5 +826,18 @@ namespace AnikiHelper
                 System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ResetMonthlySnapshot failed: " + ex.Message);
             }
         }
+        // === Clears the dynamic color cache ===
+        public void ClearColorCache()
+        {
+            try
+            {
+                plugin.ClearDynamicColorCache();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AnikiHelper] Failed to clear color cache: {ex.Message}");
+                throw;
+            }
+        }
     }
 }

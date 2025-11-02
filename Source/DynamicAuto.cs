@@ -303,7 +303,7 @@ namespace AnikiHelper
 
 
             // 3.5) Préparer le cache persistant
-           const string PluginId = "96a983a3-3f13-4dce-a474-4052b718bb52";
+            const string PluginId = "96a983a3-3f13-4dce-a474-4052b718bb52";
 
             // On crée le bon dossier dans ExtensionsData/<GUID>/
             var userDataPath = Path.Combine(api.Paths.ExtensionsDataPath, PluginId);
@@ -466,6 +466,37 @@ namespace AnikiHelper
             timer.Start();
         }
 
+         public static void ClearPersistentCache(bool alsoRam = true)
+        {
+            try
+            {
+                if (saveCacheTimer != null)
+                {
+                    saveCacheTimer.Stop();
+                    saveCacheTimer.Tick -= SaveAccentCacheNow;
+                }
+
+                accentCache.Clear();
+
+                if (!string.IsNullOrEmpty(cacheFilePath) && File.Exists(cacheFilePath))
+                {
+                    try { File.Delete(cacheFilePath); }
+                    catch (Exception ex) { log.Warn(ex, "[DynColor] Couldn't delete cache file"); }
+                }
+
+                if (alsoRam)
+                {
+                    paletteCache.Clear();
+                }
+
+                log.Info("[DynColor] Color cache purged (json + ram). It will rebuild automatically.");
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex, "[DynColor] ClearPersistentCache failed.");
+            }
+        }
+
         // ======== Window focus/activity management ========
 
         private static bool IsAppActive()
@@ -513,7 +544,7 @@ namespace AnikiHelper
         {
             if (IsDynamicAutoActive() && timer != null && !timer.IsEnabled)
             {
-                
+
                 CancelWork();          // in case something is left behind
                 lastGameId = null;     // forces a recalculation
                 timer.Start();
@@ -665,6 +696,7 @@ namespace AnikiHelper
             int[] hist = new int[4096];
             int considered = 0;
             int brightCount = 0;
+            int colorful = 0; // NEW
 
             for (int y = y0; y < y1; y += stepY)
             {
@@ -706,6 +738,9 @@ namespace AnikiHelper
                         }
                     }
 
+                    colorful++;   // <<< AJOUT
+
+
                     int rq = r >> 4, gq = g >> 4, bq = b >> 4;
                     hist[(rq << 8) | (gq << 4) | bq]++;
                 }
@@ -723,15 +758,54 @@ namespace AnikiHelper
 
             if ((maxIdx < 0 || tooSmallPeak) && veryBrightBg)
             {
-                for (int i = 0; i < hist.Length; i++)
-                    hist[i] = hist[i] / 2 + 1;
+                // Ratio de pixels "vraiment colorés" dans une image très claire
+                double colorfulRatio = considered > 0 ? (double)colorful / considered : 0.0;
 
-                maxCount = 0; maxIdx = -1;
-                for (int k = 0; k < hist.Length; k++)
-                    if (hist[k] > maxCount) { maxCount = hist[k]; maxIdx = k; }
+                if (colorfulRatio >= 0.04) // ≥4% de pixels colorés → chercher une vraie teinte
+                {
+                    int bestIdx = -1;
+                    double bestScore = -1;
 
-                if (maxIdx < 0) return MediaColor.FromRgb(31, 35, 45);
+                    for (int k = 0; k < hist.Length; k++)
+                    {
+                        int count = hist[k];
+                        if (count <= 0) continue;
+
+                        int rr2 = ((k >> 8) & 0xF), gg2 = ((k >> 4) & 0xF), bb2 = (k & 0xF);
+                        byte R2 = (byte)(rr2 * 16 + 8), G2 = (byte)(gg2 * 16 + 8), B2 = (byte)(bb2 * 16 + 8);
+
+                        // Évite les tons peau sur fonds clairs
+                        if (SkinHueLikely(R2, G2, B2))
+                            continue;
+
+                        // Score "chroma pondérée" : privilégie la saturation, puis la fréquence
+                        int chroma = Math.Max(R2, Math.Max(G2, B2)) - Math.Min(R2, Math.Min(G2, B2));
+                        double score = chroma * (1.0 + Math.Log10(1 + count));
+
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            bestIdx = k;
+                        }
+                    }
+
+                    if (bestIdx >= 0)
+                    {
+                        int r3 = ((bestIdx >> 8) & 0xF);
+                        int g3 = ((bestIdx >> 4) & 0xF);
+                        int b3 = (bestIdx & 0xF);
+                        byte R3 = (byte)(r3 * 16 + 8);
+                        byte G3 = (byte)(g3 * 16 + 8);
+                        byte B3 = (byte)(b3 * 16 + 8);
+                        return MediaColor.FromRgb(R3, G3, B3);
+                    }
+                    // sinon on tombera sur le fallback ci-dessous
+                }
+
+                // Cas "ultra clair ET quasi pas de couleur" (ex. Yakuza monochrome)
+                return MediaColor.FromRgb(208, 211, 216); 
             }
+
 
             int rr = ((maxIdx >> 8) & 0xF);
             int gg = ((maxIdx >> 4) & 0xF);

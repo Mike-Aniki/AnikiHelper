@@ -268,6 +268,32 @@ namespace AnikiHelper
             }
         }
 
+        // --- Supprime le cache de couleurs dynamiques (fichier JSON uniquement) ---
+        public void ClearDynamicColorCache()
+        {
+            try
+            {
+                var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
+                var file = Path.Combine(dir, "palette_cache_v1.json");
+
+                if (File.Exists(file))
+                {
+                    File.Delete(file);
+                    logger.Info($"[AnikiHelper] Deleted palette cache file: {file}");
+                }
+                else
+                {
+                    logger.Info("[AnikiHelper] Palette cache file not found; nothing to delete.");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] ClearDynamicColorCache failed.");
+                throw;
+            }
+        }
+
+
         // Met à jour le texte d’info snapshot
         private void UpdateSnapshotInfoProperty(DateTime monthStart)
         {
@@ -333,6 +359,24 @@ namespace AnikiHelper
                 logger.Warn(ex, "AddSettingsSupport indisponible sur cette version de Playnite.");
             }
         }
+
+        // === Settings plumbing pour l’UI des Add-ons ===
+        public override ISettings GetSettings(bool firstRunSettings)
+        {
+            // Utilise le même ViewModel que tu crées dans le constructeur
+            return SettingsVM ?? (SettingsVM = new AnikiHelperSettingsViewModel(this));
+        }
+
+        // === Settings UI pour l’onglet Add-ons ===
+        public override UserControl GetSettingsView(bool firstRunSettings)
+        {
+            var view = new AnikiHelperSettingsView
+            {
+                DataContext = SettingsVM ?? (SettingsVM = new AnikiHelperSettingsViewModel(this))
+            };
+            return view;
+        }
+
 
 
         #region Lifecycle

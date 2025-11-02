@@ -17,6 +17,17 @@
   <sys:String x:Key="SnapshotTooltip">This shows when the current month’s baseline was created.</sys:String>
   <sys:String x:Key="ResetBtn">Start fresh for this month</sys:String>
     <sys:String x:Key="ResetBtnTooltip">Rebuild the monthly baseline now. Use this if numbers look wrong or you just want to restart the month’s tracking.</sys:String>
-    
+
+    <sys:String x:Key="GroupDynColors">Dynamic colors</sys:String>
+    <sys:String x:Key="DynColors_Help">Automatic accent colors from backgrounds/covers. You can clear the cache if colors look off or after changing many artworks.</sys:String>
+    <sys:String x:Key="L_ClearColorCache">Clear color cache</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Tooltip">Delete the cached color palettes so they rebuild automatically.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Done_Title">Aniki Helper</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Done_Body">Color cache cleared. It will rebuild automatically as you browse your games.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Error_Title">Aniki Helper</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Error_Body">Failed to clear color cache:</sys:String>
+
+    <sys:String x:Key="ConfirmClearCache">Clear dynamic color cache? The palette file will be deleted and rebuilt automatically.</sys:String>
+    <sys:String x:Key="CacheClearedMsg">Color cache cleared. It will rebuild automatically as you browse games.</sys:String>
 
 </ResourceDictionary>
