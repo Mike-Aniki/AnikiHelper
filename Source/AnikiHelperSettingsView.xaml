@@ -5,6 +5,15 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d"
              d:DesignHeight="420" d:DesignWidth="640">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/AnikiHelper;component/Localization/en_US.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+
 
     <StackPanel Margin="12">
         <TextBlock Text="{DynamicResource AppTitle}" FontWeight="Bold" FontSize="16" Margin="0,0,0,10"/>
@@ -12,7 +21,7 @@
         <!-- LIBRARY STATS -->
         <GroupBox Header="{DynamicResource GroupLibraryStats}" Margin="0,6,0,0">
             <StackPanel Margin="10">
-                <TextBlock Foreground="Gray"
+                <TextBlock Foreground="White"
                            Text="{DynamicResource StatsHelp}"
                            Margin="0,0,0,8"/>
 

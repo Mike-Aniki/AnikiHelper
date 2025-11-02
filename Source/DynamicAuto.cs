@@ -4,6 +4,7 @@
 // - Color source: game Background first, then Cover as fallback.
 
 using Playnite.SDK;
+using Playnite.SDK.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -31,14 +32,190 @@ namespace AnikiHelper
         private static CancellationTokenSource animCts;
 
         private const int DebounceMs = 110;          // decrease = more reactive
-        private const int TransitionMs = 220;        // total fade time
-        private const int TransitionSteps = 11;      // + more steps = smoother
+        private const int TransitionMs = 250;        // total fade time
+        private const int TransitionSteps = 12;      // + more steps = smoother
 
         private static bool lastActive = false;
         private static int tickGate = 0; // 0 = libre, 1 = in progress (re-entry barrier)
 
+        // === Cache palettes en RAM pour éviter les recalculs inutiles ===
+        private const int CacheMax = 1500; // sécurité RAM
+        private static readonly Dictionary<string, Palette> paletteCache = new Dictionary<string, Palette>(4096);
 
-        // ONLY this keys 
+        private static string MakeCacheKey(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+                var fi = new FileInfo(path);
+                return $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
+            }
+            catch
+            {
+                return path ?? "";
+            }
+        }
+
+        private static void PutCache(string key, Palette pal)
+        {
+            if (string.IsNullOrEmpty(key) || pal is null) return;
+            if (paletteCache.Count > CacheMax) paletteCache.Clear();
+            paletteCache[key] = pal;
+        }
+
+        // --- Cache persistant (JSON) des accents (hex) ---
+        private static string cacheFilePath;
+        private static readonly Dictionary<string, string> accentCache =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private static DispatcherTimer saveCacheTimer;
+
+        private static void LoadAccentCache()
+        {
+            try
+            {
+                if (File.Exists(cacheFilePath))
+                {
+                    var json = File.ReadAllText(cacheFilePath);
+                    var data = Playnite.SDK.Data.Serialization.FromJson<Dictionary<string, string>>(json);
+                    if (data != null)
+                    {
+                        accentCache.Clear();
+                        foreach (var kv in data) accentCache[kv.Key] = kv.Value;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // Cleans cache entries pointing to deleted files
+        private static void CleanupAccentCache()
+        {
+            try
+            {
+                var toRemove = accentCache.Keys.Where(k =>
+                {
+                    try
+                    {
+                        var path = k.Split('|')[0];
+                        return !File.Exists(path);
+                    }
+                    catch { return false; }
+                }).ToList();
+
+                foreach (var key in toRemove)
+                    accentCache.Remove(key);
+
+                if (toRemove.Count > 0)
+                    SaveAccentCacheNow(null, EventArgs.Empty);
+            }
+            catch { }
+        }
+
+        // Limits persistent cache to X entries (avoids huge JSON)
+        private static void TrimAccentCacheByTicks(int maxEntries = 3000)
+        {
+            try
+            {
+                if (accentCache.Count <= maxEntries)
+                    return;
+
+                // 1) Construire une liste (clé, ticks) sans tuples
+                var list = new List<KeyValuePair<string, long>>(accentCache.Count);
+                foreach (var k in accentCache.Keys)
+                {
+                    long ticks = 0;
+                    try
+                    {
+                        var parts = k.Split('|');
+                        if (parts.Length >= 3)
+                        {
+                            long.TryParse(parts[2], out ticks);
+                        }
+                    }
+                    catch { /* ignore */ }
+
+                    list.Add(new KeyValuePair<string, long>(k, ticks));
+                }
+
+                // 2) Trier par ticks décroissant et ne garder que maxEntries
+                list.Sort((a, b) => b.Value.CompareTo(a.Value)); // plus récents d'abord
+                if (list.Count > maxEntries)
+                    list.RemoveRange(maxEntries, list.Count - maxEntries);
+
+                // 3) Construire l'ensemble des clés à conserver
+                var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var kv in list)
+                    keep.Add(kv.Key);
+
+                // 4) Supprimer le reste
+                var toRemove = new List<string>();
+                foreach (var k in accentCache.Keys)
+                    if (!keep.Contains(k))
+                        toRemove.Add(k);
+
+                foreach (var k in toRemove)
+                    accentCache.Remove(k);
+
+                if (toRemove.Count > 0)
+                    SaveAccentCacheNow(null, EventArgs.Empty);
+            }
+            catch { }
+        }
+
+
+        private static void ArmSaveAccentCache()
+        {
+            try
+            {
+                if (saveCacheTimer == null)
+                {
+                    saveCacheTimer = new DispatcherTimer();
+                    saveCacheTimer.Interval = TimeSpan.FromSeconds(8);
+                }
+
+                // évite les abonnements multiples
+                saveCacheTimer.Tick -= SaveAccentCacheNow;
+                saveCacheTimer.Tick += SaveAccentCacheNow;
+
+                saveCacheTimer.Stop();  // on repart propre
+                saveCacheTimer.Start();
+            }
+            catch { }
+        }
+
+        private static void SaveAccentCacheNow(object sender, EventArgs e)
+        {
+            try
+            {
+                if (saveCacheTimer != null)
+                    saveCacheTimer.Stop();
+
+                var tmp = cacheFilePath + ".tmp";
+                var json = Playnite.SDK.Data.Serialization.ToJson(accentCache, false);
+                Directory.CreateDirectory(Path.GetDirectoryName(cacheFilePath));
+                File.WriteAllText(tmp, json);
+                if (File.Exists(cacheFilePath)) File.Delete(cacheFilePath);
+                File.Move(tmp, cacheFilePath);
+            }
+            catch { }
+        }
+
+
+        // --- Extensions autorisées pour éviter les probes lents sur GUID.GUID ---
+        private static readonly HashSet<string> AllowedExt =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".jpg", ".jpeg", ".png", ".bmp", ".webp"
+        };
+
+        private static bool HasUsableImageExt(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            var ext = Path.GetExtension(path);
+            return !string.IsNullOrEmpty(ext) && AllowedExt.Contains(ext);
+        }
+
+        // ONLY these keys
         private static readonly string[] KeysToTouch = new[]
         {
             "GlyphColor","GlowFocusColor","TextColor","TextSecondaryColor","TextDetail",
@@ -50,13 +227,13 @@ namespace AnikiHelper
             "NoFocusStart","NoFocusEnd",
             "ControlBackgroundColor","SuccessStartColor",
             "GlowMidColor","GlowEndColor",
-            "ShadeMidColor", "ShadeEndColor"
-
+            "ShadeMidColor","ShadeEndColor"
         };
 
         private static readonly string[] BrushesToTouch = new[]
         {
-            "OverlayMenu","ButtonPlayColor","FocusGameBorderBrush","MenuBorderBrush","NoFocusBorderButtonBrush","SuccessMenu","DynamicGlowBackgroundSuccess","ShadeBackground"
+            "OverlayMenu","ButtonPlayColor","FocusGameBorderBrush","MenuBorderBrush",
+            "NoFocusBorderButtonBrush","SuccessMenu","DynamicGlowBackgroundSuccess","ShadeBackground"
         };
 
         private static readonly Dictionary<string, object> snapshot = new Dictionary<string, object>();
@@ -79,13 +256,88 @@ namespace AnikiHelper
             if (enabled != true)
                 return;
 
+            HookWindowFocus();
+
+            // Nettoyage quand Playnite se ferme
+            Application.Current.Exit += (_, __) =>
+            {
+                try
+                {
+                    if (timer != null) timer.Stop();
+                    CancelWork();
+                    UnhookWindowFocus();
+
+                    // Flush persistent cache and clean up deferred timer
+                    SaveAccentCacheNow(null, EventArgs.Empty);
+                    if (saveCacheTimer != null)
+                    {
+                        saveCacheTimer.Stop();
+                        saveCacheTimer.Tick -= SaveAccentCacheNow;
+                        saveCacheTimer = null;
+                    }
+                }
+                catch { }
+            };
+
+            // Safety measure in case Application.Current.Exit does not trigger
+            AppDomain.CurrentDomain.ProcessExit += (_, __) =>
+            {
+                try
+                {
+                    if (timer != null) timer.Stop();
+                    CancelWork();
+                    UnhookWindowFocus();
+
+                    SaveAccentCacheNow(null, EventArgs.Empty);
+                    if (saveCacheTimer != null)
+                    {
+                        saveCacheTimer.Stop();
+                        saveCacheTimer.Tick -= SaveAccentCacheNow;
+                        saveCacheTimer = null;
+                    }
+                }
+                catch { }
+            };
+
+
+
+
+            // 3.5) Préparer le cache persistant
+           const string PluginId = "96a983a3-3f13-4dce-a474-4052b718bb52";
+
+            // On crée le bon dossier dans ExtensionsData/<GUID>/
+            var userDataPath = Path.Combine(api.Paths.ExtensionsDataPath, PluginId);
+            Directory.CreateDirectory(userDataPath);
+
+            cacheFilePath = Path.Combine(userDataPath, "palette_cache_v1.json");
+            log.Info($"[DynColor] Cache path: {cacheFilePath}");
+
+            LoadAccentCache();
+            CleanupAccentCache();
+            TrimAccentCacheByTicks(3000);
+
+
+            // --- Selftest : forcer une écriture pour vérifier que le cache peut être créé ---
+            accentCache["__selftest__"] = "00FFAA";
+            SaveAccentCacheNow(null, EventArgs.Empty);  // crée le fichier à coup sûr
+            accentCache.Remove("__selftest__");
+            SaveAccentCacheNow(null, EventArgs.Empty);  // le réécrit sans la clé test
+
+
             // 4) Start the timer
-            timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+            timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
             timer.Tick += async (_, __) =>
             {
                 // Gate: prevents 2 Ticks in parallel
                 if (Interlocked.Exchange(ref tickGate, 1) == 1)
                     return;
+
+                if (!IsAppActive())
+                {
+                    CancelWork();
+                    Volatile.Write(ref tickGate, 0);
+                    return;
+                }
 
                 try
                 {
@@ -125,63 +377,73 @@ namespace AnikiHelper
 
                     try
                     {
-                        // anti-rebond
                         try { await Task.Delay(DebounceMs, ct); } catch { return; }
                         if (ct.IsCancellationRequested) return;
 
-                        // Replay after waiting
                         var current = api.MainView?.SelectedGames?.FirstOrDefault();
                         if (current is null) return;
                         if (lastGameId == current.Id) return;
 
-                        // Only now is the game validated
+                        // --- Resolve usable image + build palette HORS UI THREAD ---
+                        var target = await Task.Run(() =>
+                        {
+                            if (!TryGetImageFor(current, out var src, out var used, out var ext, out var key))
+                                return (Palette)null;
+
+                            // 1) Cache RAM → instantané
+                            if (!string.IsNullOrEmpty(key) && paletteCache.TryGetValue(key, out var cachedPal))
+                                return cachedPal;
+
+                            // 2) Cache persistant (accent hex) → palette re-générée sans décoder
+                            if (!string.IsNullOrEmpty(key) && accentCache.TryGetValue(key, out var hex) && TryHexToColor(hex, out var accFromCache))
+                            {
+                                var palFromCache = BuildPalette(accFromCache);
+                                PutCache(key, palFromCache); // pour accélérer ensuite
+                                return palFromCache;
+                            }
+
+                            // 3) Décodage + calcul (fallback)
+                            var pf = PixelFormats.Bgra32;
+                            if (src.Format != pf)
+                            {
+                                src = new FormatConvertedBitmap(src, pf, null, 0);
+                                src.Freeze();
+                            }
+
+                            int w = src.PixelWidth;
+                            int h = src.PixelHeight;
+                            int stride = (w * pf.BitsPerPixel + 7) / 8;
+                            byte[] pixels = new byte[stride * h];
+                            src.CopyPixels(pixels, stride, 0);
+
+                            var accent = GetDominantVividColor_FromPixels(pixels, w, h, stride);
+                            var pal = BuildPalette(accent);
+
+                            // 4) Sauvegardes (RAM + persistant)
+                            if (!string.IsNullOrEmpty(key))
+                            {
+                                PutCache(key, pal);
+                                var hx = ColorToHex(accent);
+                                if (!accentCache.TryGetValue(key, out var old) || !string.Equals(old, hx, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    accentCache[key] = hx;
+                                    log.Debug($"[DynColor] Cache update: key={key} -> #{hx}");
+                                    ArmSaveAccentCache();
+                                }
+                            }
+                            else
+                            {
+                                log.Debug("[DynColor] No cache key (image path null/invalide) -> no persist");
+                            }
+
+
+                            return pal;
+                        }, ct);
+
+                        if (ct.IsCancellationRequested || target is null) return;
+
+                        // Palette prête → on fige le jeu courant
                         lastGameId = current.Id;
-
-                        // Image path resolution
-                        string imgPath = null;
-
-                        if (!string.IsNullOrEmpty(current.BackgroundImage))
-                        {
-                            var p = api.Database.GetFullFilePath(current.BackgroundImage);
-                            if (!string.IsNullOrEmpty(p) && File.Exists(p) && !IsVideo(p) && IsWpfImage(p))
-                                imgPath = p;
-                        }
-
-                        if (string.IsNullOrEmpty(imgPath) && !string.IsNullOrEmpty(current.CoverImage))
-                        {
-                            var p = api.Database.GetFullFilePath(current.CoverImage);
-                            if (!string.IsNullOrEmpty(p) && File.Exists(p) && !IsVideo(p) && IsWpfImage(p))
-                                imgPath = p;
-                        }
-
-                        if (string.IsNullOrEmpty(imgPath)) return;
-
-                        // Decoding + dominant extraction + palette
-                        var bmp = new BitmapImage();
-                        bmp.BeginInit();
-                        bmp.CacheOption = BitmapCacheOption.OnLoad;
-                        bmp.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                        bmp.UriSource = new Uri(imgPath, UriKind.Absolute);
-                        bmp.DecodePixelWidth = 128;
-                        bmp.EndInit();
-                        bmp.Freeze();
-
-                        BitmapSource src = bmp;
-                        var pf = PixelFormats.Bgra32;
-                        if (src.Format != pf)
-                        {
-                            src = new FormatConvertedBitmap(src, pf, null, 0);
-                            src.Freeze();
-                        }
-
-                        int w = src.PixelWidth;
-                        int h = src.PixelHeight;
-                        int stride = (w * pf.BitsPerPixel + 7) / 8;
-                        byte[] pixels = new byte[stride * h];
-                        src.CopyPixels(pixels, stride, 0);
-
-                        var accent = GetDominantVividColor_FromPixels(pixels, w, h, stride);
-                        var target = BuildPalette(accent);
 
                         StartAnimatedTransition(target);
                     }
@@ -191,15 +453,12 @@ namespace AnikiHelper
                     }
                     finally
                     {
-                        // "forget" the active instance and safely release cts
                         var oldCts = Interlocked.Exchange(ref debounceCts, null);
                         oldCts?.Dispose();
-
                     }
                 }
                 finally
                 {
-                    // Releases the barrier to allow the next tick
                     Volatile.Write(ref tickGate, 0);
                 }
             };
@@ -207,17 +466,88 @@ namespace AnikiHelper
             timer.Start();
         }
 
+        // ======== Window focus/activity management ========
 
-
-
-        // --- Color delta helper (avoid useless animations) ---
-        private static bool IsClose(MediaColor a, MediaColor b, byte tol = 6)
+        private static bool IsAppActive()
         {
-            int dR = a.R - b.R, dG = a.G - b.G, dB = a.B - b.B;
-            return (dR * dR + dG * dG + dB * dB) <= (tol * tol * 3);
+            try
+            {
+                var w = Application.Current != null ? Application.Current.MainWindow : null;
+                if (w == null) return true; // fail-open
+                return w.IsActive && w.WindowState != WindowState.Minimized;
+            }
+            catch { return true; }
         }
 
-        // --- Utility methods for safe file validation ---
+        private static void CancelWork()
+        {
+            try { if (debounceCts != null) debounceCts.Cancel(); } catch { }
+            try { if (animCts != null) animCts.Cancel(); } catch { }
+        }
+
+        private static void HookWindowFocus()
+        {
+            var w = Application.Current != null ? Application.Current.MainWindow : null;
+            if (w == null) return;
+
+            w.Activated -= OnWindowActivated;
+            w.Deactivated -= OnWindowDeactivated;
+            w.StateChanged -= OnWindowStateChanged;
+
+            w.Activated += OnWindowActivated;
+            w.Deactivated += OnWindowDeactivated;
+            w.StateChanged += OnWindowStateChanged;
+        }
+
+        private static void UnhookWindowFocus()
+        {
+            var w = Application.Current != null ? Application.Current.MainWindow : null;
+            if (w == null) return;
+
+            w.Activated -= OnWindowActivated;
+            w.Deactivated -= OnWindowDeactivated;
+            w.StateChanged -= OnWindowStateChanged;
+        }
+
+        private static void OnWindowActivated(object s, EventArgs e)
+        {
+            if (IsDynamicAutoActive() && timer != null && !timer.IsEnabled)
+            {
+                
+                CancelWork();          // in case something is left behind
+                lastGameId = null;     // forces a recalculation
+                timer.Start();
+            }
+        }
+
+
+
+        private static void OnWindowDeactivated(object s, EventArgs e)
+        {
+            // Stops and cancels any tasks in progress when the app loses focus
+            if (timer != null) timer.Stop();
+            CancelWork();
+            lastGameId = null; // avoid skipping the first game on the way back
+            Volatile.Write(ref tickGate, 0);
+        }
+
+        private static void OnWindowStateChanged(object s, EventArgs e)
+        {
+            var w = Application.Current != null ? Application.Current.MainWindow : null;
+            if (w == null) return;
+
+            if (w.WindowState == WindowState.Minimized)
+            {
+                OnWindowDeactivated(s, e);
+            }
+            else if (w.IsActive)
+            {
+                OnWindowActivated(s, e);
+            }
+        }
+
+
+        // --- Utility methods ---
         private static bool IsVideo(string path)
         {
             if (string.IsNullOrEmpty(path)) return false;
@@ -225,15 +555,67 @@ namespace AnikiHelper
             return ext == ".mp4" || ext == ".webm" || ext == ".avi" || ext == ".mkv";
         }
 
-        private static bool IsWpfImage(string path)
+        // Decode helper: try any WIC-supported format (PNG/JPG, WEBP/AVIF if codec present).
+        // Returns false if file can't be decoded (this triggers the real fallback).
+        private static bool TryLoadBitmap(string path, out BitmapSource bmp)
         {
-            if (string.IsNullOrEmpty(path)) return false;
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            return ext == ".jpg" || ext == ".jpeg" || ext == ".png" ||
-                   ext == ".bmp" || ext == ".gif" || ext == ".tif" ||
-                   ext == ".tiff" || ext == ".ico";
+            bmp = null;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+            try
+            {
+                using (var fs = new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    4096,
+                    FileOptions.SequentialScan))
+                {
+                    var dec = BitmapDecoder.Create(fs, BitmapCreateOptions.IgnoreImageCache, BitmapCacheOption.OnLoad);
+                    var frame = dec.Frames[0];
+
+                    // Skip icônes/miniatures trop petites
+                    if (frame.PixelWidth < 256 || frame.PixelHeight < 256)
+                        return false;
+
+                    double scale = 96.0 / Math.Max(frame.PixelWidth, frame.PixelHeight);
+                    var scaled = new TransformedBitmap(frame, new ScaleTransform(scale, scale));
+                    scaled.Freeze();
+                    bmp = scaled;
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
+        // Picks Background first, then Cover only if bg decode fails (true fallback).
+        private static bool TryGetImageFor(Game g, out BitmapSource bmp, out string used, out string ext, out string cacheKey)
+        {
+            bmp = null; used = null; ext = null; cacheKey = null;
+
+            var bg = api.Database.GetFullFilePath(g.BackgroundImage);
+            if (!string.IsNullOrEmpty(bg) && !IsVideo(bg) && HasUsableImageExt(bg) && TryLoadBitmap(bg, out bmp))
+            {
+                used = "background";
+                ext = Path.GetExtension(bg)?.ToLowerInvariant();
+                cacheKey = MakeCacheKey(bg);
+                return true;
+            }
+
+            var cover = api.Database.GetFullFilePath(g.CoverImage);
+            if (!string.IsNullOrEmpty(cover) && !IsVideo(cover) && HasUsableImageExt(cover) && TryLoadBitmap(cover, out bmp))
+            {
+                used = "cover";
+                ext = Path.GetExtension(cover)?.ToLowerInvariant();
+                cacheKey = MakeCacheKey(cover);
+                return true;
+            }
+
+            return false;
+        }
 
         private static bool IsDynamicAutoActive()
         {
@@ -252,13 +634,10 @@ namespace AnikiHelper
             if (dict == null) return;
 
             foreach (var key in KeysToTouch)
-            {
                 if (dict.Contains(key)) snapshot[key] = dict[key];
-            }
+
             foreach (var key in BrushesToTouch)
-            {
                 if (dict.Contains(key)) snapshot[key] = dict[key];
-            }
         }
 
         private static void RestoreSnapshot()
@@ -270,16 +649,14 @@ namespace AnikiHelper
             snapshot.Clear();
         }
 
-        // ---------- Dominante "vivid" ----------
+        // ---------- Dominant color ----------
         private static MediaColor GetDominantVividColor_FromPixels(byte[] pixels, int w, int h, int stride)
         {
             if (pixels == null || w <= 0 || h <= 0)
                 return MediaColor.FromRgb(31, 35, 45);
 
-            // Subsampling: 1 pixel out of 2 in X and Y is read
             const int stepX = 2, stepY = 2;
 
-            // Center window 12%...88%
             int x0 = (int)(w * 0.12);
             int x1 = (int)(w * 0.88);
             int y0 = (int)(h * 0.12);
@@ -301,17 +678,14 @@ namespace AnikiHelper
                     byte a = pixels[i + 3];
                     if (a < 16) continue;
 
-                    // Luminance in 0..255 (integers)
                     int lum = Lum255(r, g, b);
-                    if (lum < 31) continue;        // ≈ 0.12*255
+                    if (lum < 31) continue;
 
                     considered++;
-                    if (lum > 209) brightCount++;  // ≈ 0.82*255
+                    if (lum > 209) brightCount++;
 
-                    // "Too gray" filter (integers)
                     if (IsLowSat(r, g, b)) continue;
 
-                    // "Skin tone" filter: calculates hue only if relevant
                     if (SkinHueLikely(r, g, b))
                     {
                         byte max = Math.Max(r, Math.Max(g, b));
@@ -326,7 +700,6 @@ namespace AnikiHelper
                             hue *= 60.0;
                             if (hue < 0) hue += 360.0;
 
-                            // sat < 0.45  ↔  (max-min)/max < 0.45 → (max-min)*100 < 45*max
                             bool satModerate = ((max - min) * 100) < (45 * Math.Max(1, (int)max));
                             if (hue >= 15 && hue <= 45 && satModerate)
                                 continue;
@@ -345,7 +718,7 @@ namespace AnikiHelper
             for (int k = 0; k < hist.Length; k++)
                 if (hist[k] > maxCount) { maxCount = hist[k]; maxIdx = k; }
 
-            bool tooSmallPeak = maxCount < Math.Max(50, considered / 300);         // ~0.33%
+            bool tooSmallPeak = maxCount < Math.Max(50, considered / 300);
             bool veryBrightBg = (brightCount / (double)considered) > 0.55;
 
             if ((maxIdx < 0 || tooSmallPeak) && veryBrightBg)
@@ -369,17 +742,11 @@ namespace AnikiHelper
             return MediaColor.FromRgb(R, G, B);
         }
 
-        // Helpers perf (int math)
-        private static int Lum255(byte r, byte g, byte b)
-        {
-            // approx 0.2126/0.7152/0.0722 → 54/183/18 (somme ≈ 255)
-            return (54 * r + 183 * g + 18 * b) / 255; // 0..255
-        }
+        private static int Lum255(byte r, byte g, byte b) => (54 * r + 183 * g + 18 * b) / 255; // 0..255
         private static bool IsLowSat(byte r, byte g, byte b)
         {
             byte max = Math.Max(r, Math.Max(g, b));
             byte min = Math.Min(r, Math.Min(g, b));
-            // sat < 0.18  ↔  (max-min)/max < 0.18 → (max-min)*100 < 18*max
             return (max - min) * 100 < 18 * Math.Max(1, (int)max);
         }
         private static bool SkinHueLikely(byte r, byte g, byte b)
@@ -387,11 +754,10 @@ namespace AnikiHelper
             byte max = Math.Max(r, Math.Max(g, b));
             byte min = Math.Min(r, Math.Min(g, b));
             int chroma = max - min;
-            if (chroma < 20) return false; 
+            if (chroma < 20) return false;
             int lum = Lum255(r, g, b);
             return lum > 64 && lum < 217;
         }
-
 
         // ---------- Palette ----------
         private sealed class Palette
@@ -410,23 +776,19 @@ namespace AnikiHelper
             public MediaColor GlowMidColor, GlowEndColor;
         }
 
-
         private static Palette BuildPalette(MediaColor accent)
         {
-            // 0) Tame aggressive colors 
             var safeAccent = MakeAccentReadable(accent);
 
-            // 1) Accent-based overlays 
             var overlayTop = safeAccent;
             var overlayMid = Darken(safeAccent, .45);
             var overlayBot = Darken(safeAccent, .75);
 
-            // 2) WHITE TEXT → fairly dark background 
             var textMain = Colors.White;
-            var textSecondary = Mix(textMain, overlayMid, .25); 
-            var textDetail = Mix(textMain, overlayMid, .45); 
+            var textSecondary = Mix(textMain, overlayMid, .25);
+            var textDetail = Mix(textMain, overlayMid, .45);
 
-            bool light = Luminance(safeAccent) > 0.65; 
+            bool light = Luminance(safeAccent) > 0.65;
 
             return new Palette
             {
@@ -467,9 +829,13 @@ namespace AnikiHelper
             };
         }
 
-
-
         // ---------- Animation ----------
+        private static bool IsClose(MediaColor a, MediaColor b, byte tol = 6)
+        {
+            int dR = a.R - b.R, dG = a.G - b.G, dB = a.B - b.B;
+            return (dR * dR + dG * dG + dB * dB) <= (tol * tol * 3);
+        }
+
         private static void StartAnimatedTransition(Palette target)
         {
             if (!IsDynamicAutoActive()) return;
@@ -479,17 +845,15 @@ namespace AnikiHelper
             animCts = new CancellationTokenSource();
             var ct = animCts.Token;
 
-            // Skip animation if colors are nearly identical
             var current = SnapshotCurrentPalette(target);
             if (IsClose(current.Accent, target.Accent) &&
                 IsClose(current.OverlayMid, target.OverlayMid) &&
                 IsClose(current.MenuBorderEnd, target.MenuBorderEnd))
             {
-                ApplyPalette_NoShade(target); // apply once, no animation
+                ApplyPalette_NoShade(target);
                 return;
             }
 
-            // Snapshot of current colors.
             var from = SnapshotCurrentPalette(target);
 
             _ = Task.Run(async () =>
@@ -501,12 +865,10 @@ namespace AnikiHelper
                 {
                     if (ct.IsCancellationRequested || !IsDynamicAutoActive()) return;
                     double t = (double)i / steps;
-                    t = t * t * (3 - 2 * t); // ease-in-out (smoothstep)
-
+                    t = t * t * (3 - 2 * t); // smoothstep
 
                     var frame = LerpPalette(from, target, t);
 
-                    // applies frame only if not cancelled, at rendering time
                     Application.Current?.Dispatcher?.InvokeAsync(
                         () =>
                         {
@@ -521,10 +883,8 @@ namespace AnikiHelper
             }, ct);
         }
 
-
         private static Palette SnapshotCurrentPalette(Palette fallback)
         {
-            // retrieves from Resources if present, otherwise takes fallback
             MediaColor get(string key, MediaColor fb)
             {
                 var dict = Application.Current?.Resources;
@@ -573,7 +933,6 @@ namespace AnikiHelper
 
                 GlowMidColor = get("GlowMidColor", fallback.GlowMidColor),
                 GlowEndColor = get("GlowEndColor", fallback.GlowEndColor),
-
             };
         }
 
@@ -620,11 +979,10 @@ namespace AnikiHelper
 
                 GlowMidColor = Lerp(a.GlowMidColor, b.GlowMidColor, t),
                 GlowEndColor = Lerp(a.GlowEndColor, b.GlowEndColor, t),
-
             };
         }
 
-        // ---------- Application ----------
+        // ---------- Apply ----------
         private static void ApplyPalette_NoShade(Palette p)
         {
             if (!IsDynamicAutoActive()) return;
@@ -632,13 +990,6 @@ namespace AnikiHelper
             SetColor("GlyphColor", p.Accent);
             SetColor("GlowFocusColor", p.Glow);
 
-            // (DELETED) :
-            // SetColor("TextColor", p.Text);
-            // SetColor("TextSecondaryColor", p.TextSecondary);
-            // SetColor("TextDetail", p.TextDetail);
-            // SetColor("TextAltDetail", p.TextSecondary);
-
-            // The rest continues to apply as normal
             SetColor("TextHighlight", p.Highlight);
             SetColor("HltbAlt", p.Secondary);
             SetColor("DynamicGlowBackgroundPrimary", p.Accent);
@@ -666,7 +1017,6 @@ namespace AnikiHelper
             SetColor("GlowMidColor", p.GlowMidColor);
             SetColor("GlowEndColor", p.GlowEndColor);
 
-            // Brushes (unchanged)
             UpdateOrSetLinearBrushV("OverlayMenu", p.OverlayTop, p.OverlayMid, p.OverlayBot);
             UpdateOrSetLinearBrushV("ButtonPlayColor", p.Accent, p.ButtonPlayMid, p.ButtonPlayEnd);
             UpdateOrSetLinearBrushDiag("FocusGameBorderBrush", p.FocusStart, p.FocusMid, p.FocusEnd);
@@ -674,47 +1024,39 @@ namespace AnikiHelper
             UpdateOrSetLinearBrushDiag("NoFocusBorderButtonBrush", p.NoFocusStart, p.NoFocusEnd);
             UpdateOrSetLinearBrushH("SuccessMenu", p.SuccessStartColor, p.ControlBackgroundColor);
 
-            // === Dynamic Shade: updates colors ===
             var acc = p.ShadeMidColor;
             var shadeMid = Color.FromArgb(0x99, acc.R, acc.G, acc.B); // 60%
             var shadeEnd = Color.FromArgb(0xFF, acc.R, acc.G, acc.B); // 100%
 
-            Application.Current.Resources["ShadeMidColor"] = shadeMid;
-            Application.Current.Resources["ShadeEndColor"] = shadeEnd;
+            SetColor("ShadeMidColor", shadeMid);
+            SetColor("ShadeEndColor", shadeEnd);
 
-            // === Forced brush refresh ===
             var dict = Application.Current.Resources;
-            if (dict["ShadeBackground"] is LinearGradientBrush lb)
+            if (dict != null && dict.Contains("ShadeBackground") && dict["ShadeBackground"] is LinearGradientBrush lb)
             {
-                // clone to make sure it's not Freezable
                 var clone = lb.Clone();
 
-                // replaces only stops 0.00 / 0.20 / 0.45 / 1.00
                 foreach (var gs in clone.GradientStops)
                 {
-                    // tolerance on offsets to avoid approximate floats
                     double o = gs.Offset;
-                    if (Math.Abs(o - 0.00) < 0.001) gs.Color = Color.FromArgb(0x00, 0x00, 0x00, 0x00); // transparent
-                    else if (Math.Abs(o - 0.20) < 0.001) gs.Color = shadeMid;                            // 40% accent
-                    else if (Math.Abs(o - 0.45) < 0.001) gs.Color = shadeEnd;                            // 80% accent
-                    else if (Math.Abs(o - 1.00) < 0.001) gs.Color = Color.FromArgb(0xFF, 0, 0, 0);       // noir
+                    if (Math.Abs(o - 0.00) < 0.001) gs.Color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+                    else if (Math.Abs(o - 0.20) < 0.001) gs.Color = shadeMid;
+                    else if (Math.Abs(o - 0.45) < 0.001) gs.Color = shadeEnd;
+                    else if (Math.Abs(o - 1.00) < 0.001) gs.Color = Color.FromArgb(0xFF, 0, 0, 0);
                 }
 
-                dict["ShadeBackground"] = clone; // replaces the instance in the dictionary
+                dict["ShadeBackground"] = clone;
             }
-
-
 
             var radial = new RadialGradientBrush(
                 new GradientStopCollection {
-            new GradientStop(p.Accent,      0.00),
-            new GradientStop(p.GlowMidColor,0.70),
-            new GradientStop(p.GlowEndColor,1.00)
+                    new GradientStop(p.Accent,      0.00),
+                    new GradientStop(p.GlowMidColor,0.70),
+                    new GradientStop(p.GlowEndColor,1.00)
                 })
             { Center = new Point(.5, .4), GradientOrigin = new Point(.5, .4), RadiusX = .8, RadiusY = .9 };
             SetBrush("DynamicGlowBackgroundSuccess", radial);
         }
-
 
         // ---------- Helpers ----------
         private static void SetColor(string key, MediaColor c)
@@ -726,39 +1068,6 @@ namespace AnikiHelper
         {
             if (Application.Current?.Resources == null) return;
             Application.Current.Resources[key] = b;
-        }
-
-        // Update the Color resource AND update the same instance of mirror brushes if possible.
-        // If the brush is freezable, we clone it, modify the color and replace the input.
-        private static void SetColorAndMirrorBrushes(string colorKey, MediaColor c, params string[] mirrorBrushKeys)
-        {
-            SetColor(colorKey, c);
-            var dict = Application.Current?.Resources;
-            if (dict == null) return;
-
-            foreach (var bk in mirrorBrushKeys)
-            {
-                var existing = dict.Contains(bk) ? dict[bk] : null;
-
-                if (existing is SolidColorBrush sb)
-                {
-                    if (sb.IsFrozen)
-                    {
-                        var clone = sb.Clone();
-                        clone.Color = c;
-                        dict[bk] = clone; // replace with a modifiable clone
-                    }
-                    else
-                    {
-                        sb.Color = c;     // modify the existing INSTANCE ⇒ StaticResource follows
-                    }
-                }
-                else
-                {
-                    // If not a brush or absent, create brush
-                    dict[bk] = new SolidColorBrush(c);
-                }
-            }
         }
 
         private static LinearGradientBrush MakeLinearV(params MediaColor[] stops)
@@ -783,7 +1092,6 @@ namespace AnikiHelper
             return new LinearGradientBrush(gs, new Point(0, 0), new Point(1, 1));
         }
 
-        // --- In-place updates for linear gradient brushes (reduce allocations/GC) ---
         private static void UpdateOrSetLinearBrushV(string key, params MediaColor[] stops)
         {
             var dict = Application.Current?.Resources;
@@ -847,7 +1155,23 @@ namespace AnikiHelper
             }
         }
 
-        // ======== Auto-contraste texte ========
+        // ======== Auto-contrast / color helpers ========
+        private static string ColorToHex(MediaColor c) => $"{c.R:X2}{c.G:X2}{c.B:X2}";
+        private static bool TryHexToColor(string hex, out MediaColor c)
+        {
+            c = default;
+            if (string.IsNullOrEmpty(hex) || hex.Length != 6) return false;
+            try
+            {
+                byte r = Convert.ToByte(hex.Substring(0, 2), 16);
+                byte g = Convert.ToByte(hex.Substring(2, 2), 16);
+                byte b = Convert.ToByte(hex.Substring(4, 2), 16);
+                c = MediaColor.FromRgb(r, g, b);
+                return true;
+            }
+            catch { return false; }
+        }
+
         private static double SrgbToLinear(byte c)
         {
             double cs = c / 255.0;
@@ -872,12 +1196,9 @@ namespace AnikiHelper
             double darker = Math.Min(L1, L2);
             return (lighter + 0.05) / (darker + 0.05);
         }
-
-        /// Calculates a GRAY text color 
         private static MediaColor AutoTextOn(MediaColor bg, double targetContrast = 4.5)
         {
             double Lbg = RelativeLuminance(bg);
-
             double cBlack = ContrastRatioFromLums(SrgbToLinear(0), Lbg);
             double cWhite = ContrastRatioFromLums(SrgbToLinear(255), Lbg);
             if (cBlack >= targetContrast || cWhite >= targetContrast)
@@ -908,7 +1229,6 @@ namespace AnikiHelper
                 }
                 else
                 {
-                    
                     if (ContrastRatioFromLums((hi + mid) * 0.5, Lbg) > c) lo = mid; else hi = mid;
                 }
             }
@@ -916,44 +1236,30 @@ namespace AnikiHelper
             return best;
         }
 
-        // ======== Taming/safe accent ========
         private static MediaColor GrayOf(MediaColor c)
         {
             byte y = (byte)Math.Round(0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B);
             return MediaColor.FromRgb(y, y, y);
         }
-
-        /// Desaturates the color by blending it into a gray of the same luminance.
-        /// f : 0 = unchanged, 1 = fully desaturated.
         private static MediaColor Desaturate(MediaColor c, double f)
         {
             f = (f < 0) ? 0 : (f > 1 ? 1 : f);
             var g = GrayOf(c);
             return Mix(c, g, f);
         }
-
-
-        /// Reduces saturation and luminance of "garish" colors.
         private static MediaColor MakeAccentReadable(MediaColor accent)
         {
-            // 1) A little desaturation 
             var c1 = Desaturate(accent, 0.20);
-
-            // 2) If too light, darken 
-            double L = Luminance(c1);                 
-            const double Lmax = 0.75;    // acceptable ceiling for a legible background in white text
+            double L = Luminance(c1);
+            const double Lmax = 0.75;
             if (L > Lmax)
             {
-                
-                double f = (L - Lmax) + 0.10;         
+                double f = (L - Lmax) + 0.10;
                 f = (f < 0) ? 0 : (f > 0.85 ? 0.85 : f);
                 c1 = Darken(c1, f);
             }
-
             return c1;
         }
-
-
 
         private static MediaColor Darken(MediaColor c, double f) => MediaColor.FromRgb(
             (byte)(c.R * (1 - f)), (byte)(c.G * (1 - f)), (byte)(c.B * (1 - f)));

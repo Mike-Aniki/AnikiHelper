@@ -18,34 +18,39 @@ namespace AnikiHelper
         {
             try
             {
-                string asm = Assembly.GetExecutingAssembly().GetName().Name;
-                string lang = CultureInfo.CurrentUICulture.Name; // ex: fr-FR, en-US
+                string asm = Assembly.GetExecutingAssembly().GetName().Name; // "AnikiHelper"
+                var cul = CultureInfo.CurrentUICulture;
 
-                string[] uris =
+                string dash = cul.Name;                    // fr-FR
+                string underscore = dash.Replace('-', '_'); // fr_FR
+                string neutral = cul.TwoLetterISOLanguageName; // fr
+
+                string basePath = $"pack://application:,,,/{asm};component/";
+
+                var candidates = new[]
                 {
-                    $"pack://application:,,,/{asm};component/Localization/{lang}.xaml",
-                    $"pack://application:,,,/{asm};component/Localization/en_US.xaml" // fallback
-                };
+            basePath + $"Localization/{dash}.xaml",
+            basePath + $"Localization/{underscore}.xaml",
+            basePath + $"Localization/{neutral}.xaml",
+            // fallback (on a déjà en_US.xaml mergé en XAML, mais on tente quand même en priorité)
+            basePath + $"Localization/en_US.xaml"
+        };
 
-                foreach (var uri in uris)
+                foreach (var uri in candidates)
                 {
                     try
                     {
                         var dict = (ResourceDictionary)Application.LoadComponent(new Uri(uri, UriKind.Absolute));
-                        Resources.MergedDictionaries.Insert(0, dict);
-                        return; // dès qu’un dictionnaire est chargé, on s’arrête
+                        // On insère devant le fallback pour le surcharger
+                        Application.Current.Resources.MergedDictionaries.Insert(0, dict);
+                        return;
                     }
-                    catch
-                    {
-                        // ignore si non trouvé
-                    }
+                    catch { /* ignore si introuvable */ }
                 }
             }
-            catch
-            {
-                // silencieux
-            }
+            catch { }
         }
+
 
         private void ResetSnapshot_Click(object sender, RoutedEventArgs e)
         {
