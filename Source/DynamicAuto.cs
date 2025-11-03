@@ -7,6 +7,7 @@ using Playnite.SDK;
 using Playnite.SDK.Models;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,9 +15,8 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.IO;
-using MediaColor = System.Windows.Media.Color;
 using MediaBrush = System.Windows.Media.Brush;
+using MediaColor = System.Windows.Media.Color;
 
 namespace AnikiHelper
 {
@@ -31,16 +31,45 @@ namespace AnikiHelper
         private static CancellationTokenSource debounceCts;
         private static CancellationTokenSource animCts;
 
-        private const int DebounceMs = 110;          // decrease = more reactive
-        private const int TransitionMs = 250;        // total fade time
-        private const int TransitionSteps = 12;      // + more steps = smoother
+        private const int DebounceMs = 30;          // decrease = more reactive
+        private const int TransitionMs = 120;        // total fade time
+        private const int TransitionSteps = 8;      // + more steps = smoother
+
+        // --- Precache optionnel (désactivé par défaut via ressource) ---
+        private const int PrecacheDelayMs = 9000;   // attendre après le boot
+        private const int PrecacheGapMs = 200;    // 1 image / 200 ms
+        private const int PrecacheMax = 200;    // cap par session
+
+        // Activité utilisateur pour stopper le precache dès qu'on bouge
+        private static long lastUserActivityTicks = 0; 
+        private static bool IsIdleForMs(int ms) =>
+        (Environment.TickCount - Interlocked.Read(ref lastUserActivityTicks)) >= ms;
+
+        // Helper: lire un bool ressource pour activer/désactiver le precache
+        private static bool IsPrecacheEnabled()
+        {
+            try
+            {
+                var r = Application.Current?.Resources?["DynamicAutoPrecacheEnabled"];
+                return r is bool b && b;
+            }
+            catch { return false; }
+        }
+
 
         private static bool lastActive = false;
         private static int tickGate = 0; // 0 = libre, 1 = in progress (re-entry barrier)
 
+        // === Compteurs de cache ===
+        private static int hitsRam = 0;
+        private static int hitsDisk = 0;
+        private static int missesDecode = 0;
+
         // === Cache palettes en RAM pour éviter les recalculs inutiles ===
         private const int CacheMax = 1500; // sécurité RAM
         private static readonly Dictionary<string, Palette> paletteCache = new Dictionary<string, Palette>(4096);
+        private static readonly object cacheLock = new object();
+        private static readonly object paletteLock = new object();
 
         private static string MakeCacheKey(string path)
         {
@@ -50,117 +79,103 @@ namespace AnikiHelper
                 var fi = new FileInfo(path);
                 return $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
             }
-            catch
-            {
-                return path ?? "";
-            }
+            catch { return null; }
         }
+
+
+
 
         private static void PutCache(string key, Palette pal)
         {
             if (string.IsNullOrEmpty(key) || pal is null) return;
-            if (paletteCache.Count > CacheMax) paletteCache.Clear();
-            paletteCache[key] = pal;
+            lock (paletteLock)
+            {
+                if (paletteCache.Count > CacheMax)
+                    paletteCache.Clear();
+                paletteCache[key] = pal;
+            }
         }
 
-        // --- Cache persistant (JSON) des accents (hex) ---
+
+        // --- Cache persistant (JSON) de la palette complète ---
         private static string cacheFilePath;
-        private static readonly Dictionary<string, string> accentCache =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Cache disque : palette complète (clé = hash image)
+        private static readonly Dictionary<string, PaletteDto> paletteCacheDisk =
+            new Dictionary<string, PaletteDto>(StringComparer.OrdinalIgnoreCase);
+
         private static DispatcherTimer saveCacheTimer;
 
         private static void LoadAccentCache()
         {
             try
             {
-                if (File.Exists(cacheFilePath))
+                if (!File.Exists(cacheFilePath)) return;
+                var json = File.ReadAllText(cacheFilePath);
+
+                // Format cible : palette complète
+                var full = Playnite.SDK.Data.Serialization.FromJson<Dictionary<string, PaletteDto>>(json);
+                if (full != null)
                 {
-                    var json = File.ReadAllText(cacheFilePath);
-                    var data = Playnite.SDK.Data.Serialization.FromJson<Dictionary<string, string>>(json);
-                    if (data != null)
+                    lock (cacheLock)
                     {
-                        accentCache.Clear();
-                        foreach (var kv in data) accentCache[kv.Key] = kv.Value;
+                        paletteCacheDisk.Clear();
+                        foreach (var kv in full)
+                            paletteCacheDisk[kv.Key] = kv.Value;
                     }
-                }
-            }
-            catch { }
-        }
-
-        // Cleans cache entries pointing to deleted files
-        private static void CleanupAccentCache()
-        {
-            try
-            {
-                var toRemove = accentCache.Keys.Where(k =>
-                {
-                    try
-                    {
-                        var path = k.Split('|')[0];
-                        return !File.Exists(path);
-                    }
-                    catch { return false; }
-                }).ToList();
-
-                foreach (var key in toRemove)
-                    accentCache.Remove(key);
-
-                if (toRemove.Count > 0)
-                    SaveAccentCacheNow(null, EventArgs.Empty);
-            }
-            catch { }
-        }
-
-        // Limits persistent cache to X entries (avoids huge JSON)
-        private static void TrimAccentCacheByTicks(int maxEntries = 3000)
-        {
-            try
-            {
-                if (accentCache.Count <= maxEntries)
                     return;
+                }
 
-                // 1) Construire une liste (clé, ticks) sans tuples
-                var list = new List<KeyValuePair<string, long>>(accentCache.Count);
-                foreach (var k in accentCache.Keys)
+                // --- MIGRATION depuis anciens formats ---
+                // Ancien v2: Dictionary<string, string[]>  (arr[0] = Accent)
+                var v2 = Playnite.SDK.Data.Serialization.FromJson<Dictionary<string, string[]>>(json);
+                if (v2 != null)
                 {
-                    long ticks = 0;
-                    try
+                    lock (cacheLock)
                     {
-                        var parts = k.Split('|');
-                        if (parts.Length >= 3)
+                        paletteCacheDisk.Clear();
+                        foreach (var kv in v2)
                         {
-                            long.TryParse(parts[2], out ticks);
+                            var arr = kv.Value;
+                            if (arr == null || arr.Length == 0) continue;
+                            var hex = arr[0];
+                            if (string.IsNullOrWhiteSpace(hex) || hex.Length != 6) continue;
+                            var pal = BuildPalette(FromHex(hex));
+                            paletteCacheDisk[kv.Key] = ToDto(pal);
                         }
                     }
-                    catch { /* ignore */ }
-
-                    list.Add(new KeyValuePair<string, long>(k, ticks));
+                    SaveAccentCacheNow(null, EventArgs.Empty);
+                    return;
                 }
 
-                // 2) Trier par ticks décroissant et ne garder que maxEntries
-                list.Sort((a, b) => b.Value.CompareTo(a.Value)); // plus récents d'abord
-                if (list.Count > maxEntries)
-                    list.RemoveRange(maxEntries, list.Count - maxEntries);
-
-                // 3) Construire l'ensemble des clés à conserver
-                var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var kv in list)
-                    keep.Add(kv.Key);
-
-                // 4) Supprimer le reste
-                var toRemove = new List<string>();
-                foreach (var k in accentCache.Keys)
-                    if (!keep.Contains(k))
-                        toRemove.Add(k);
-
-                foreach (var k in toRemove)
-                    accentCache.Remove(k);
-
-                if (toRemove.Count > 0)
+                // Très ancien v1: Dictionary<string,string> (Accent direct)
+                var v1 = Playnite.SDK.Data.Serialization.FromJson<Dictionary<string, string>>(json);
+                if (v1 != null)
+                {
+                    lock (cacheLock)
+                    {
+                        paletteCacheDisk.Clear();
+                        foreach (var kv in v1)
+                        {
+                            var hex = kv.Value;
+                            if (string.IsNullOrWhiteSpace(hex) || hex.Length != 6) continue;
+                            var pal = BuildPalette(FromHex(hex));
+                            paletteCacheDisk[kv.Key] = ToDto(pal);
+                        }
+                    }
                     SaveAccentCacheNow(null, EventArgs.Empty);
+                }
             }
             catch { }
+
+            log.Info($"[DynColor] Loaded persistent palette cache: {paletteCacheDisk.Count} entries.");
+
+
         }
+
+
+
+
+
 
 
         private static void ArmSaveAccentCache()
@@ -170,7 +185,7 @@ namespace AnikiHelper
                 if (saveCacheTimer == null)
                 {
                     saveCacheTimer = new DispatcherTimer();
-                    saveCacheTimer.Interval = TimeSpan.FromSeconds(8);
+                    saveCacheTimer.Interval = TimeSpan.FromSeconds(45);
                 }
 
                 // évite les abonnements multiples
@@ -191,14 +206,23 @@ namespace AnikiHelper
                     saveCacheTimer.Stop();
 
                 var tmp = cacheFilePath + ".tmp";
-                var json = Playnite.SDK.Data.Serialization.ToJson(accentCache, false);
+                string json;
+                lock (cacheLock)
+                {
+                    json = Playnite.SDK.Data.Serialization.ToJson(paletteCacheDisk, true);
+                }
                 Directory.CreateDirectory(Path.GetDirectoryName(cacheFilePath));
                 File.WriteAllText(tmp, json);
                 if (File.Exists(cacheFilePath)) File.Delete(cacheFilePath);
                 File.Move(tmp, cacheFilePath);
             }
             catch { }
+
+            log.Info($"[DynColor] Persistent cache saved: {paletteCacheDisk.Count} entries → {cacheFilePath}");
+
         }
+
+
 
 
         // --- Extensions autorisées pour éviter les probes lents sur GUID.GUID ---
@@ -309,23 +333,18 @@ namespace AnikiHelper
             var userDataPath = Path.Combine(api.Paths.ExtensionsDataPath, PluginId);
             Directory.CreateDirectory(userDataPath);
 
-            cacheFilePath = Path.Combine(userDataPath, "palette_cache_v1.json");
+            cacheFilePath = Path.Combine(userDataPath, "palette_cache.json");
             log.Info($"[DynColor] Cache path: {cacheFilePath}");
 
             LoadAccentCache();
-            CleanupAccentCache();
-            TrimAccentCacheByTicks(3000);
 
 
-            // --- Selftest : forcer une écriture pour vérifier que le cache peut être créé ---
-            accentCache["__selftest__"] = "00FFAA";
-            SaveAccentCacheNow(null, EventArgs.Empty);  // crée le fichier à coup sûr
-            accentCache.Remove("__selftest__");
-            SaveAccentCacheNow(null, EventArgs.Empty);  // le réécrit sans la clé test
+
+         
 
 
             // 4) Start the timer
-            timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };
+            timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             timer.Tick += async (_, __) =>
             {
                 // Gate: prevents 2 Ticks in parallel
@@ -384,23 +403,52 @@ namespace AnikiHelper
                         if (current is null) return;
                         if (lastGameId == current.Id) return;
 
+                        Interlocked.Exchange(ref lastUserActivityTicks, (long)Environment.TickCount);
+
+
                         // --- Resolve usable image + build palette HORS UI THREAD ---
                         var target = await Task.Run(() =>
                         {
                             if (!TryGetImageFor(current, out var src, out var used, out var ext, out var key))
                                 return (Palette)null;
 
-                            // 1) Cache RAM → instantané
-                            if (!string.IsNullOrEmpty(key) && paletteCache.TryGetValue(key, out var cachedPal))
-                                return cachedPal;
-
-                            // 2) Cache persistant (accent hex) → palette re-générée sans décoder
-                            if (!string.IsNullOrEmpty(key) && accentCache.TryGetValue(key, out var hex) && TryHexToColor(hex, out var accFromCache))
+                            // 1) Cache RAM → instantané (thread-safe)
+                            if (!string.IsNullOrEmpty(key))
                             {
-                                var palFromCache = BuildPalette(accFromCache);
-                                PutCache(key, palFromCache); // pour accélérer ensuite
-                                return palFromCache;
+                                Palette cachedPal;
+                                lock (paletteLock)
+                                {
+                                    paletteCache.TryGetValue(key, out cachedPal);
+                                }
+                                if (cachedPal != null)
+                                {
+                                    Interlocked.Increment(ref hitsRam);
+                                    return cachedPal;
+                                }
+
                             }
+
+
+                            // 2) DISK cache (palette complète) -> sans décoder l’image
+                            if (!string.IsNullOrEmpty(key))
+                            {
+                                PaletteDto dto = null;
+                                lock (cacheLock)
+                                {
+                                    paletteCacheDisk.TryGetValue(key, out dto);
+                                }
+                                if (dto != null)
+                                {
+                                    var palFromDisk = FromDto(dto);
+                                    PutCache(key, palFromDisk);   // hydrate RAM pour la session
+                                    Interlocked.Increment(ref hitsDisk);
+                                    return palFromDisk;
+                                }
+
+
+                            }
+
+
 
                             // 3) Décodage + calcul (fallback)
                             var pf = PixelFormats.Bgra32;
@@ -419,25 +467,23 @@ namespace AnikiHelper
                             var accent = GetDominantVividColor_FromPixels(pixels, w, h, stride);
                             var pal = BuildPalette(accent);
 
-                            // 4) Sauvegardes (RAM + persistant)
+                            // 4) Sauvegardes (RAM + DISK palette complète)
                             if (!string.IsNullOrEmpty(key))
                             {
                                 PutCache(key, pal);
-                                var hx = ColorToHex(accent);
-                                if (!accentCache.TryGetValue(key, out var old) || !string.Equals(old, hx, StringComparison.OrdinalIgnoreCase))
+                                lock (cacheLock)
                                 {
-                                    accentCache[key] = hx;
-                                    log.Debug($"[DynColor] Cache update: key={key} -> #{hx}");
-                                    ArmSaveAccentCache();
+                                    paletteCacheDisk[key] = ToDto(pal);
                                 }
-                            }
-                            else
-                            {
-                                log.Debug("[DynColor] No cache key (image path null/invalide) -> no persist");
+                                ArmSaveAccentCache();
                             }
 
 
+                            Interlocked.Increment(ref missesDecode);
+                            log.Debug($"[DynColor] MISS (decode) {current?.Name}");
                             return pal;
+
+
                         }, ct);
 
                         if (ct.IsCancellationRequested || target is null) return;
@@ -463,10 +509,20 @@ namespace AnikiHelper
                 }
             };
 
+            // 4) Start the timer
             timer.Start();
+            // Optionnel : precache goutte-à-goutte, ne démarre que si activé via ressource
+            if (IsPrecacheEnabled())
+            {
+                _ = RunPrecacheTrickleAsync();
+            }
+
+
+          
+
         }
 
-         public static void ClearPersistentCache(bool alsoRam = true)
+        public static void ClearPersistentCache(bool alsoRam = true)
         {
             try
             {
@@ -476,7 +532,11 @@ namespace AnikiHelper
                     saveCacheTimer.Tick -= SaveAccentCacheNow;
                 }
 
-                accentCache.Clear();
+                lock (cacheLock)
+                {
+                    paletteCacheDisk.Clear();
+                }
+
 
                 if (!string.IsNullOrEmpty(cacheFilePath) && File.Exists(cacheFilePath))
                 {
@@ -486,7 +546,10 @@ namespace AnikiHelper
 
                 if (alsoRam)
                 {
-                    paletteCache.Clear();
+                    lock (paletteLock)
+                    {
+                        paletteCache.Clear();
+                    }
                 }
 
                 log.Info("[DynColor] Color cache purged (json + ram). It will rebuild automatically.");
@@ -496,6 +559,7 @@ namespace AnikiHelper
                 log.Error(ex, "[DynColor] ClearPersistentCache failed.");
             }
         }
+
 
         // ======== Window focus/activity management ========
 
@@ -586,6 +650,14 @@ namespace AnikiHelper
             return ext == ".mp4" || ext == ".webm" || ext == ".avi" || ext == ".mkv";
         }
 
+        private static string SafeFullPath(string dbPath)
+        {
+            if (string.IsNullOrEmpty(dbPath)) return null;
+            try { return api.Database.GetFullFilePath(dbPath); }
+            catch { return null; }
+        }
+
+
         // Decode helper: try any WIC-supported format (PNG/JPG, WEBP/AVIF if codec present).
         // Returns false if file can't be decoded (this triggers the real fallback).
         private static bool TryLoadBitmap(string path, out BitmapSource bmp)
@@ -627,26 +699,28 @@ namespace AnikiHelper
         {
             bmp = null; used = null; ext = null; cacheKey = null;
 
-            var bg = api.Database.GetFullFilePath(g.BackgroundImage);
-            if (!string.IsNullOrEmpty(bg) && !IsVideo(bg) && HasUsableImageExt(bg) && TryLoadBitmap(bg, out bmp))
+            // SAFE: ne pas appeler GetFullFilePath si la prop est vide/null
+            var bgPath = SafeFullPath(g.BackgroundImage);
+            if (!string.IsNullOrEmpty(bgPath) && !IsVideo(bgPath) && HasUsableImageExt(bgPath) && TryLoadBitmap(bgPath, out bmp))
             {
                 used = "background";
-                ext = Path.GetExtension(bg)?.ToLowerInvariant();
-                cacheKey = MakeCacheKey(bg);
+                ext = Path.GetExtension(bgPath)?.ToLowerInvariant();
+                cacheKey = MakeCacheKey(bgPath);
                 return true;
             }
 
-            var cover = api.Database.GetFullFilePath(g.CoverImage);
-            if (!string.IsNullOrEmpty(cover) && !IsVideo(cover) && HasUsableImageExt(cover) && TryLoadBitmap(cover, out bmp))
+            var coverPath = SafeFullPath(g.CoverImage);
+            if (!string.IsNullOrEmpty(coverPath) && !IsVideo(coverPath) && HasUsableImageExt(coverPath) && TryLoadBitmap(coverPath, out bmp))
             {
                 used = "cover";
-                ext = Path.GetExtension(cover)?.ToLowerInvariant();
-                cacheKey = MakeCacheKey(cover);
+                ext = Path.GetExtension(coverPath)?.ToLowerInvariant();
+                cacheKey = MakeCacheKey(coverPath);
                 return true;
             }
 
             return false;
         }
+
 
         private static bool IsDynamicAutoActive()
         {
@@ -833,6 +907,134 @@ namespace AnikiHelper
             return lum > 64 && lum < 217;
         }
 
+        // === DTO JSON pour stocker une palette complète ===
+        private sealed class PaletteDto
+        {
+            public string Accent { get; set; }
+            public string Glow { get; set; }
+            public string Highlight { get; set; }
+            public string Secondary { get; set; }
+
+            public string Text { get; set; }
+            public string TextSecondary { get; set; }
+            public string TextDetail { get; set; }
+
+            public string OverlayTop { get; set; }
+            public string OverlayMid { get; set; }
+            public string OverlayBot { get; set; }
+
+            public string ButtonPlayMid { get; set; }
+            public string ButtonPlayEnd { get; set; }
+
+            public string FocusStart { get; set; }
+            public string FocusMid { get; set; }
+            public string FocusEnd { get; set; }
+
+            public string MenuBorderStart { get; set; }
+            public string MenuBorderEnd { get; set; }
+
+            public string NoFocusStart { get; set; }
+            public string NoFocusEnd { get; set; }
+
+            public string ShadeMidColor { get; set; }
+            public string ShadeEndColor { get; set; }
+
+            public string ControlBackgroundColor { get; set; }
+            public string SuccessStartColor { get; set; }
+
+            public string GlowMidColor { get; set; }
+            public string GlowEndColor { get; set; }
+        }
+
+        // Convertit MediaColor -> "RRGGBB"
+        private static string Hex(MediaColor c) => $"{c.R:X2}{c.G:X2}{c.B:X2}";
+        private static MediaColor FromHex(string hex)
+        {
+            if (string.IsNullOrWhiteSpace(hex) || hex.Length != 6)
+                return MediaColor.FromRgb(0, 0, 0);
+            byte r = Convert.ToByte(hex.Substring(0, 2), 16);
+            byte g = Convert.ToByte(hex.Substring(2, 2), 16);
+            byte b = Convert.ToByte(hex.Substring(4, 2), 16);
+            return MediaColor.FromRgb(r, g, b);
+        }
+
+        private static PaletteDto ToDto(Palette p) => new PaletteDto
+        {
+            Accent = Hex(p.Accent),
+            Glow = Hex(p.Glow),
+            Highlight = Hex(p.Highlight),
+            Secondary = Hex(p.Secondary),
+
+            Text = Hex(p.Text),
+            TextSecondary = Hex(p.TextSecondary),
+            TextDetail = Hex(p.TextDetail),
+
+            OverlayTop = Hex(p.OverlayTop),
+            OverlayMid = Hex(p.OverlayMid),
+            OverlayBot = Hex(p.OverlayBot),
+
+            ButtonPlayMid = Hex(p.ButtonPlayMid),
+            ButtonPlayEnd = Hex(p.ButtonPlayEnd),
+
+            FocusStart = Hex(p.FocusStart),
+            FocusMid = Hex(p.FocusMid),
+            FocusEnd = Hex(p.FocusEnd),
+
+            MenuBorderStart = Hex(p.MenuBorderStart),
+            MenuBorderEnd = Hex(p.MenuBorderEnd),
+
+            NoFocusStart = Hex(p.NoFocusStart),
+            NoFocusEnd = Hex(p.NoFocusEnd),
+
+            ShadeMidColor = Hex(p.ShadeMidColor),
+            ShadeEndColor = Hex(p.ShadeEndColor),
+
+            ControlBackgroundColor = Hex(p.ControlBackgroundColor),
+            SuccessStartColor = Hex(p.SuccessStartColor),
+
+            GlowMidColor = Hex(p.GlowMidColor),
+            GlowEndColor = Hex(p.GlowEndColor),
+        };
+
+        private static Palette FromDto(PaletteDto d) => new Palette
+        {
+            Accent = FromHex(d.Accent),
+            Glow = FromHex(d.Glow),
+            Highlight = FromHex(d.Highlight),
+            Secondary = FromHex(d.Secondary),
+
+            Text = FromHex(d.Text),
+            TextSecondary = FromHex(d.TextSecondary),
+            TextDetail = FromHex(d.TextDetail),
+
+            OverlayTop = FromHex(d.OverlayTop),
+            OverlayMid = FromHex(d.OverlayMid),
+            OverlayBot = FromHex(d.OverlayBot),
+
+            ButtonPlayMid = FromHex(d.ButtonPlayMid),
+            ButtonPlayEnd = FromHex(d.ButtonPlayEnd),
+
+            FocusStart = FromHex(d.FocusStart),
+            FocusMid = FromHex(d.FocusMid),
+            FocusEnd = FromHex(d.FocusEnd),
+
+            MenuBorderStart = FromHex(d.MenuBorderStart),
+            MenuBorderEnd = FromHex(d.MenuBorderEnd),
+
+            NoFocusStart = FromHex(d.NoFocusStart),
+            NoFocusEnd = FromHex(d.NoFocusEnd),
+
+            ShadeMidColor = FromHex(d.ShadeMidColor),
+            ShadeEndColor = FromHex(d.ShadeEndColor),
+
+            ControlBackgroundColor = FromHex(d.ControlBackgroundColor),
+            SuccessStartColor = FromHex(d.SuccessStartColor),
+
+            GlowMidColor = FromHex(d.GlowMidColor),
+            GlowEndColor = FromHex(d.GlowEndColor),
+        };
+
+
         // ---------- Palette ----------
         private sealed class Palette
         {
@@ -932,14 +1134,16 @@ namespace AnikiHelper
 
             _ = Task.Run(async () =>
             {
+                // await Task.Delay(2200).ConfigureAwait(false);
                 int steps = Math.Max(2, TransitionSteps);
                 int stepDelay = Math.Max(10, TransitionMs / steps);
 
                 for (int i = 1; i <= steps; i++)
                 {
                     if (ct.IsCancellationRequested || !IsDynamicAutoActive()) return;
-                    double t = (double)i / steps;
-                    t = t * t * (3 - 2 * t); // smoothstep
+                    double t = 0.05 + 0.95 * (double)i / steps; // démarre un peu plus loin pour éviter le délai visuel
+                    t = t * t * (3 - 2 * t); // smoothstep,
+
 
                     var frame = LerpPalette(from, target, t);
 
@@ -1229,22 +1433,7 @@ namespace AnikiHelper
             }
         }
 
-        // ======== Auto-contrast / color helpers ========
-        private static string ColorToHex(MediaColor c) => $"{c.R:X2}{c.G:X2}{c.B:X2}";
-        private static bool TryHexToColor(string hex, out MediaColor c)
-        {
-            c = default;
-            if (string.IsNullOrEmpty(hex) || hex.Length != 6) return false;
-            try
-            {
-                byte r = Convert.ToByte(hex.Substring(0, 2), 16);
-                byte g = Convert.ToByte(hex.Substring(2, 2), 16);
-                byte b = Convert.ToByte(hex.Substring(4, 2), 16);
-                c = MediaColor.FromRgb(r, g, b);
-                return true;
-            }
-            catch { return false; }
-        }
+        // ======== Auto-contrast / color helpers ========       
 
         private static double SrgbToLinear(byte c)
         {
@@ -1342,5 +1531,83 @@ namespace AnikiHelper
         private static MediaColor Mix(MediaColor a, MediaColor b, double t) => MediaColor.FromRgb(
             (byte)(a.R * (1 - t) + b.R * t), (byte)(a.G * (1 - t) + b.G * t), (byte)(a.B * (1 - t) + b.B * t));
         private static double Luminance(MediaColor c) => (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
+
+        private static async Task RunPrecacheTrickleAsync()
+        {
+            try
+            {
+                await Task.Delay(PrecacheDelayMs);
+
+                var games = api.Database.Games?.ToList() ?? new List<Game>();
+                int total = games.Count;
+                int added = 0, processed = 0, skippedNoImage = 0, skippedAlready = 0;
+
+                log.Info($"[DynColor] Trickle precache started (candidates={total}, cap={PrecacheMax}).");
+
+                foreach (var g in games)
+                {
+                    if (added >= PrecacheMax) break;
+
+                    // Attendre l'inactivité (ex. 3500 ms sans navigation)
+                    while (!IsIdleForMs(3500))
+                    {
+                        await Task.Delay(300);
+                        if (!IsPrecacheEnabled()) return; // si l'utilisateur le coupe
+                    }
+
+                    processed++;
+
+                    if (!TryGetImageFor(g, out var bmp, out _, out _, out var key) || string.IsNullOrEmpty(key))
+                    {
+                        skippedNoImage++;
+                        continue;
+                    }
+
+                    // Déjà en RAM ?
+                    bool inRam;
+                    lock (paletteLock) inRam = paletteCache.ContainsKey(key);
+                    if (inRam) { skippedAlready++; continue; }
+
+                    // Déjà sur disque ?
+                    bool inDisk;
+                    lock (cacheLock) inDisk = paletteCacheDisk.ContainsKey(key);
+                    if (inDisk) { skippedAlready++; continue; }
+
+                    // Construit vite fait (bitmap déjà downscalé par TryLoadBitmap)
+                    var pf = PixelFormats.Bgra32;
+                    if (bmp.Format != pf)
+                    {
+                        bmp = new FormatConvertedBitmap(bmp, pf, null, 0);
+                        bmp.Freeze();
+                    }
+
+                    int w = bmp.PixelWidth, h = bmp.PixelHeight;
+                    int stride = (w * pf.BitsPerPixel + 7) / 8;
+                    byte[] pixels = new byte[stride * h];
+                    bmp.CopyPixels(pixels, stride, 0);
+
+                    var accent = GetDominantVividColor_FromPixels(pixels, w, h, stride);
+                    var pal = BuildPalette(accent);
+
+                    PutCache(key, pal);
+                    lock (cacheLock) { paletteCacheDisk[key] = ToDto(pal); }
+
+                    added++;
+
+                    // Pas d'écriture fichier ici : c'est le timer batch (45 s) qui s'en charge.
+                    await Task.Delay(PrecacheGapMs);
+                }
+
+                // Sauvegarde immédiate possible en fin de run (sinon, le batch timer le fera)
+                SaveAccentCacheNow(null, EventArgs.Empty);
+
+                log.Info($"[DynColor] Trickle precache done. processed={processed}, added={added}, skippedNoImage={skippedNoImage}, skippedAlready={skippedAlready}.");
+            }
+            catch (Exception ex)
+            {
+                log.Warn(ex, "[DynColor] Trickle precache failed.");
+            }
+        }
+
     }
 }

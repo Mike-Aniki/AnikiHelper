@@ -268,23 +268,26 @@ namespace AnikiHelper
             }
         }
 
-        // --- Supprime le cache de couleurs dynamiques (fichier JSON uniquement) ---
+        // --- Supprime le cache de couleurs dynamiques (JSON disque + RAM) ---
         public void ClearDynamicColorCache()
         {
             try
             {
-                var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
-                var file = Path.Combine(dir, "palette_cache_v1.json");
+                // 1) Purge RAM + timers côté moteur
+                DynamicAuto.ClearPersistentCache(alsoRam: true);
 
-                if (File.Exists(file))
-                {
-                    File.Delete(file);
-                    logger.Info($"[AnikiHelper] Deleted palette cache file: {file}");
-                }
-                else
-                {
-                    logger.Info("[AnikiHelper] Palette cache file not found; nothing to delete.");
-                }
+                // 2) Supprime les fichiers de cache disque (nouveau + tmp + ancien v1)
+                var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
+                var fileNew = Path.Combine(dir, "palette_cache.json");
+                var fileTmp = fileNew + ".tmp";
+                var fileOld = Path.Combine(dir, "palette_cache_v1.json"); // pour nettoyer l’héritage
+
+                int deleted = 0;
+                if (File.Exists(fileNew)) { File.Delete(fileNew); deleted++; }
+                if (File.Exists(fileTmp)) { File.Delete(fileTmp); deleted++; }
+                if (File.Exists(fileOld)) { File.Delete(fileOld); deleted++; }
+
+                logger.Info($"[AnikiHelper] Cleared dynamic color cache. Files deleted: {deleted}");
             }
             catch (Exception ex)
             {
@@ -292,6 +295,7 @@ namespace AnikiHelper
                 throw;
             }
         }
+
 
 
         // Met à jour le texte d’info snapshot
