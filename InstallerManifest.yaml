@@ -58,3 +58,10 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.7/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_7.pext
     Changelog:
       - Added a button to clear the color cache in the plugin settings.
+  - Version: 1.0.8
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-03
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.8/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_8.pext
+    Changelog:
+      - Dynamic Color Cache file improvement.
+      - Faster color transition for better performance.
