@@ -294,7 +294,19 @@ namespace AnikiHelper
 
         public string TotalPlaytimeString => PlaytimeToString(TotalPlaytimeMinutes, PlaytimeUseDaysFormat);
         public string AveragePlaytimeString => PlaytimeToString(AveragePlaytimeMinutes, PlaytimeUseDaysFormat);
+
         #endregion
+
+        // --- Random login screen ---
+        private int loginRandomIndex;
+        public int LoginRandomIndex
+        {
+            get => loginRandomIndex;
+            set => SetValue(ref loginRandomIndex, value);
+        }
+
+        // Anti-répétition simple entre deux lancements
+        public int LastLoginRandomIndex { get; set; }
 
         public AnikiHelperSettings() { }
 
@@ -309,6 +321,9 @@ namespace AnikiHelper
                 TopPlayedMax = saved.TopPlayedMax <= 0 ? 10 : saved.TopPlayedMax;
                 PlaytimeStoredInHours = saved.PlaytimeStoredInHours;
                 PlaytimeUseDaysFormat = saved.PlaytimeUseDaysFormat;
+
+                LoginRandomIndex = saved.LoginRandomIndex;
+                LastLoginRandomIndex = saved.LastLoginRandomIndex;
             }
 
             // Succès récents + watcher

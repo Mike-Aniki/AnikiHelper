@@ -435,8 +435,32 @@ namespace AnikiHelper
                 System.Windows.Threading.DispatcherPriority.Loaded
             );
 
+            // === Random login screen ===
+            try
+            {
+                var rand = new Random();            // ou: new Random(int.Parse(DateTime.Today.ToString("yyyyMMdd")));
+                const int max = 32;                 // nombre de vidéos dispo (1..29)
 
+                int pick;
+                if (Settings.LastLoginRandomIndex >= 1 && Settings.LastLoginRandomIndex <= max && max > 1)
+                {
+                    do { pick = rand.Next(1, max + 1); } while (pick == Settings.LastLoginRandomIndex);
+                }
+                else
+                {
+                    pick = rand.Next(1, max + 1);
+                }
+
+                Settings.LoginRandomIndex = pick;
+                Settings.LastLoginRandomIndex = pick;
+                SavePluginSettings(Settings);
+            }
+            catch { }
         }
+
+
+
+        
 
 
 
