@@ -71,3 +71,12 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.0.9/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_0_9.pext
     Changelog:
       - Added a random number generator at launch.
+  - Version: 1.1.0
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-05
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.1.0/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_1_0.pext
+    Changelog:
+      - Added Steam Patch Notes support (title, date, HTML, availability flag)
+      - Added Update Available badge with local cache system
+      - Added optional Steam player count with settings toggle
+      - Added SuccessStory refresh command for Fullscreen themes
