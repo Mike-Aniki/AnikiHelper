@@ -1,4 +1,11 @@
-# Aniki Helper
+<div align="center">
+
+# ANIKI HELPER  
+![Made for Playnite Fullscreen Themes](https://img.shields.io/badge/Made%20for-Playnite%20Fullscreen%20Themes-A600FF?style=for-the-badge)
+
+</div>
+
+
 
 **Aniki Helper** is a Playnite plugin created to enhance the Fullscreen experience by adding advanced player statistics, dynamic visual effects, and other interactive features that can be displayed directly inside Fullscreen themes.
 
