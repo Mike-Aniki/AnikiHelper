@@ -4,7 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d"
-             d:DesignHeight="420" d:DesignWidth="640">   
+             d:DesignHeight="595" d:DesignWidth="640">   
 
 
     <StackPanel Margin="12">
@@ -71,6 +71,53 @@
             ToolTip="{DynamicResource L_ClearColorCache_Tooltip}"/>
             </StackPanel>
         </GroupBox>
+
+        <!-- STEAM FEATURES -->
+        <GroupBox Header="{DynamicResource GroupSteamFeatures}" Margin="0,12,0,0">
+            <StackPanel Margin="10">
+                <TextBlock
+                    Foreground="White"
+                    Text="{DynamicResource SteamInitCache_ProgressTitle}"
+                    TextWrapping="Wrap"
+                    Margin="0,0,0,2"/>
+                <TextBlock
+                     Foreground="Gray"
+                     Text="{DynamicResource SteamInitCache_ProgressTitle2}"
+                     TextWrapping="Wrap"
+                     Margin="0,4,0,8"/>
+                
+                <!-- Initialize Steam cache for all games -->
+                <Button Content="{DynamicResource SteamInitCache}"
+                    HorizontalAlignment="Left"
+                    Padding="12,6"
+                    Margin="0,4,0,8"
+                    ToolTip="{DynamicResource SteamInitCache_Tooltip}"
+                    Click="InitializeSteamCache_Click"/>
+
+                <TextBlock
+                    Foreground="White"
+                    Text="{DynamicResource SteamPlayers_Title}"
+                    TextWrapping="Wrap"
+                    Margin="0,10,0,2"/>
+
+                <TextBlock
+                     Foreground="Gray"
+                     Text="{DynamicResource SteamFeatures_Help}"
+                     TextWrapping="Wrap"
+                     Margin="0,4,0,8"/>
+
+                <CheckBox
+                    Content="{DynamicResource SteamPlayers_Enable}"
+                    IsChecked="{Binding Settings.SteamPlayerCountEnabled}"
+                    Margin="0,4,0,8"/>
+
+                
+               
+                
+            </StackPanel>
+        </GroupBox>
+
+
 
     </StackPanel>
 </UserControl>

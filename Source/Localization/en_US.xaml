@@ -30,4 +30,21 @@
     <sys:String x:Key="ConfirmClearCache">Clear dynamic color cache? The palette file will be deleted and rebuilt automatically.</sys:String>
     <sys:String x:Key="CacheClearedMsg">Color cache cleared. It will rebuild automatically as you browse games.</sys:String>
 
+    <!-- Steam features / player count -->
+    <sys:String x:Key="GroupSteamFeatures">Steam Features</sys:String>
+    <sys:String x:Key="SteamPlayers_Title">Current players for Steam games</sys:String>
+    <sys:String x:Key="SteamFeatures_Help">Displays the real-time player count for Steam games. May slightly increase loading time when switching games.</sys:String>
+    <sys:String x:Key="SteamPlayers_Enable">Enable Steam player count (experimental)</sys:String>
+    <sys:String x:Key="SteamInitCache">Pre-fill cache</sys:String>
+    <sys:String x:Key="SteamInitCache_Tooltip">Creates the Steam update cache for all games in your library.</sys:String>
+    <sys:String x:Key="ConfirmInitSteamCache">Aniki Helper will analyze your games and create the cache of the latest updates. Continue?</sys:String>
+    <sys:String x:Key="InitSteamCacheDoneMsg">Done!</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressTitle">Steam update cache</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressTitle2">Prevents the “New update available” badge from appearing the first time you select a game.</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressText">Scanning games… {0}/{1}</sys:String>
+
+
+
+
+
 </ResourceDictionary>

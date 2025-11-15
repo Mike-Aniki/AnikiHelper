@@ -111,6 +111,9 @@ namespace AnikiHelper
     {
         private readonly global::AnikiHelper.AnikiHelper plugin;
 
+        [DontSerialize]
+        public RelayCommand RefreshSuccessStoryCommand { get; }
+
         // Info snapshot (affiché dans settings)
         private string snapshotDateString;
         public string SnapshotDateString { get => snapshotDateString; set => SetValue(ref snapshotDateString, value); }
@@ -202,6 +205,80 @@ namespace AnikiHelper
             set => SetValue(ref sessionHasNewAchievements, value);
         }
 
+        // === Steam Update / Patch notes ===
+
+        // Titre de la news (ex : "Update 1.02 – Bug fixes")
+        private string steamUpdateTitle;
+        public string SteamUpdateTitle
+        {
+            get => steamUpdateTitle;
+            set => SetValue(ref steamUpdateTitle, value);
+        }
+
+        private bool steamUpdateIsNew;
+        public bool SteamUpdateIsNew
+        {
+            get => steamUpdateIsNew;
+            set => SetValue(ref steamUpdateIsNew, value);
+        }
+
+        // Date formatée pour affichage (ex : "14/11/2025 13:42")
+        private string steamUpdateDate;
+        public string SteamUpdateDate
+        {
+            get => steamUpdateDate;
+            set => SetValue(ref steamUpdateDate, value);
+        }
+
+        // Contenu HTML (pour ton HtmlTextView dans le thème)
+        private string steamUpdateHtml;
+        public string SteamUpdateHtml
+        {
+            get => steamUpdateHtml;
+            set => SetValue(ref steamUpdateHtml, value);
+        }
+
+        // True = on a une news pour ce jeu, False = rien trouvé / erreur
+        private bool steamUpdateAvailable;
+        public bool SteamUpdateAvailable
+        {
+            get => steamUpdateAvailable;
+            set => SetValue(ref steamUpdateAvailable, value);
+        }
+
+        // Message simple pour le thème ("No Update available", "Error", etc.)
+        private string steamUpdateError;
+        public string SteamUpdateError
+        {
+            get => steamUpdateError;
+            set => SetValue(ref steamUpdateError, value);
+        }
+
+        // === Steam Current Players (nombre de joueurs connectés) ===
+
+        private string steamCurrentPlayersString;
+        public string SteamCurrentPlayersString
+        {
+            get => steamCurrentPlayersString;
+            set => SetValue(ref steamCurrentPlayersString, value);
+        }
+
+        private bool steamCurrentPlayersAvailable;
+        public bool SteamCurrentPlayersAvailable
+        {
+            get => steamCurrentPlayersAvailable;
+            set => SetValue(ref steamCurrentPlayersAvailable, value);
+        }
+
+        private string steamCurrentPlayersError;
+        public string SteamCurrentPlayersError
+        {
+            get => steamCurrentPlayersError;
+            set => SetValue(ref steamCurrentPlayersError, value);
+        }
+
+
+
 
         // ===== Listes exposées =====
         public ObservableCollection<TopPlayedItem> TopPlayed { get; } = new ObservableCollection<TopPlayedItem>();
@@ -246,6 +323,15 @@ namespace AnikiHelper
                 }
             }
         }
+
+        // Active ou non la récupération du nombre de joueurs Steam (désactivé par défaut)
+        private bool steamPlayerCountEnabled = false;
+        public bool SteamPlayerCountEnabled
+        {
+            get => steamPlayerCountEnabled;
+            set => SetValue(ref steamPlayerCountEnabled, value);
+        }
+
         #endregion
 
         #region Stats + strings
@@ -324,7 +410,15 @@ namespace AnikiHelper
 
                 LoginRandomIndex = saved.LoginRandomIndex;
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
+
+                SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
             }
+
+            // === Bouton "Refresh SuccessStory" pour le thème ===
+            RefreshSuccessStoryCommand = new RelayCommand(
+                async () => await SuccessStoryBridge.RefreshSelectedGameAsync(plugin.PlayniteApi),
+                () => plugin?.PlayniteApi?.MainView?.SelectedGames?.Any() == true
+            );
 
             // Succès récents + watcher
             LoadRecentAchievements(3);
@@ -820,6 +914,7 @@ namespace AnikiHelper
     {
         public AnikiHelperSettings Settings { get; set; }
         private readonly global::AnikiHelper.AnikiHelper plugin;
+        public IPlayniteAPI Api => plugin?.PlayniteApi;
 
         public AnikiHelperSettingsViewModel(global::AnikiHelper.AnikiHelper plugin)
         {
@@ -854,5 +949,22 @@ namespace AnikiHelper
                 throw;
             }
         }
+        // Initializes the Steam update cache for all Steam games
+        public async Task InitializeSteamUpdatesCacheAsync()
+        {
+            try
+            {
+                if (plugin != null)
+                {
+                    await plugin.InitializeSteamUpdatesCacheForAllGamesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AnikiHelperSettingsViewModel] InitializeSteamUpdatesCacheAsync failed: {ex.Message}");
+                throw;
+            }
+        }
+
     }
 }

@@ -30,5 +30,18 @@
     <sys:String x:Key="ConfirmClearCache">Vider le cache des couleurs dynamiques ? Le fichier de palette sera supprimé puis recréé automatiquement.</sys:String>
     <sys:String x:Key="CacheClearedMsg">Cache des couleurs vidé. Il se reconstruira automatiquement quand vous parcourez les jeux.</sys:String>
 
+    <!-- Fonctionnalités Steam / nombre de joueurs -->
+    <sys:String x:Key="GroupSteamFeatures">Fonctionnalités Steam</sys:String>
+    <sys:String x:Key="SteamPlayers_Title">Joueurs actuels pour les jeux Steam</sys:String>
+    <sys:String x:Key="SteamFeatures_Help">Affiche le nombre de joueurs en temps réel pour les jeux Steam. Peut légèrement augmenter le temps de chargement lors du changement de jeu.</sys:String>
+    <sys:String x:Key="SteamPlayers_Enable">Activer le nombre de joueurs Steam (expérimental)</sys:String>
+    <sys:String x:Key="SteamInitCache">Préremplir le cache</sys:String>
+    <sys:String x:Key="SteamInitCache_Tooltip">Crée le cache des mises à jour Steam pour tous les jeux de la bibliothèque.</sys:String>
+    <sys:String x:Key="ConfirmInitSteamCache">Aniki Helper va analyser vos jeux et créer le cache des dernières mises à jour. Continuer ?</sys:String>
+    <sys:String x:Key="InitSteamCacheDoneMsg">Terminé !</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressTitle">Cache des mises à jour Steam</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressTitle2">Permet d’éviter l’apparition du badge « Nouvelle mise à jour » lors du premier survol d’un jeu.</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressText">Analyse des jeux… {0}/{1}</sys:String>
+
 
 </ResourceDictionary>

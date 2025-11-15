@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Threading.Tasks;
 
 namespace AnikiHelper
 {
@@ -25,47 +26,39 @@ namespace AnikiHelper
         {
             try
             {
-                // 1) Récupère la culture effective (celle de Playnite)
                 CultureInfo cul = CultureInfo.CurrentUICulture;
 
                 string asmName = Assembly.GetExecutingAssembly().GetName().Name; // "AnikiHelper"
                 string basePack = $"pack://application:,,,/{asmName};component/";
 
-                // 2) Variantes compatibles avec ta nomenclature de fichiers
                 string dash = cul.Name;                     // ex: "fr-FR"
                 string underscore = dash.Replace('-', '_'); // ex: "fr_FR"
                 string neutral = cul.TwoLetterISOLanguageName; // ex: "fr"
 
-                // 3) Liste ordonnée : on charge le premier qui existe
                 string[] candidates =
                 {
                     basePack + $"Localization/{dash}.xaml",
                     basePack + $"Localization/{underscore}.xaml",
                     basePack + $"Localization/{neutral}.xaml"
-                    // pas besoin d'ajouter en_US ici : déjà chargé dans le XAML comme fallback
                 };
 
-                // 4) On insère la langue trouvée en tête des MergedDictionaries
                 foreach (var uri in candidates)
                 {
                     try
                     {
                         var dict = (ResourceDictionary)Application.LoadComponent(new Uri(uri, UriKind.Absolute));
-                        // Insert(0) → il prend la priorité sur le fallback EN
                         Application.Current.Resources.MergedDictionaries.Insert(0, dict);
-                        return; // dès qu’on a chargé une variante, on s’arrête
+                        return;
                     }
                     catch
                     {
-                        // introuvable → on tente le suivant
+                        // on tente le suivant
                     }
                 }
-
-                // Si rien trouvé : on garde l’anglais chargé en XAML (pas de crash).
             }
             catch
             {
-                // En cas d’erreur, ne rien faire : fallback EN reste actif.
+                // fallback EN
             }
         }
 
@@ -78,24 +71,99 @@ namespace AnikiHelper
         {
             try
             {
-                if (MessageBox.Show(
-                    (string)Application.Current.TryFindResource("ConfirmClearCache"),
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                var api = vm?.Api;
+                if (vm == null || api == null)
+                {
+                    return;
+                }
+
+                var confirmText = (string)Application.Current.TryFindResource("ConfirmClearCache")
+                                  ?? "Clear dynamic color cache? The palette file will be deleted and rebuilt automatically.";
+
+                var res = api.Dialogs.ShowMessage(
+                    confirmText,
                     "Aniki Helper",
                     MessageBoxButton.YesNo,
-                    MessageBoxImage.Question) == MessageBoxResult.Yes)
-                {
-                    (DataContext as AnikiHelperSettingsViewModel)?.ClearColorCache();
+                    MessageBoxImage.Question);
 
-                    MessageBox.Show(
-                        (string)Application.Current.TryFindResource("CacheClearedMsg"),
-                        "Aniki Helper",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                if (res != MessageBoxResult.Yes)
+                {
+                    return;
                 }
+
+                vm.ClearColorCache();
+
+                var doneText = (string)Application.Current.TryFindResource("CacheClearedMsg")
+                               ?? "Color cache cleared. It will rebuild automatically as you browse your games.";
+
+                api.Dialogs.ShowMessage(
+                    doneText,
+                    "Aniki Helper",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error while clearing cache:\n" + ex.Message, "Aniki Helper");
+                var api = (DataContext as AnikiHelperSettingsViewModel)?.Api;
+                if (api != null)
+                {
+                    api.Dialogs.ShowErrorMessage("Error while clearing cache:\n" + ex.Message, "Aniki Helper");
+                }
+                else
+                {
+                    MessageBox.Show("Error while clearing cache:\n" + ex.Message, "Aniki Helper");
+                }
+            }
+        }
+
+        private async void InitializeSteamCache_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                var api = vm?.Api;
+                if (vm == null || api == null)
+                {
+                    return;
+                }
+
+                var confirmText = (string)Application.Current.TryFindResource("ConfirmInitSteamCache")
+                                  ?? "This will scan your library and initialize the Steam update cache for all Steam games. Continue?";
+
+                var res = api.Dialogs.ShowMessage(
+                    confirmText,
+                    "Aniki Helper",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (res != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
+                await vm.InitializeSteamUpdatesCacheAsync();
+
+                var doneText = (string)Application.Current.TryFindResource("InitSteamCacheDoneMsg")
+                               ?? "Done! Steam update cache has been initialized.";
+
+                api.Dialogs.ShowMessage(
+                    doneText,
+                    "Aniki Helper",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                var api = (DataContext as AnikiHelperSettingsViewModel)?.Api;
+                if (api != null)
+                {
+                    api.Dialogs.ShowErrorMessage("Error while initializing Steam cache:\n" + ex.Message, "Aniki Helper");
+                }
+                else
+                {
+                    MessageBox.Show("Error while initializing Steam cache:\n" + ex.Message, "Aniki Helper");
+                }
             }
         }
     }

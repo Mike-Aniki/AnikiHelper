@@ -326,7 +326,7 @@ namespace AnikiHelper
 
 
 
-            // 3.5) Préparer le cache persistant
+            // 3.5) Prepare the persistent cache
             const string PluginId = "96a983a3-3f13-4dce-a474-4052b718bb52";
 
             // On crée le bon dossier dans ExtensionsData/<GUID>/
@@ -385,7 +385,7 @@ namespace AnikiHelper
                     if (initialGame is null) return;
                     if (lastGameId == initialGame.Id) return;
 
-                    // === Debounce: swap propre (annule l'ancien, remplace par le nouveau) ===
+                    // === Debounce: swap propre  ===
                     var prev = Interlocked.Exchange(ref debounceCts, null);
                     prev?.Cancel();
                     prev?.Dispose();
@@ -412,7 +412,7 @@ namespace AnikiHelper
                             if (!TryGetImageFor(current, out var src, out var used, out var ext, out var key))
                                 return (Palette)null;
 
-                            // 1) Cache RAM → instantané (thread-safe)
+                            // 1) RAM cache instantaneous (thread-safe)
                             if (!string.IsNullOrEmpty(key))
                             {
                                 Palette cachedPal;
@@ -429,7 +429,7 @@ namespace AnikiHelper
                             }
 
 
-                            // 2) DISK cache (palette complète) -> sans décoder l’image
+                            // 2) DISK cache 
                             if (!string.IsNullOrEmpty(key))
                             {
                                 PaletteDto dto = null;
@@ -440,7 +440,7 @@ namespace AnikiHelper
                                 if (dto != null)
                                 {
                                     var palFromDisk = FromDto(dto);
-                                    PutCache(key, palFromDisk);   // hydrate RAM pour la session
+                                    PutCache(key, palFromDisk);   // hydrate RAM 
                                     Interlocked.Increment(ref hitsDisk);
                                     return palFromDisk;
                                 }
@@ -467,7 +467,7 @@ namespace AnikiHelper
                             var accent = GetDominantVividColor_FromPixels(pixels, w, h, stride);
                             var pal = BuildPalette(accent);
 
-                            // 4) Sauvegardes (RAM + DISK palette complète)
+                            // 4) Backups (RAM + DISK palette complète)
                             if (!string.IsNullOrEmpty(key))
                             {
                                 PutCache(key, pal);
@@ -488,7 +488,7 @@ namespace AnikiHelper
 
                         if (ct.IsCancellationRequested || target is null) return;
 
-                        // Palette prête → on fige le jeu courant
+                        
                         lastGameId = current.Id;
 
                         StartAnimatedTransition(target);

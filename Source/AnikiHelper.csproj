@@ -58,6 +58,9 @@
     <Compile Include="DynamicAuto.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SettingsWindowStyler.cs" />
+    <Compile Include="SteamPlayerCountService.cs" />
+    <Compile Include="SteamUpdateLiteService.cs" />
+    <Compile Include="SuccessStoryBridge.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="extension.yaml">
@@ -66,7 +69,12 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Localization\*.xaml">
+    <None Include="Localization\en_US.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Localization\fr_FR.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

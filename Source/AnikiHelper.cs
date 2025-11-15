@@ -12,6 +12,8 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 
 namespace AnikiHelper
@@ -22,6 +24,46 @@ namespace AnikiHelper
 
         // === Diagnostics et chemins ===
         private string GetDataRoot() => Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
+
+        // --- Cache des updates Steam déjà vues (SteamID -> dernier titre d'update) ---
+        private string GetSteamUpdatesCachePath()
+            => Path.Combine(GetDataRoot(), "steam_updates_cache.json");
+
+        private Dictionary<string, string> LoadSteamUpdatesCache()
+        {
+            try
+            {
+                var path = GetSteamUpdatesCachePath();
+                if (!File.Exists(path))
+                {
+                    return new Dictionary<string, string>();
+                }
+
+                var json = File.ReadAllText(path);
+                return Serialization.FromJson<Dictionary<string, string>>(json)
+                       ?? new Dictionary<string, string>();
+            }
+            catch
+            {
+                return new Dictionary<string, string>();
+            }
+        }
+
+        private void SaveSteamUpdatesCache(Dictionary<string, string> cache)
+        {
+            try
+            {
+                var path = GetSteamUpdatesCachePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var json = Serialization.ToJson(cache, true);
+                File.WriteAllText(path, json);
+            }
+            catch
+            {
+                // on ignore en silence, ce n'est qu'un cache
+            }
+        }
+
 
         // ✅ helper pour nom de jeu
         private static string Safe(string s) => string.IsNullOrWhiteSpace(s) ? "(Unnamed Game)" : s;
@@ -39,6 +81,22 @@ namespace AnikiHelper
         private readonly Dictionary<Guid, ulong> sessionStartPlaytimeMinutes = new Dictionary<Guid, ulong>(); // Playnite = secondes -> minutes stockées ici
         private readonly Dictionary<Guid, HashSet<string>> sessionStartUnlocked = new Dictionary<Guid, HashSet<string>>();
 
+        // === Steam Update (badge "new" pour la session en cours) ===
+        // Mémorise quels patchs (SteamID + Titre) sont considérés comme "nouveaux" pendant CETTE session Playnite
+        private readonly HashSet<string> steamUpdateNewThisSession = new HashSet<string>();
+
+
+        // === Steam Update (RSS simplifié) ===
+        private readonly SteamUpdateLiteService steamUpdateService;
+        private readonly DispatcherTimer steamUpdateTimer;
+        private Playnite.SDK.Models.Game pendingUpdateGame;
+
+        // === Steam current players ===
+        private readonly SteamPlayerCountService steamPlayerCountService = new SteamPlayerCountService();
+
+        // GUID du plugin Steam officiel (Playnite)
+        private static readonly Guid SteamPluginId = Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab");
+
 
         // Format minutes -> "3h27"
         private static string FormatHhMmFromMinutes(int minutes)
@@ -48,6 +106,343 @@ namespace AnikiHelper
             var m = minutes % 60;
             return $"{h}h{m:00}";
         }
+
+        private string GetSteamGameId(Playnite.SDK.Models.Game game)
+        {
+            if (game == null)
+                return null;
+
+            try
+            {
+                // 1) Jeu provenant directement du plugin Steam
+                if (game.PluginId == SteamPluginId && !string.IsNullOrWhiteSpace(game.GameId))
+                {
+                    return game.GameId;
+                }
+
+                // 2) Sinon, on tente de trouver un lien Steam dans Game.Links
+                if (game.Links != null)
+                {
+                    foreach (var link in game.Links)
+                    {
+                        var url = link?.Url;
+                        if (string.IsNullOrWhiteSpace(url))
+                            continue;
+
+                        var m = Regex.Match(url, @"store\.steampowered\.com/app/(\d+)", RegexOptions.IgnoreCase);
+                        if (m.Success)
+                        {
+                            return m.Groups[1].Value;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // on s'en fout, on retourne null si ça foire
+            }
+
+            return null;
+        }
+
+        private void ResetSteamUpdate()
+        {
+            try
+            {
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    var s = Settings;
+                    s.SteamUpdateTitle = string.Empty;
+                    s.SteamUpdateDate = string.Empty;
+                    s.SteamUpdateHtml = string.Empty;
+                    s.SteamUpdateAvailable = false;
+                    s.SteamUpdateError = string.Empty;
+                    s.SteamUpdateIsNew = false;
+                });
+            }
+            catch
+            {
+                // pas grave
+            }
+        }
+
+        private void ResetSteamPlayerCount()
+        {
+            try
+            {
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    var s = Settings;
+                    s.SteamCurrentPlayersString = string.Empty;
+                    s.SteamCurrentPlayersAvailable = false;
+                    s.SteamCurrentPlayersError = string.Empty;
+                });
+            }
+            catch
+            {
+                // on ignore
+            }
+        }
+
+
+
+        private async void steamUpdateTimer_Tick(object sender, EventArgs e)
+        {
+            steamUpdateTimer.Stop();
+
+            var g = pendingUpdateGame;
+            pendingUpdateGame = null;
+
+            if (g == null)
+            {
+                ResetSteamUpdate();
+                ResetSteamPlayerCount();
+                return;
+            }
+
+            await UpdateSteamUpdateForGameAsync(g);
+            await UpdateSteamPlayerCountForGameAsync(g);
+        }
+
+
+
+
+        private async Task UpdateSteamUpdateForGameAsync(Playnite.SDK.Models.Game game)
+        {
+            try
+            {
+                ResetSteamUpdate();
+
+                var steamId = GetSteamGameId(game);
+                if (string.IsNullOrWhiteSpace(steamId))
+                {
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        Settings.SteamUpdateError = "No update available (no Steam ID)";
+                        Settings.SteamUpdateAvailable = false;
+                        Settings.SteamUpdateIsNew = false;
+                    });
+                    return;
+                }
+
+                // On va chercher la dernière update sur le RSS Steam (avec langue + fallback EN)
+                var result = await steamUpdateService.GetLatestUpdateAsync(steamId);
+                if (result == null)
+                {
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        Settings.SteamUpdateError = "No update available";
+                        Settings.SteamUpdateAvailable = false;
+                        Settings.SteamUpdateIsNew = false;
+                    });
+                    return;
+                }
+
+                // --- Détection "nouvelle update" via cache JSON + 'grâce' sur la session courante ---
+                bool isNew = false;
+                var sessionKey = $"{steamId}|{result.Title}";
+
+                try
+                {
+                    var cache = LoadSteamUpdatesCache();
+
+                    // Cas 1 : le JSON ne connaît pas encore ce titre -> vrai nouveau patch global
+                    if (!cache.TryGetValue(steamId, out var lastTitle) ||
+                        !string.Equals(lastTitle, result.Title, StringComparison.Ordinal))
+                    {
+                        isNew = true;
+
+                        // On enregistre tout de suite ce nouveau titre dans le cache persistant
+                        cache[steamId] = result.Title;
+                        SaveSteamUpdatesCache(cache);
+
+                        // Et on se souvient que pour CETTE session, ce patch est "new"
+                        steamUpdateNewThisSession.Add(sessionKey);
+                    }
+                    else
+                    {
+                        // Cas 2 : le JSON connaît déjà ce titre (patch déjà vu dans une session précédente)
+                        // -> on regarde si, malgré ça, on l'a marqué "new" dans CETTE session
+                        if (steamUpdateNewThisSession.Contains(sessionKey))
+                        {
+                            isNew = true;
+                        }
+                    }
+                }
+                catch
+                {
+                    // si le cache plante, on ne marque pas comme "new"
+                    isNew = false;
+                }
+
+
+                // --- Push vers les Settings (binding du thème) ---
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    Settings.SteamUpdateTitle = result.Title;
+                    Settings.SteamUpdateDate = result.Published == DateTime.MinValue
+                        ? string.Empty
+                        : result.Published.ToString("dd/MM/yyyy HH:mm");
+
+                    Settings.SteamUpdateHtml = result.HtmlBody;
+                    Settings.SteamUpdateAvailable = true;
+                    Settings.SteamUpdateError = string.Empty;
+
+                    // 🔴 le bool qui servira au badge
+                    Settings.SteamUpdateIsNew = isNew;
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] UpdateSteamUpdateForGameAsync failed.");
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    Settings.SteamUpdateError = "Error while loading update";
+                    Settings.SteamUpdateAvailable = false;
+                    Settings.SteamUpdateIsNew = false;
+                });
+            }
+        }
+
+        private async Task UpdateSteamPlayerCountForGameAsync(Playnite.SDK.Models.Game game)
+        {
+            try
+            {
+                // Si la feature est désactivée, on nettoie et on sort
+                if (!Settings.SteamPlayerCountEnabled)
+                {
+                    ResetSteamPlayerCount();
+                    return;
+                }
+
+                ResetSteamPlayerCount();
+
+                var steamId = GetSteamGameId(game);
+                if (string.IsNullOrWhiteSpace(steamId))
+                {
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        Settings.SteamCurrentPlayersError = "No Steam ID";
+                        Settings.SteamCurrentPlayersAvailable = false;
+                    });
+                    return;
+                }
+
+                var result = await steamPlayerCountService.GetCurrentPlayersAsync(steamId);
+
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    if (!result.Success)
+                    {
+                        Settings.SteamCurrentPlayersError = string.IsNullOrWhiteSpace(result.Error)
+                            ? "No data"
+                            : result.Error;
+                        Settings.SteamCurrentPlayersAvailable = false;
+                        Settings.SteamCurrentPlayersString = string.Empty;
+                    }
+                    else
+                    {
+                        Settings.SteamCurrentPlayersError = string.Empty;
+                        Settings.SteamCurrentPlayersAvailable = true;
+
+                        // Format "34 521 players online"
+                        Settings.SteamCurrentPlayersString = $"{result.PlayerCount:N0} players online";
+                    }
+                });
+            }
+            catch
+            {
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    Settings.SteamCurrentPlayersError = "Error while loading players";
+                    Settings.SteamCurrentPlayersAvailable = false;
+                    Settings.SteamCurrentPlayersString = string.Empty;
+                });
+            }
+        }
+
+        public Task InitializeSteamUpdatesCacheForAllGamesAsync()
+        {
+            return Task.Run(() =>
+            {
+                try
+                {
+                    PlayniteApi.Dialogs.ActivateGlobalProgress(progress =>
+                    {
+                        var games = PlayniteApi.Database.Games.ToList();
+                        var cache = LoadSteamUpdatesCache();
+
+                        // On garde uniquement les jeux Steam avec un SteamID
+                        var steamGames = games
+                            .Select(g => new { Game = g, SteamId = GetSteamGameId(g) })
+                            .Where(x => !string.IsNullOrWhiteSpace(x.SteamId))
+                            .ToList();
+
+                        progress.ProgressMaxValue = steamGames.Count;
+
+                        string baseText =
+                            (string)Application.Current?.TryFindResource("SteamInitCache_ProgressText")
+                            ?? "Initializing Steam update cache... {0}/{1} Steam games scanned";
+
+                        int index = 0;
+                        int updated = 0;
+
+                        foreach (var entry in steamGames)
+                        {
+                            if (progress.CancelToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
+                            index++;
+                            progress.CurrentProgressValue = index;
+                            progress.Text = string.Format(baseText, index, steamGames.Count);
+
+                            // déjà présent dans le cache -> on saute
+                            if (cache.ContainsKey(entry.SteamId))
+                            {
+                                continue;
+                            }
+
+                            // appel "sync" sur la méthode async
+                            var result = steamUpdateService
+                                .GetLatestUpdateAsync(entry.SteamId)
+                                .GetAwaiter()
+                                .GetResult();
+
+                            if (result == null || string.IsNullOrWhiteSpace(result.Title))
+                            {
+                                continue;
+                            }
+
+                            cache[entry.SteamId] = result.Title;
+                            updated++;
+
+                            // petit throttle pour ne pas spammer l’API
+                            System.Threading.Thread.Sleep(150);
+                        }
+
+                        SaveSteamUpdatesCache(cache);
+                        logger.Info($"[AnikiHelper] InitializeSteamUpdatesCacheForAllGamesAsync completed. Steam games={steamGames.Count}, new cached entries={updated}");
+                    },
+                    new GlobalProgressOptions(
+                        (string)Application.Current?.TryFindResource("SteamInitCache_ProgressTitle")
+                        ?? "Initializing Steam update cache")
+                    {
+                        IsIndeterminate = false,
+                        Cancelable = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] InitializeSteamUpdatesCacheForAllGamesAsync failed.");
+                    throw;
+                }
+            });
+        }
+
+
+
 
         // ====== SuccessStory helpers ======
 
@@ -331,9 +726,12 @@ namespace AnikiHelper
 
         public AnikiHelper(IPlayniteAPI api) : base(api)
         {
-
             SettingsVM = new AnikiHelperSettingsViewModel(this);
             Properties = new GenericPluginProperties { HasSettings = true };
+
+            // Langue Playnite -> Steam
+            var playniteLang = api?.ApplicationSettings?.Language; // "fr_FR", "en_US", etc.
+            steamUpdateService = new SteamUpdateLiteService(playniteLang);
 
             AddSettingsSupportSafe("AnikiHelper", "Settings");
 
@@ -346,7 +744,15 @@ namespace AnikiHelper
                     RecalcStatsSafe();
                 }
             };
+
+            // --- Timer pour les updates Steam (debounce changement de jeu) ---
+            steamUpdateTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(800)
+            };
+            steamUpdateTimer.Tick += steamUpdateTimer_Tick;
         }
+
 
         private void AddSettingsSupportSafe(string sourceName, string settingsRootPropertyName)
         {
@@ -456,11 +862,37 @@ namespace AnikiHelper
                 SavePluginSettings(Settings);
             }
             catch { }
+
+            
+        }
+
+        public override void OnGameSelected(OnGameSelectedEventArgs args)
+        {
+            base.OnGameSelected(args);
+
+            var g = args?.NewValue?.FirstOrDefault();
+            if (g == null)
+            {
+                ResetSteamUpdate();
+                ResetSteamPlayerCount();
+                return;
+            }
+
+            if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+            {
+                ResetSteamUpdate();
+                ResetSteamPlayerCount();
+                return;
+            }
+
+            pendingUpdateGame = g;
+            steamUpdateTimer.Stop();
+            steamUpdateTimer.Start();
         }
 
 
 
-        
+
 
 
 
