@@ -7,29 +7,7 @@
 This plugin was originally developed for my own [Aniki Themes](https://github.com/Mike-Aniki), to add features that can’t be achieved with XAML alone in Playnite Fullscreen mode — such as dynamic color adaptation, session notifications, and advanced statistics.
 It is documented here only for reference, in case another theme creator wishes to integrate or adapt its features into their own Fullscreen theme.
 
-## Features
-
-**Global library statistics**
-- Total and average playtime  
-- Installed / Uninstalled / Hidden / Favorite games  
-- Completion progress (New / Completed  / Playing)  
-- Source breakdown (Steam, Epic, Xbox Game Pass, etc.)
-
-**Top played games**
-- Displays your most played games with total playtime and percentage  
-- Dynamic updates based on library data
-
-**Monthly summary**
-- Total playtime this month  
-- Number of games played this month  
-- Most played game of the month  
-
-**Recently played / added / never played**
-- Lists of recently active, newly added, and untouched games
-
-## Integration for Theme Creators
-
-*How it works*
+## Global library statistics
 
 **Aniki Helper** reads your Playnite database and exposes a set of **bindable properties** accessible from your Fullscreen theme through the `PluginSettings` markup extension.
 
@@ -40,13 +18,13 @@ There are **two types of bindings** you can use:
 
 Example of direct bindings:
 
-```
+```xml
 <TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=TotalPlaytimeString}" />
 <TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=ThisMonthTopGameName}" />
 <TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=FavoriteCount}" />
 ```
 Example of collection binding:
-```
+```xml
 <GroupBox Header="Top Played Games">
   <ItemsControl ItemsSource="{PluginSettings Plugin=AnikiHelper, Path=TopPlayed}">
     <ItemsControl.ItemTemplate>
@@ -60,13 +38,6 @@ Example of collection binding:
   </ItemsControl>
 </GroupBox>
 ```
-
-It can be combined with other plugins like MoData, ThemeOptions, or SuccessStoryFullscreenHelper to display complete dashboards and statistics panels inside your Fullscreen theme.
-
-## Exposed Bindings
-
-Below is the list of all **bindable properties** exposed by Aniki Helper, divided into two categories:
-
 ### Direct Value Bindings
 These properties can be used directly in elements like `<TextBlock>` or `<Image>`.
 
@@ -86,8 +57,6 @@ These properties can be used directly in elements like `<TextBlock>` or `<Image>
 | SessionTotalPlaytimeString | Total accumulated playtime on that game after the session |
 | SessionNewAchievementsCount | Number of achievements earned during the last session |
 
----
-
 ### Collection Bindings (use with `ItemsControl`)
 These properties are **lists** and must be displayed using an `<ItemsControl>` with an `ItemTemplate`.
 
@@ -102,9 +71,7 @@ These properties are **lists** and must be displayed using an `<ItemsControl>` w
 | RecentAchievements | {Game, Title, Desc, UnlockedString, IconPath} | 3 most recent unlocked achievements |
 | RareTop | {Game, Title, PercentString, IconPath} | 3 rarest unlocked achievements this year |
 
----
-
-### UI triggers 
+### UI triggers
 These properties are useful for animating or conditionally displaying elements in your theme.
 
 | Property | Description |
@@ -125,13 +92,15 @@ Activation
 
 To enable this feature, make sure the following line is present in one of your constant.xaml files :
 
-```<sys:Boolean x:Key="DynamicAutoEnabled">True</sys:Boolean>```
+```xml
+<sys:Boolean x:Key="DynamicAutoEnabled">True</sys:Boolean>
+```
 
 Once this key is set to True, Aniki Helper will continuously monitor the currently selected game and dynamically recolor your interface based on its dominant hue.
 
 When active, the system updates the following color and brush resources in real time :
 
-```
+```xml
 GlyphColor
 GlowFocusColor
 DynamicGlowBackgroundPrimary
@@ -147,7 +116,7 @@ ShadeBackground
 These keys are refreshed automatically with smooth animated transitions (≈200 ms) each time the user selects a new game.
 If DynamicAutoEnabled is later set to False, the theme immediately restores its original static colors.
 
-### Notes
+**Notes**
 
 This system uses the exact same resource keys as those defined in the Aniki Themes color model.
 Because this plugin was originally created for Aniki Themes, it directly targets their key structure.
@@ -163,7 +132,7 @@ When the update window appears, Aniki Helper automatically locates its inner pan
 
 To use this feature, define two styles in your constants or theme resource files:
 
-```
+```xml
 <Style x:Key="Aniki_AddonsUpdateWindowStyle_Top" TargetType="Border">
   <Setter Property="Background" Value="{DynamicResource OverlayMenu}" />
   <Setter Property="CornerRadius" Value="12" />
@@ -186,6 +155,79 @@ The bottom border (buttons footer) uses the Aniki_AddonsUpdateWindowStyle_Bottom
 No additional setup is required — the system detects and applies your styles automatically each time the window opens.
 
 --- 
+
+## SuccessStory Refresh Command
+
+Aniki Helper exposes a command that allows Fullscreen themes to trigger a manual refresh of SuccessStory data for the currently selected game.  
+This is useful to update achievements after unlocking trophies without switching back to Desktop Mode.
+
+| Property | Description |
+|---------|-------------|
+| RefreshSuccessStoryCommand | Command that refreshes SuccessStory data for the selected game (equivalent to “Download plugin data” in Desktop mode). |
+
+**Usage**
+```xml
+<Button Content="Refresh"
+        Command="{PluginSettings Plugin=AnikiHelper, Path=RefreshSuccessStoryCommand}" />
+```
+
+This command only works when at least one game is selected in Fullscreen mode.  
+SuccessStory must be installed and its data provider enabled.
+
+---
+
+## Steam Features
+
+### Steam Patch Notes Bindings
+These properties expose the latest Steam update for the selected game.  
+Useful for displaying a “Last Update Patch Note” panel and an “Update Available” badge.
+
+> **How the badge works**  
+> Aniki Helper keeps a small local cache inside the plugin data folder, storing the last known Steam update title for each game.  
+> When switching games, the plugin compares the current Steam update title with the cached one.  
+> If they differ, the badge appears (`SteamUpdateIsNew = True`), and the cache is updated automatically.
+
+| Property              | Description |
+|-----------------------|-------------|
+| SteamUpdateTitle      | Title of the latest Steam news/update for the selected game. |
+| SteamUpdateDate       | Formatted date/time of the update. |
+| SteamUpdateHtml       | Raw HTML content of the update (for HTML-capable controls). |
+| SteamUpdateAvailable  | True when a Steam update/news was successfully found. |
+| SteamUpdateError      | Error or status message if no update is available. |
+| SteamUpdateIsNew      | True only when the update is new compared to the local cache (useful for badges). |
+
+**Example**
+```xml
+<TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=SteamUpdateTitle}" />
+<TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=SteamUpdateDate}" />
+<HtmlTextView Html="{PluginSettings Plugin=AnikiHelper, Path=SteamUpdateHtml}" />
+```
+
+---
+
+### Steam Player Count Bindings
+
+| Property                     | Description |
+|------------------------------|-------------|
+| SteamCurrentPlayersString  | Formatted player count string (e.g. "34,521 players online"). |
+| SteamCurrentPlayersAvailable | True when a valid Steam player count was retrieved. |
+| SteamCurrentPlayersError   | Error or status message if the player count could not be retrieved. |
+
+**Example**
+```xml
+<TextBlock Text="{PluginSettings Plugin=AnikiHelper, Path=SteamCurrentPlayersString}" />
+```
+
+**Visibility trigger**
+```xml
+<DataTrigger Binding="{PluginSettings Plugin=AnikiHelper, Path=SteamCurrentPlayersAvailable}" Value="True">
+    <Setter Property="Visibility" Value="Visible"/>
+</DataTrigger>
+```
+
+
+
+---
 
 ## Recommended Plugins
 
