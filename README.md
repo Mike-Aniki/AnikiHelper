@@ -125,9 +125,9 @@ If DynamicAutoEnabled is later set to False, the theme immediately restores its 
 
 **Notes**
 
-This system uses the exact same resource keys as those defined in the Aniki Themes color model.
-Because this plugin was originally created for Aniki Themes, it directly targets their key structure.
-However, it is fully documented here in case another theme creator wants to reuse or adapt it to their own Fullscreen theme.
+> This system uses the exact same resource keys as those defined in the Aniki Themes color model.
+> Because this plugin was originally created for Aniki Themes, it directly targets their key structure.
+> However, it is fully documented here in case another theme creator wants to reuse or adapt it to their own Fullscreen theme.
 
 --- 
 
