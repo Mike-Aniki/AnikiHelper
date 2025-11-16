@@ -189,7 +189,7 @@ SuccessStory must be installed and its data provider enabled.
 These properties expose the latest Steam update for the selected game.  
 Useful for displaying a “Last Update Patch Note” panel and an “Update Available” badge.
 
-> **How the badge works**  
+> **How the badge "Update Available" works**  
 > Aniki Helper keeps a small local cache inside the plugin data folder, storing the last known Steam update title for each game.  
 > When switching games, the plugin compares the current Steam update title with the cached one.  
 > If they differ, the badge appears (`SteamUpdateIsNew = True`), and the cache is updated automatically.
@@ -210,6 +210,51 @@ Useful for displaying a “Last Update Patch Note” panel and an “Update Avai
 <HtmlTextView Html="{PluginSettings Plugin=AnikiHelper, Path=SteamUpdateHtml}" />
 ```
 
+---
+
+### Steam Recent Updates (Global – Top 10)
+Aniki Helper also provides a global list of the 10 most recent Steam updates across your library.
+This is designed for dedicated “Latest Updates” views inside fullscreen themes.
+
+> **How it works**  
+> Unlike the per-game update badge, this feature builds a **global list** of the most recently patched Steam games.  
+> Every time a Steam update is detected for any game, the cache entry for that game is refreshed.  
+> The plugin then sorts all cached entries by date and exposes only the **10 newest updates**.
+
+
+| Field        | Description                                                   |
+|--------------|---------------------------------------------------------------|
+| **SteamRecentUpdates** | A list of 10 `SteamRecentUpdateItem` objects (sorted by newest).            |
+| **GameName** | Display name of the game.                                     |
+| **Title**    | Title of the Steam update/news.                               |
+| **DateString** | Localized short date/time string.                           |
+| **CoverPath** | Auto–detected path to the game’s cover image.                |
+| **IconPath**  | Auto–detected path to the game’s icon.                       |
+| **IsRecent**  | True when the update is less than 48 hours old (for badges). |
+
+**Example**
+```xml
+<ItemsControl ItemsSource="{PluginSettings Plugin=AnikiHelper, Path=SteamRecentUpdates}">
+    <ItemsControl.ItemTemplate>
+        <DataTemplate>
+            <StackPanel Orientation="Horizontal">
+                <Image Source="{Binding CoverPath}" Width="80" Height="80"/>
+                <StackPanel Margin="10,0,0,0">
+                    <TextBlock Text="{Binding GameName}" />
+                    <TextBlock Text="{Binding DateString}" />
+                    <TextBlock Text="{Binding Title}" />
+                </StackPanel>
+
+                <!-- Badge NEW (less than 48h) -->
+                <TextBlock Text="NEW"
+                           Visibility="{Binding IsRecent, Converter={StaticResource BoolToVisibilityConverter}}"
+                           Foreground="Orange"
+                           FontWeight="Bold"/>
+            </StackPanel>
+        </DataTemplate>
+    </ItemsControl.ItemTemplate>
+</ItemsControl>
+```
 ---
 
 ### Steam Player Count Bindings
