@@ -107,6 +107,55 @@ namespace AnikiHelper
         public int UsedTenthsInt => (int)Math.Round(UsedPercentage / 10.0);
     }
 
+    
+    public class SteamRecentUpdateItem : ObservableObject
+    {
+        private string gameName;
+        public string GameName
+        {
+            get => gameName;
+            set => SetValue(ref gameName, value);
+        }
+
+        private string title;
+        public string Title
+        {
+            get => title;
+            set => SetValue(ref title, value);
+        }
+
+        private string dateString;
+        public string DateString
+        {
+            get => dateString;
+            set => SetValue(ref dateString, value);
+        }
+
+        private string coverPath;
+        public string CoverPath
+        {
+            get => coverPath;
+            set => SetValue(ref coverPath, value);
+        }
+
+        private string iconPath;
+        public string IconPath
+        {
+            get => iconPath;
+            set => SetValue(ref iconPath, value);
+        }
+
+        // 🔥 sert pour le badge NEW
+        private bool isRecent;
+        public bool IsRecent
+        {
+            get => isRecent;
+            set => SetValue(ref isRecent, value);
+        }
+    }
+
+
+
     public class AnikiHelperSettings : ObservableObject, ISettings, System.ComponentModel.INotifyPropertyChanged
     {
         private readonly global::AnikiHelper.AnikiHelper plugin;
@@ -294,6 +343,10 @@ namespace AnikiHelper
         // Succès rares (Top 3)
         public ObservableCollection<RareAchievementItem> RareTop { get; } = new ObservableCollection<RareAchievementItem>();
 
+        // Dernières mises à jour Steam (Top 10)
+        public ObservableCollection<SteamRecentUpdateItem> SteamRecentUpdates { get; } = new ObservableCollection<SteamRecentUpdateItem>();
+
+
         // Watcher SuccessStory
         private FileSystemWatcher achievementsWatcher;
         private Timer debounceTimer;
@@ -330,6 +383,14 @@ namespace AnikiHelper
         {
             get => steamPlayerCountEnabled;
             set => SetValue(ref steamPlayerCountEnabled, value);
+        }
+
+        // Active l'invite de création du cache Steam au démarrage
+        private bool askSteamUpdateCacheAtStartup = true;
+        public bool AskSteamUpdateCacheAtStartup
+        {
+            get => askSteamUpdateCacheAtStartup;
+            set => SetValue(ref askSteamUpdateCacheAtStartup, value);
         }
 
         #endregion
@@ -412,6 +473,8 @@ namespace AnikiHelper
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
 
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
+                AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
+
             }
 
             // === Bouton "Refresh SuccessStory" pour le thème ===

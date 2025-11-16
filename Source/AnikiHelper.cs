@@ -22,34 +22,67 @@ namespace AnikiHelper
     {
         private static readonly ILogger logger = LogManager.GetLogger();
 
-        // === Diagnostics et chemins ===
+        // === Diagnostics and paths ===
         private string GetDataRoot() => Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
 
-        // --- Cache des updates Steam déjà vues (SteamID -> dernier titre d'update) ---
+        private class SteamUpdateCacheEntry
+        {
+            public string Title { get; set; }
+            public string GameName { get; set; }
+            public DateTime LastPublishedUtc { get; set; }
+        }
+
+        // --- Cache of Steam updates already viewed (SteamID -> latest update title) ---
         private string GetSteamUpdatesCachePath()
             => Path.Combine(GetDataRoot(), "steam_updates_cache.json");
 
-        private Dictionary<string, string> LoadSteamUpdatesCache()
+        private Dictionary<string, SteamUpdateCacheEntry> LoadSteamUpdatesCache()
         {
+            var path = GetSteamUpdatesCachePath();
+            if (!File.Exists(path))
+            {
+                return new Dictionary<string, SteamUpdateCacheEntry>();
+            }
+
             try
             {
-                var path = GetSteamUpdatesCachePath();
-                if (!File.Exists(path))
+                var json = File.ReadAllText(path);
+
+                // Format actuel : steamId -> SteamUpdateCacheEntry
+                var asNew = Serialization.FromJson<Dictionary<string, SteamUpdateCacheEntry>>(json);
+                if (asNew != null)
                 {
-                    return new Dictionary<string, string>();
+                    return asNew;
                 }
 
-                var json = File.ReadAllText(path);
-                return Serialization.FromJson<Dictionary<string, string>>(json)
-                       ?? new Dictionary<string, string>();
+                // Old format: steamId -> title (converted on the fly)
+                var asOld = Serialization.FromJson<Dictionary<string, string>>(json);
+                if (asOld != null)
+                {
+                    var converted = new Dictionary<string, SteamUpdateCacheEntry>();
+                    foreach (var kv in asOld)
+                    {
+                        converted[kv.Key] = new SteamUpdateCacheEntry
+                        {
+                            Title = kv.Value,
+                            GameName = null,
+                            LastPublishedUtc = DateTime.UtcNow
+                        };
+                    }
+                    return converted;
+                }
+
+                return new Dictionary<string, SteamUpdateCacheEntry>();
             }
-            catch
+            catch (Exception ex)
             {
-                return new Dictionary<string, string>();
+                logger.Error(ex, "[AnikiHelper] Failed to load Steam updates cache.");
+                return new Dictionary<string, SteamUpdateCacheEntry>();
             }
         }
 
-        private void SaveSteamUpdatesCache(Dictionary<string, string> cache)
+
+        private void SaveSteamUpdatesCache(Dictionary<string, SteamUpdateCacheEntry> cache)
         {
             try
             {
@@ -60,12 +93,124 @@ namespace AnikiHelper
             }
             catch
             {
-                // on ignore en silence, ce n'est qu'un cache
+                // ce n'est qu'un cache, on ignore
+            }
+        }
+
+        // Builds a list of the last 10 Steam updates for the theme
+        public void RefreshSteamRecentUpdatesFromCache()
+        {
+            try
+            {
+                var cache = LoadSteamUpdatesCache();
+
+                var list = cache
+                    .Where(kv => kv.Value != null && kv.Value.LastPublishedUtc != DateTime.MinValue)
+                    .OrderByDescending(kv => kv.Value.LastPublishedUtc)
+                    .Take(10)
+                    .Select(kv =>
+                    {
+                        var steamId = kv.Key;
+                        var e = kv.Value;
+
+                        Playnite.SDK.Models.Game game = null;
+                        try
+                        {
+                            // We find the game corresponding to this SteamID
+                            game = PlayniteApi.Database.Games
+                                .FirstOrDefault(g => GetSteamGameId(g) == steamId);
+                        }
+                        catch
+                        {
+                            // if it breaks, the game remains null
+                        }
+
+                        // Paths calculated on the fly -> nothing in the JSON
+                        var coverPath = GetGameCoverPath(game);
+                        var iconPath = GetGameIconPath(game);
+
+                        var dt = e.LastPublishedUtc;
+                        if (dt == DateTime.MinValue)
+                        {
+                            dt = DateTime.UtcNow;
+                        }
+                        // recent update if less than 48 hours ago
+                        var isRecent = (DateTime.UtcNow - dt).TotalDays <= 2.0;
+
+                        return new SteamRecentUpdateItem
+                        {
+                            GameName = Safe(e.GameName ?? game?.Name),
+                            Title = e.Title ?? string.Empty,
+                            DateString = dt.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
+                            CoverPath = coverPath ?? string.Empty,
+                            IconPath = iconPath ?? string.Empty,
+                            IsRecent = isRecent
+                        };
+                    })
+                    .ToList();
+
+                Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    var target = Settings.SteamRecentUpdates;
+                    target.Clear();
+                    foreach (var it in list)
+                    {
+                        target.Add(it);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to refresh Steam recent updates.");
+                Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    Settings.SteamRecentUpdates.Clear();
+                });
             }
         }
 
 
-        // ✅ helper pour nom de jeu
+
+
+        private string GetGameCoverPath(Playnite.SDK.Models.Game game)
+        {
+            if (game == null)
+            {
+                return string.Empty;
+            }
+
+            string path = null;
+
+            if (!string.IsNullOrEmpty(game.CoverImage))
+            {
+                path = PlayniteApi.Database.GetFullFilePath(game.CoverImage);
+            }
+            else if (!string.IsNullOrEmpty(game.BackgroundImage))
+            {
+                path = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
+            }
+            else if (!string.IsNullOrEmpty(game.Icon))
+            {
+                path = PlayniteApi.Database.GetFullFilePath(game.Icon);
+            }
+
+            return string.IsNullOrEmpty(path) ? string.Empty : path;
+        }
+
+        private string GetGameIconPath(Playnite.SDK.Models.Game game)
+        {
+            if (game == null || string.IsNullOrEmpty(game.Icon))
+            {
+                return string.Empty;
+            }
+
+            var path = PlayniteApi.Database.GetFullFilePath(game.Icon);
+            return string.IsNullOrEmpty(path) ? string.Empty : path;
+        }
+
+
+
+        // ✅ helper for game name
         private static string Safe(string s) => string.IsNullOrWhiteSpace(s) ? "(Unnamed Game)" : s;
 
         // VM + Settings
@@ -82,7 +227,6 @@ namespace AnikiHelper
         private readonly Dictionary<Guid, HashSet<string>> sessionStartUnlocked = new Dictionary<Guid, HashSet<string>>();
 
         // === Steam Update (badge "new" pour la session en cours) ===
-        // Mémorise quels patchs (SteamID + Titre) sont considérés comme "nouveaux" pendant CETTE session Playnite
         private readonly HashSet<string> steamUpdateNewThisSession = new HashSet<string>();
 
 
@@ -162,7 +306,7 @@ namespace AnikiHelper
             }
             catch
             {
-                // pas grave
+                // ignorer
             }
         }
 
@@ -180,7 +324,7 @@ namespace AnikiHelper
             }
             catch
             {
-                // on ignore
+                // ignorer
             }
         }
 
@@ -238,7 +382,7 @@ namespace AnikiHelper
                     return;
                 }
 
-                // --- Détection "nouvelle update" via cache JSON + 'grâce' sur la session courante ---
+                // --- Detection of "new update" ---
                 bool isNew = false;
                 var sessionKey = $"{steamId}|{result.Title}";
 
@@ -246,37 +390,75 @@ namespace AnikiHelper
                 {
                     var cache = LoadSteamUpdatesCache();
 
-                    // Cas 1 : le JSON ne connaît pas encore ce titre -> vrai nouveau patch global
-                    if (!cache.TryGetValue(steamId, out var lastTitle) ||
-                        !string.Equals(lastTitle, result.Title, StringComparison.Ordinal))
+                    cache.TryGetValue(steamId, out var entry);
+                    var lastTitle = entry?.Title;
+
+                    var published = result.Published;
+                    if (published == DateTime.MinValue)
                     {
-                        isNew = true;
-
-                        // On enregistre tout de suite ce nouveau titre dans le cache persistant
-                        cache[steamId] = result.Title;
-                        SaveSteamUpdatesCache(cache);
-
-                        // Et on se souvient que pour CETTE session, ce patch est "new"
-                        steamUpdateNewThisSession.Add(sessionKey);
+                        published = DateTime.UtcNow;
                     }
                     else
                     {
-                        // Cas 2 : le JSON connaît déjà ce titre (patch déjà vu dans une session précédente)
-                        // -> on regarde si, malgré ça, on l'a marqué "new" dans CETTE session
-                        if (steamUpdateNewThisSession.Contains(sessionKey))
+                        published = published.ToUniversalTime();
+                    }
+
+                    // === No cache for this game yet ===
+                    if (string.IsNullOrWhiteSpace(lastTitle))
+                    {
+                        cache[steamId] = new SteamUpdateCacheEntry
+                        {
+                            Title = result.Title,
+                            GameName = Safe(game.Name),
+                            LastPublishedUtc = published
+                        };
+
+
+
+                        SaveSteamUpdatesCache(cache);
+
+                        isNew = false;
+                        steamUpdateNewThisSession.Remove(sessionKey);
+                    }
+                    else
+                    {
+                        // === Title changed => new update ===
+                        if (!string.Equals(lastTitle, result.Title, StringComparison.Ordinal))
                         {
                             isNew = true;
+
+                            cache[steamId] = new SteamUpdateCacheEntry
+                            {
+                                Title = result.Title,
+                                GameName = Safe(game.Name),
+                                LastPublishedUtc = published
+                            };
+
+
+
+                            SaveSteamUpdatesCache(cache);
+
+                            steamUpdateNewThisSession.Add(sessionKey);
+                        }
+                        else
+                        {
+                            // Same version: visible only if already marked "new" in this session
+                            if (steamUpdateNewThisSession.Contains(sessionKey))
+                            {
+                                isNew = true;
+                            }
                         }
                     }
                 }
                 catch
                 {
-                    // si le cache plante, on ne marque pas comme "new"
                     isNew = false;
                 }
 
 
-                // --- Push vers les Settings (binding du thème) ---
+
+
+                // --- Push to Settings (theme binding) ---
                 System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                 {
                     Settings.SteamUpdateTitle = result.Title;
@@ -288,9 +470,10 @@ namespace AnikiHelper
                     Settings.SteamUpdateAvailable = true;
                     Settings.SteamUpdateError = string.Empty;
 
-                    // 🔴 le bool qui servira au badge
                     Settings.SteamUpdateIsNew = isNew;
                 });
+
+                RefreshSteamRecentUpdatesFromCache();
             }
             catch (Exception ex)
             {
@@ -308,7 +491,6 @@ namespace AnikiHelper
         {
             try
             {
-                // Si la feature est désactivée, on nettoie et on sort
                 if (!Settings.SteamPlayerCountEnabled)
                 {
                     ResetSteamPlayerCount();
@@ -345,8 +527,7 @@ namespace AnikiHelper
                         Settings.SteamCurrentPlayersError = string.Empty;
                         Settings.SteamCurrentPlayersAvailable = true;
 
-                        // Format "34 521 players online"
-                        Settings.SteamCurrentPlayersString = $"{result.PlayerCount:N0} players online";
+                        Settings.SteamCurrentPlayersString = $"{result.PlayerCount:N0}";
                     }
                 });
             }
@@ -372,7 +553,7 @@ namespace AnikiHelper
                         var games = PlayniteApi.Database.Games.ToList();
                         var cache = LoadSteamUpdatesCache();
 
-                        // On garde uniquement les jeux Steam avec un SteamID
+                        // Only Steam games with a SteamID are kept.
                         var steamGames = games
                             .Select(g => new { Game = g, SteamId = GetSteamGameId(g) })
                             .Where(x => !string.IsNullOrWhiteSpace(x.SteamId))
@@ -398,13 +579,13 @@ namespace AnikiHelper
                             progress.CurrentProgressValue = index;
                             progress.Text = string.Format(baseText, index, steamGames.Count);
 
-                            // déjà présent dans le cache -> on saute
+                            // already present in the cache -> skip
                             if (cache.ContainsKey(entry.SteamId))
                             {
                                 continue;
                             }
 
-                            // appel "sync" sur la méthode async
+                            // "sync" call on the async method
                             var result = steamUpdateService
                                 .GetLatestUpdateAsync(entry.SteamId)
                                 .GetAwaiter()
@@ -415,14 +596,25 @@ namespace AnikiHelper
                                 continue;
                             }
 
-                            cache[entry.SteamId] = result.Title;
+                            cache[entry.SteamId] = new SteamUpdateCacheEntry
+                            {
+                                Title = result.Title,
+                                GameName = Safe(entry.Game.Name),
+                                LastPublishedUtc = result.Published == DateTime.MinValue
+                                    ? DateTime.UtcNow
+                                    : result.Published.ToUniversalTime(),
+                            };
+
+
+
                             updated++;
 
-                            // petit throttle pour ne pas spammer l’API
+                            // small throttle to avoid spamming the API
                             System.Threading.Thread.Sleep(150);
                         }
 
                         SaveSteamUpdatesCache(cache);
+                        RefreshSteamRecentUpdatesFromCache();
                         logger.Info($"[AnikiHelper] InitializeSteamUpdatesCacheForAllGamesAsync completed. Steam games={steamGames.Count}, new cached entries={updated}");
                     },
                     new GlobalProgressOptions(
@@ -446,7 +638,7 @@ namespace AnikiHelper
 
         // ====== SuccessStory helpers ======
 
-        // Essaie de trouver le dossier "SuccessStory" dans ExtensionsData
+        // Try to find the "SuccessStory" folder in ExtensionsData
         private string FindSuccessStoryRoot()
         {
             try
@@ -469,7 +661,7 @@ namespace AnikiHelper
             return null;
         }
 
-        // Charge l'ensemble des succès "débloqués" pour un jeu (clés stables)
+        // Loads all "unlocked" achievements for a game (stable keys)
         private HashSet<string> GetUnlockedAchievementKeysForGame(Playnite.SDK.Models.Game game)
         {
             var set = new HashSet<string>();
@@ -577,7 +769,7 @@ namespace AnikiHelper
 
 
 
-        // === Snapshot mensuel (dans le dossier de CETTE extension) ===
+        // === Monthly snapshot (in the folder for THIS extension) ===
         private string GetMonthlyDir()
         {
             var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString(), "monthly");
@@ -787,6 +979,61 @@ namespace AnikiHelper
             return view;
         }
 
+        private void TryAskForSteamUpdateCacheOnStartup()
+        {
+            try
+            {
+                // On ne fait ça qu'en mode Fullscreen
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                // Si le cache existe déjà OU qu'on a déjà posé la question -> on ne fait rien
+                var cachePath = GetSteamUpdatesCachePath();
+                if (File.Exists(cachePath) || !Settings.AskSteamUpdateCacheAtStartup)
+                {
+                    return;
+                }
+
+                // Texte et titre (avec support de localisation si tu ajoutes les clés plus tard)
+                var message =
+                    (string)Application.Current?.TryFindResource("SteamInitCachePrompt_Message") ??
+                    "Aniki Helper can create a one-time Steam update cache for your Steam games.\n\n" +
+                    "This prevents the red \"new update\" icon from appearing the first time you visit each game.\n" +
+                    "This scan may take some time on large libraries.\n\n" +
+                    "Do you want to build the cache now?";
+
+                var title =
+                    (string)Application.Current?.TryFindResource("SteamInitCachePrompt_Title") ??
+                    "Build Steam update cache?";
+
+                var result = PlayniteApi.Dialogs.ShowMessage(
+                    message,
+                    title,
+                    MessageBoxButton.YesNo);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    // On ne reproposera plus automatiquement
+                    Settings.AskSteamUpdateCacheAtStartup = false;
+                    SavePluginSettings(Settings);
+
+                    // Lance le scan global (fenêtre de progression Playnite)
+                    _ = InitializeSteamUpdatesCacheForAllGamesAsync();
+                }
+                else
+                {
+                    // L'utilisateur ne veut pas => on ne repose plus la question
+                    Settings.AskSteamUpdateCacheAtStartup = false;
+                    SavePluginSettings(Settings);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] TryAskForSteamUpdateCacheOnStartup failed.");
+            }
+        }
 
 
         #region Lifecycle
@@ -863,7 +1110,13 @@ namespace AnikiHelper
             }
             catch { }
 
-            
+            try
+            {
+                TryAskForSteamUpdateCacheOnStartup();
+            }
+            catch { }
+
+
         }
 
         public override void OnGameSelected(OnGameSelectedEventArgs args)

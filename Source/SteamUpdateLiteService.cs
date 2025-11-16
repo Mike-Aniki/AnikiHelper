@@ -20,20 +20,18 @@ namespace AnikiHelper
         private const string FeedTemplate = "https://store.steampowered.com/feeds/news/app/{0}/?l={1}";
         private readonly string steamLanguage;
 
-        // ============================================================
-        //   PUBLIC : récupère la dernière update (Update / Patch Notes)
-        // ============================================================
+        // PUBLIC: retrieves the latest update (Update/Patch Notes)
         public async Task<SteamUpdateLiteResult> GetLatestUpdateAsync(string steamId)
         {
             if (string.IsNullOrWhiteSpace(steamId))
                 return null;
 
-            // 1) On tente dans la langue Playnite
+            // 1) We try in the Playnite language
             var result = await GetLatestUpdateForLanguageAsync(steamId, steamLanguage);
             if (result != null)
                 return result;
 
-            // 2) Fallback anglais si Playnite ≠ anglais
+            // 2) English fallback if Playnite ≠ English
             if (!string.Equals(steamLanguage, "english", StringComparison.OrdinalIgnoreCase))
             {
                 return await GetLatestUpdateForLanguageAsync(steamId, "english");
@@ -42,9 +40,6 @@ namespace AnikiHelper
             return null;
         }
 
-        // ============================================================
-        //      INTERNE : récupère update pour UNE langue donnée
-        // ============================================================
         private async Task<SteamUpdateLiteResult> GetLatestUpdateForLanguageAsync(string steamId, string language)
         {
             try
@@ -103,7 +98,7 @@ namespace AnikiHelper
                         if (keywords.Any(k => t.Contains(k)))
                             return true;
 
-                        // Détection simple d’un format x.y ou x.y.z
+                        // Simple detection of an x.y or x.y.z format
                         for (int i = 0; i < t.Length - 2; i++)
                         {
                             if (char.IsDigit(t[i]) && t[i + 1] == '.' && char.IsDigit(t[i + 2]))
@@ -113,7 +108,7 @@ namespace AnikiHelper
                         return false;
                     }
 
-                    // === SEULEMENT UPDATE ===
+                    // === UPDATE ONLY ===
                     var candidate = items
                         .Where(i => LooksLikeUpdate(i.Title))
                         .OrderByDescending(i => ParseDate(i.Pub))
@@ -136,9 +131,7 @@ namespace AnikiHelper
             }
         }
 
-        // ============================================================
-        //         CONVERTIT Playnite → Steam (fr_FR → french)
-        // ============================================================
+        // CONVERTIT Playnite → Steam (fr_FR → french)
         public SteamUpdateLiteService(string playniteLanguage)
         {
             steamLanguage = MapPlayniteLanguageToSteam(playniteLanguage);
@@ -168,9 +161,7 @@ namespace AnikiHelper
             return "english";
         }
 
-        // ============================================================
-        //                   FIX ENCODING STEAM
-        // ============================================================
+        //  FIX ENCODING STEAM
         private static int CountMojibake(string s)
         {
             if (string.IsNullOrEmpty(s))
