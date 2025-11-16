@@ -92,3 +92,15 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.1.2/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_1_2.pext
     Changelog:
       - Added a one-time Steam update cache pop-up to prevent false “new update” alerts.
+  - Version: 1.1.3
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-16
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/1.1.3/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_1_3.pext
+    Changelog:
+      - Added scroll support in the plugin settings view.
+      - Adjusted Steam update detection so the existing “update available” badge no longer triggers when a game has no prior cached update.
+      - Added new bindings for Steam update cover/icon paths.
+      - Added IsRecent binding to allow themes to display a “NEW” badge for updates less than 48 hours old.
+      - Improved Steam updates cache handling.
+      
+
