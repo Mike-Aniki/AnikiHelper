@@ -86,3 +86,9 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.1.1/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_1_1.pext
     Changelog:
       - Fix for the number of Steam players
+  - Version: 1.1.2
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-16
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.1.2/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_1_2.pext
+    Changelog:
+      - Added a one-time Steam update cache pop-up to prevent false “new update” alerts.
