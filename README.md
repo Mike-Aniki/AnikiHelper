@@ -238,18 +238,18 @@ This is designed for dedicated “Latest Updates” views inside fullscreen them
     <ItemsControl.ItemTemplate>
         <DataTemplate>
             <StackPanel Orientation="Horizontal">
-                <Image Source="{Binding CoverPath}" Width="80" Height="80"/>
+
+                <!-- Cover -->
+                <Image Source="{Binding CoverPath}"
+                       Width="80" Height="80" />
+
+                <!-- Info -->
                 <StackPanel Margin="10,0,0,0">
-                    <TextBlock Text="{Binding GameName}" />
-                    <TextBlock Text="{Binding DateString}" />
+                    <TextBlock Text="{Binding GameName}" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding DateString}" Opacity="0.7"/>
                     <TextBlock Text="{Binding Title}" />
                 </StackPanel>
 
-                <!-- Badge NEW (less than 48h) -->
-                <TextBlock Text="NEW"
-                           Visibility="{Binding IsRecent, Converter={StaticResource BoolToVisibilityConverter}}"
-                           Foreground="Orange"
-                           FontWeight="Bold"/>
             </StackPanel>
         </DataTemplate>
     </ItemsControl.ItemTemplate>
