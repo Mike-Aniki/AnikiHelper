@@ -348,8 +348,27 @@ namespace AnikiHelper
         public string SteamNewsCustomFeedUrl
         {
             get => steamNewsCustomFeedUrl;
-            set => SetValue(ref steamNewsCustomFeedUrl, value);
+            set
+            {
+                // On garde l'ancienne valeur pour voir s'il y a VRAIMENT un changement
+                var old = steamNewsCustomFeedUrl;
+
+                SetValue(ref steamNewsCustomFeedUrl, value);
+
+                // Si l'URL a vraiment changé (modifiée dans les settings),
+                // on reset l'heure du dernier scan pour forcer un refresh.
+                if (!string.Equals(old, value, StringComparison.OrdinalIgnoreCase))
+                {
+                    SteamGlobalNewsLastRefreshUtc = null;
+                    LastNewsScanUtc = DateTime.MinValue;   //  ⬅️ AJOUTE CETTE LIGNE
+
+                }
+            }
         }
+
+
+
+
 
         // True si le flux custom est invalide (erreur de téléchargement / parsing)
         private bool steamNewsCustomFeedInvalid;
@@ -364,8 +383,25 @@ namespace AnikiHelper
         public bool NewsScanEnabled
         {
             get => newsScanEnabled;
-            set => SetValue(ref newsScanEnabled, value);
+            set
+            {
+                bool changed = newsScanEnabled != value;
+
+                SetValue(ref newsScanEnabled, value);
+
+                if (changed)
+                {
+                    // Si tu viens de désactiver le scan → reset des timers
+                    if (!value)
+                    {
+                        SteamGlobalNewsLastRefreshUtc = null;
+                        LastNewsScanUtc = DateTime.MinValue;
+                    }
+                }
+            }
         }
+
+
 
         public DateTime LastNewsScanUtc { get; set; } = DateTime.MinValue;
 
@@ -589,6 +625,9 @@ namespace AnikiHelper
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
                 LastSteamRecentCheckUtc = saved.LastSteamRecentCheckUtc;
+
+                NewsScanEnabled = saved.NewsScanEnabled;
+                LastNewsScanUtc = saved.LastNewsScanUtc;
 
 
                 DynamicAutoPrecacheUserEnabled = saved.DynamicAutoPrecacheUserEnabled;
@@ -1016,7 +1055,21 @@ namespace AnikiHelper
         // ===== ISettings =====
         public void BeginEdit() { }
         public void CancelEdit() { }
-        public void EndEdit() => plugin.SavePluginSettings(this);
+        public void EndEdit()
+        {
+            try
+            {
+                LogManager.GetLogger().Debug("[AnikiHelper] Settings saved.");
+
+            }
+            catch
+            {
+                // si le logger plante, on ne bloque pas la sauvegarde
+            }
+
+            plugin.SavePluginSettings(this);
+        }
+
 
         public bool VerifySettings(out List<string> errors) { errors = null; return true; }
 
@@ -1111,7 +1164,21 @@ namespace AnikiHelper
 
         public void BeginEdit() { }
         public void CancelEdit() { }
-        public void EndEdit() => plugin.SavePluginSettings(Settings);
+        public void EndEdit()
+        {
+            try
+            {
+                LogManager.GetLogger().Debug("[AnikiHelper] Settings (ViewModel) saved.");
+            }
+            catch
+            {
+                // Ne bloque jamais la sauvegarde en cas d'erreur de log
+            }
+
+            plugin.SavePluginSettings(Settings);
+        }
+
+
 
         public bool VerifySettings(out List<string> errors) { errors = null; return true; }
 

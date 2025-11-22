@@ -8,9 +8,15 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+
+
 
 
 namespace AnikiHelper
@@ -28,7 +34,9 @@ namespace AnikiHelper
         public string Summary { get; set; }
         public string ImageUrl { get; set; }
         public string HtmlDescription { get; set; }
-        
+        public string LocalImagePath { get; set; }
+
+
     }
 
     public class SteamGlobalNewsService
@@ -42,6 +50,8 @@ namespace AnikiHelper
         private readonly IPlayniteAPI api;
         private readonly AnikiHelperSettings settings;
         private readonly string steamLanguage;
+        private readonly ILogger logger = LogManager.GetLogger();
+
 
         // Cache des news globales
         private const int DisplayMaxItems = 20;  // Nombre de news visibles dans le thème.
@@ -85,6 +95,110 @@ namespace AnikiHelper
 
             return Path.Combine(root, "CacheNews.json");
         }
+
+        // === CHEMIN CACHE IMAGES ===
+        private string GetNewsImagesRoot()
+        {
+            var root = Path.Combine(
+                api.Paths.ExtensionsDataPath,
+                "96a983a3-3f13-4dce-a474-4052b718bb52",
+                "NewsImages");
+
+            if (!Directory.Exists(root))
+            {
+                Directory.CreateDirectory(root);
+            }
+
+            return root;
+        }
+
+        private static string ComputeHash(string input)
+        {
+            using (var md5 = MD5.Create())
+            {
+                var bytes = Encoding.UTF8.GetBytes(input ?? string.Empty);
+                var hash = md5.ComputeHash(bytes);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (var b in hash)
+                {
+                    sb.Append(b.ToString("x2"));
+                }
+                return sb.ToString();
+            }
+        }
+
+        // Télécharge une image dans le cache et renvoie le chemin local
+        private async Task<string> DownloadImageToCacheAsync(string imageUrl)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(imageUrl))
+                {
+                    return string.Empty;
+                }
+
+                // Déduire l'extension depuis l'URL si possible
+                string ext = null;
+                try
+                {
+                    var uri = new Uri(imageUrl);
+                    ext = Path.GetExtension(uri.AbsolutePath);
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                // Fallback .jpg si extension chelou ou absente
+                if (string.IsNullOrEmpty(ext) || ext.Length > 5)
+                {
+                    ext = ".jpg";
+                }
+
+                var fileName = ComputeHash(imageUrl) + ext;
+                var fullPath = Path.Combine(GetNewsImagesRoot(), fileName);
+
+                // Si déjà sur disque → on réutilise
+                if (File.Exists(fullPath))
+                {
+                    return fullPath;
+                }
+
+                // Téléchargement brut (pas de resize, pas de WPF, pas de System.Drawing)
+                using (var http = CreateHttpClient())
+                {
+                    var bytes = await http.GetByteArrayAsync(imageUrl).ConfigureAwait(false);
+
+                    if (bytes == null || bytes.Length == 0)
+                    {
+                        return string.Empty;
+                    }
+
+                    File.WriteAllBytes(fullPath, bytes);
+                }
+
+                return fullPath;
+            }
+            catch
+            {
+                // En cas d'erreur → pas de crash, juste pas d'image
+                return string.Empty;
+            }
+        }
+
+
+        // Sauvegarde un BitmapSource en JPEG
+        private void SaveJpeg(string path, System.Windows.Media.Imaging.BitmapSource bitmap)
+        {
+            var encoder = new System.Windows.Media.Imaging.JpegBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            using (var fs = new FileStream(path, FileMode.Create))
+            {
+                encoder.Save(fs);
+            }
+        }
+
+
 
         private static string MakeNewsKey(SteamGlobalNewsItem item)
         {
@@ -139,8 +253,11 @@ namespace AnikiHelper
         }
 
         // === MÉTHODE PRINCIPALE : ce que le thème appelle ===
+        // === MÉTHODE PRINCIPALE : ce que le thème appelle ===
         public async Task<List<SteamGlobalNewsItem>> GetGlobalNewsAsync()
         {
+            logger.Info("[SteamGlobalNewsService] GetGlobalNewsAsync() starting...");
+            logger.Info($"CustomFeed={settings?.SteamNewsCustomFeedUrl}, LastRefreshUtc={settings?.SteamGlobalNewsLastRefreshUtc}");
             // 1) Charger le cache existant et virer les news trop vieilles
             var cache = LoadNewsCache();
             var nowUtc = DateTime.UtcNow;
@@ -150,10 +267,29 @@ namespace AnikiHelper
                 .Where(n => n.PublishedUtc >= minDateUtc)
                 .ToList();
 
+            // Vérifier si le JSON existe réellement
+            bool cacheMissing = !File.Exists(GetNewsCachePath());
+
+            // Si on a déjà scanné il y a moins de 3h ET que le JSON existe,
+            // on renvoie simplement le cache (limité à DisplayMaxItems)
+            if (!cacheMissing && settings?.SteamGlobalNewsLastRefreshUtc != null)
+            {
+                var lastUtc = settings.SteamGlobalNewsLastRefreshUtc.Value;
+                if ((nowUtc - lastUtc).TotalHours < 3)
+                {
+                    logger.Info($"[SteamGlobalNewsService] SKIP scan → lastRefresh={lastUtc}, hoursSince={(nowUtc - lastUtc).TotalHours:F2}");
+
+                    return cache
+                        .OrderByDescending(n => n.PublishedUtc)
+                        .Take(DisplayMaxItems)
+                        .ToList();
+                }
+            }
+
             // 2) Charger un flux frais (custom → sinon baseUrl)
             List<SteamGlobalNewsItem> fresh = null;
 
-            // Au départ, on reset le flag d’erreur
+            // Au départ, on reset le flag d’erreur du flux custom
             if (settings != null)
             {
                 settings.SteamNewsCustomFeedInvalid = false;
@@ -163,11 +299,13 @@ namespace AnikiHelper
             var customUrl = settings?.SteamNewsCustomFeedUrl;
             if (!string.IsNullOrWhiteSpace(customUrl))
             {
-                fresh = await LoadFeedAsync(customUrl);
+                logger.Warn("[SteamGlobalNewsService] REFRESH TRIGGERED → scanning RSS feed NOW");
+
+                fresh = await LoadFeedAsync(customUrl).ConfigureAwait(false);
 
                 if (fresh == null || fresh.Count == 0)
                 {
-                    // Flux custom HS → on met le flag, on retombera sur le flux par défaut
+                    // Flux custom HS → on met le flag, le thème pourra afficher un warning
                     if (settings != null)
                     {
                         settings.SteamNewsCustomFeedInvalid = true;
@@ -175,16 +313,16 @@ namespace AnikiHelper
                 }
             }
 
-            // 2b) Si pas de custom ou flux custom vide → flux par défaut (avec langue + fallback anglais)
+            // 2b) Si pas de custom ou flux custom vide → flux par défaut (langue Playnite puis fallback anglais)
             if (fresh == null || fresh.Count == 0)
             {
                 var urlLang = AddLangToUrl(baseUrl, steamLanguage);
-                fresh = await LoadFeedAsync(urlLang) ?? new List<SteamGlobalNewsItem>();
+                fresh = await LoadFeedAsync(urlLang).ConfigureAwait(false) ?? new List<SteamGlobalNewsItem>();
 
                 if (fresh.Count == 0)
                 {
                     var urlEn = AddLangToUrl(baseUrl, "english");
-                    var fallback = await LoadFeedAsync(urlEn);
+                    var fallback = await LoadFeedAsync(urlEn).ConfigureAwait(false);
                     if (fallback != null)
                     {
                         fresh = fallback;
@@ -197,7 +335,7 @@ namespace AnikiHelper
                 fresh = new List<SteamGlobalNewsItem>();
             }
 
-            // 3) Fusion cache + fresh par clé unique
+            // 3) Fusion cache + fresh par clé unique (AppId + Titre + Date)
             var allDict = new Dictionary<string, SteamGlobalNewsItem>();
 
             foreach (var item in cache)
@@ -212,7 +350,8 @@ namespace AnikiHelper
             foreach (var item in fresh)
             {
                 var key = MakeNewsKey(item);
-                allDict[key] = item; // écrase l’ancienne version
+                // Le flux frais écrase la version ancienne du même article
+                allDict[key] = item;
             }
 
             // 4) Nettoyage et limitation du cache
@@ -222,15 +361,23 @@ namespace AnikiHelper
                 .Take(CacheMaxItems)
                 .ToList();
 
-            // 5) Sauvegarde
+            // 5) Sauvegarde sur disque
             SaveNewsCache(merged);
 
-            // 6) On renvoie seulement les X premières au thème
+            // 5b) Met à jour le timestamp de dernier refresh
+            if (settings != null)
+            {
+                settings.SteamGlobalNewsLastRefreshUtc = nowUtc;
+            }
+
+            // 6) On renvoie seulement les X dernières au thème
             return merged
                 .OrderByDescending(n => n.PublishedUtc)
                 .Take(DisplayMaxItems)
                 .ToList();
         }
+
+
 
 
 
@@ -430,28 +577,24 @@ namespace AnikiHelper
 
                         // === TEXTE A AFFICHER ===
 
-                        // HTML nettoyé pour HtmlTextView (on garde <p>, <br>, etc.)
                         var cleanedHtml = CleanHtmlForNews(descRaw);
-
-                        // Texte brut pour le summary
                         var fullText = StripHtml(descRaw);
-
-                        // Summary 
                         var summaryText = fullText;
-                      
 
                         // HtmlDescription : on privilégie le HTML nettoyé.
-                        // Si pour une raison quelconque il est vide, on encode le texte brut en <p> simple.
                         string finalHtml;
                         if (!string.IsNullOrWhiteSpace(cleanedHtml))
                         {
-                            finalHtml = cleanedHtml;   // article HTML (IGN, etc.)
+                            finalHtml = cleanedHtml;
                         }
                         else
                         {
                             var encoded = System.Net.WebUtility.HtmlEncode(fullText ?? string.Empty);
                             finalHtml = $"<p>{encoded.Replace("\n", "<br/>")}</p>";
                         }
+
+                        // ✅ Télécharger l'image en cache (si on a une URL)
+                        var localImagePath = await DownloadImageToCacheAsync(imageUrl);
 
                         var newsItem = new SteamGlobalNewsItem
                         {
@@ -464,9 +607,11 @@ namespace AnikiHelper
                             CoverPath = GetGameCoverPath(matchingGame),
                             IconPath = GetGameIconPath(matchingGame),
                             Summary = summaryText,
-                            ImageUrl = imageUrl,
-                            HtmlDescription = finalHtml   // ton HtmlTextView affiche ça
+                            ImageUrl = imageUrl,            // URL RSS d’origine (si tu veux l’ouvrir dans le navigateur)
+                            HtmlDescription = finalHtml,    // HtmlTextView
+                            LocalImagePath = localImagePath // chemin local pour <Image>
                         };
+
 
 
                         result.Add(newsItem);

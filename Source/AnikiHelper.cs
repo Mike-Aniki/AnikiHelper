@@ -546,69 +546,68 @@ namespace AnikiHelper
         {
             try
             {
-                // Si l'utilisateur a désactivé le scan des news, on ne fait rien
+                var nowUtc = DateTime.UtcNow;
+                var last = Settings.SteamGlobalNewsLastRefreshUtc;
+
+                // Log minimal d'entrée
+                logger.Debug($"[NewsScan] Start (force={force}, enabled={Settings.NewsScanEnabled})");
+
+                // Scan désactivé
                 if (!Settings.NewsScanEnabled)
                 {
+                    logger.Debug("[NewsScan] Skipped (disabled)");
                     return;
                 }
 
-                var nowUtc = DateTime.UtcNow;
-
-                // Limite : 1x toutes les 3 h, sauf si force = true
-                if (!force && Settings.SteamGlobalNewsLastRefreshUtc.HasValue)
+                // Cooldown (3h)
+                if (!force && last.HasValue)
                 {
-                    var last = Settings.SteamGlobalNewsLastRefreshUtc.Value;
-                    if ((nowUtc - last).TotalHours < GlobalNewsRefreshIntervalHours)
+                    var hours = (nowUtc - last.Value).TotalHours;
+                    if (hours < GlobalNewsRefreshIntervalHours)
                     {
-                        // Dernier scan trop récent → on ne refait rien
+                        logger.Debug($"[NewsScan] Skipped (cooldown {hours:F1}h < {GlobalNewsRefreshIntervalHours}h)");
                         return;
                     }
                 }
 
+                // Scan
                 var items = await steamGlobalNewsService.GetGlobalNewsAsync().ConfigureAwait(false);
+                if (items == null)
+                {
+                    logger.Warn("[NewsScan] Service returned NULL");
+                    items = new List<SteamGlobalNewsItem>();
+                }
 
-                // 🔧 TEST : si rien n’est revenu, on met un item de debug
-                if (items == null || items.Count == 0)
-                {
-                    items = new List<SteamGlobalNewsItem>
-            {
-                new SteamGlobalNewsItem
-                {
-                    GameName   = "Debug",
-                    Title      = "No news fetched (test item)",
-                    DateString = DateTime.Now.ToString("dd/MM/yyyy HH:mm"),
-                    Summary    = "If you see this, the binding works but the feed returned no items."
-                }
-            };
-                }
+                logger.Debug($"[NewsScan] Items fetched: {items.Count}");
 
                 Application.Current?.Dispatcher?.Invoke(() =>
                 {
-                    // Sécuriser la collection si elle est null (ancien fichier de settings)
                     if (Settings.SteamGlobalNews == null)
                     {
-                        Settings.SteamGlobalNews = new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
+                        Settings.SteamGlobalNews =
+                            new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
                     }
 
                     Settings.SteamGlobalNews.Clear();
                     foreach (var it in items)
-                    {
                         Settings.SteamGlobalNews.Add(it);
-                    }
 
                     Settings.SteamGlobalNewsLastRefreshUtc = nowUtc;
+                    SavePluginSettings(Settings);
+
+                    logger.Debug("[NewsScan] Updated settings & memory list");
                 });
             }
             catch (Exception ex)
             {
-                logger.Error(ex, "[AnikiHelper] Failed to refresh global Steam news.");
+                logger.Error(ex, "[NewsScan] ERROR");
 
-                // 🔧 TEST : en cas d’erreur, on balance quand même un item visible
                 Application.Current?.Dispatcher?.Invoke(() =>
                 {
                     if (Settings.SteamGlobalNews == null)
                     {
-                        Settings.SteamGlobalNews = new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
+                        Settings.SteamGlobalNews =
+                            new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
                     }
 
                     Settings.SteamGlobalNews.Clear();
@@ -623,43 +622,60 @@ namespace AnikiHelper
             }
         }
 
+
+
+
         private async Task TryScanGlobalNewsAsync(bool force, bool silent)
         {
+            var logger = LogManager.GetLogger();
+
             try
             {
-                // Sécurité : Fullscreen only
-                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                // --- Option désactivée ---
+                if (!Settings.NewsScanEnabled)
                 {
                     return;
                 }
 
                 var now = DateTime.UtcNow;
+                var lastScan = Settings.LastNewsScanUtc;
 
-                // Limite : 1 scan toutes les 6 heures (si pas forcé)
-                if (!force)
+                // --- Cooldown (si pas forcé) ---
+                if (!force && lastScan != DateTime.MinValue)
                 {
-                    var last = Settings.LastNewsScanUtc;
-
-                    if (last != DateTime.MinValue && (now - last) < TimeSpan.FromHours(6))
+                    var hoursSince = (now - lastScan).TotalHours;
+                    if (hoursSince < GlobalNewsRefreshIntervalHours)
                     {
-                        // Trop tôt, on ne rescannne pas
-                        return;
+                        return; // Trop tôt → stop
                     }
                 }
 
-                // On enregistre l’instant du scan AVANT d’appeler le service
-                Settings.LastNewsScanUtc = now;
-                SavePluginSettings(Settings);
+                // --- Scan RSS ---
+                var svc = new SteamGlobalNewsService(PlayniteApi, Settings);
+                var items = await svc.GetGlobalNewsAsync();
 
-                // On réutilise ta méthode existante (qui met à jour Settings / bindings, etc.)
-                await RefreshGlobalSteamNewsAsync(silent).ConfigureAwait(false);
+                // --- Mise à jour UI + settings ---
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    Settings.SteamGlobalNews.Clear();
+                    foreach (var it in items)
+                        Settings.SteamGlobalNews.Add(it);
+
+                    Settings.LastNewsScanUtc = now;
+                    SavePluginSettings(Settings);
+                });
+
+                // Log minimal
+                if (!silent)
+                {
+                    logger.Info("[AnikiHelper] Global News refreshed.");
+                }
             }
             catch (Exception ex)
             {
-                logger.Error(ex, "[AnikiHelper] Error in TryScanGlobalNewsAsync.");
+                logger.Error(ex, "[AnikiHelper] TryScanGlobalNewsAsync failed.");
             }
         }
-
 
 
         // Met à jour le cache Steam pour un jeu donné au démarrage
@@ -1498,25 +1514,36 @@ namespace AnikiHelper
         {
             try
             {
-                // Vide la liste en mémoire
+                // 1) Vider la liste en mémoire
                 Settings.SteamGlobalNews?.Clear();
 
-                // Reset des timestamps pour forcer un refresh propre
+                // 2) Reset des timestamps pour forcer un rescan
                 Settings.SteamGlobalNewsLastRefreshUtc = null;
                 Settings.LastNewsScanUtc = DateTime.MinValue;
 
-                // Supprime le fichier de cache disque
-                var path = System.IO.Path.Combine(GetDataRoot(), "CacheNews.json");
-                if (System.IO.File.Exists(path))
+                // 3) Supprimer le fichier JSON
+                var jsonPath = Path.Combine(GetDataRoot(), "CacheNews.json");
+                if (File.Exists(jsonPath))
                 {
-                    System.IO.File.Delete(path);
+                    File.Delete(jsonPath);
                 }
+
+                // 4) Supprimer le dossier NewsImages (miniatures)
+                var imgRoot = Path.Combine(GetDataRoot(), "NewsImages");
+                if (Directory.Exists(imgRoot))
+                {
+                    Directory.Delete(imgRoot, true);
+                }
+
+                // 5) Sauvegarder les settings mis à jour
+                SavePluginSettings(Settings);
             }
             catch (Exception ex)
             {
                 logger.Error(ex, "[AnikiHelper] ClearNewsCache failed.");
             }
         }
+
 
 
         // Met à jour le texte d’info snapshot
@@ -1554,14 +1581,21 @@ namespace AnikiHelper
         {
             Instance = this;
 
+            // --- ViewModel ---
             SettingsVM = new AnikiHelperSettingsViewModel(this);
             Properties = new GenericPluginProperties { HasSettings = true };
 
+            // Charger les settings Playnite
+            var saved = LoadPluginSettings<AnikiHelperSettings>();
+            if (saved != null)
+            {
+                SettingsVM.Settings = saved;
+            }
+
             // Langue Playnite -> Steam
-            var playniteLang = api?.ApplicationSettings?.Language; // "fr_FR", "en_US", etc.
+            var playniteLang = api?.ApplicationSettings?.Language;
 
             steamUpdateService = new SteamUpdateLiteService(playniteLang);
-
             steamGlobalNewsService = new SteamGlobalNewsService(api, Settings);
 
             AddSettingsSupportSafe("AnikiHelper", "Settings");
@@ -1576,13 +1610,14 @@ namespace AnikiHelper
                 }
             };
 
-            // --- Timer pour les updates Steam (debounce changement de jeu) ---
+            // Timer pour les updates Steam (debounce changement de jeu)
             steamUpdateTimer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(800)
             };
             steamUpdateTimer.Tick += steamUpdateTimer_Tick;
         }
+
 
 
         private void AddSettingsSupportSafe(string sourceName, string settingsRootPropertyName)
@@ -1784,12 +1819,20 @@ namespace AnikiHelper
             );
 
             // --- News globales Steam ---
-            // 1) charger immédiatement ce qu'il y a dans le JSON (CacheNews.json)
+            // 1) charger immédiatement ce qu'il y a dans le JSON
             try
             {
                 LoadNewsFromCacheIfNeeded();
             }
             catch { }
+
+            // --- Steam Recent Updates (10 dernières mises à jour) ---
+            try
+            {
+                RefreshSteamRecentUpdatesFromCache();
+            }
+            catch { }
+
 
             // 2) lancer un scan RSS différé de 10s, limité à 1 fois / 3h
             //    (seulement si le scan des news est activé dans les paramètres)
@@ -1864,22 +1907,30 @@ namespace AnikiHelper
             }
         }
 
-        // Planifie le rafraîchissement des news globales (10 s après le démarrage)
         private async Task ScheduleGlobalSteamNewsRefreshAsync()
         {
             try
             {
-                // Petit délai pour laisser Playnite finir de charger
-                await Task.Delay(TimeSpan.FromSeconds(10));
+                LogManager.GetLogger().Info("[NEWS DEBUG] ScheduleGlobalSteamNewsRefreshAsync START → waiting 6s...");
+                await Task.Delay(6000);
 
-                // Respecte la limite de 3 h (force = false)
-                await RefreshGlobalSteamNewsAsync(false);
+                if (!Settings.NewsScanEnabled)
+                {
+                    LogManager.GetLogger().Info("[NEWS DEBUG] Schedule: ABORT → NewsScanEnabled = false");
+                    return;
+                }
+
+                LogManager.GetLogger().Info("[NEWS DEBUG] Schedule: CALL TryScanGlobalNewsAsync(force:false, silent:true)");
+                await TryScanGlobalNewsAsync(force: false, silent: true);
             }
             catch (Exception ex)
             {
-                logger.Error(ex, "[AnikiHelper] ScheduleGlobalSteamNewsRefreshAsync failed.");
+                LogManager.GetLogger().Error(ex, "[NEWS ERROR] ScheduleGlobalSteamNewsRefreshAsync failed.");
             }
         }
+
+
+
 
 
 
