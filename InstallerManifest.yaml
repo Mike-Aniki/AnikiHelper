@@ -102,5 +102,12 @@ Packages:
       - Added new bindings for Steam update cover/icon paths.
       - Added IsRecent binding to allow themes to display a “NEW” badge for updates less than 48 hours old.
       - Improved Steam updates cache handling.
-      
-
+  - Version: 1.1.5
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-22
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.1.5/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_1_5.pext
+    Changelog:
+      - Integrated a RSS News system.
+      - Added plugin settings toggles to individually enable/disable.
+      - Added support for custom RSS feeds via plugin settings.
+      - Reworked the plugin settings UI.
