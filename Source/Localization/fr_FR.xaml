@@ -2,8 +2,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
-  <sys:String x:Key="AppTitle">Aniki Helper — Paramètres</sys:String>
-  <sys:String x:Key="GroupLibraryStats">Statistiques de la bibliothèque</sys:String>
+  <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
+    <sys:String x:Key="AppSubtitle">Paramètres</sys:String>
+
+    <sys:String x:Key="GroupLibraryStats">Statistiques de la bibliothèque</sys:String>
   <sys:String x:Key="StatsHelp">Ces paramètres déterminent ce qui est pris en compte dans les chiffres affichés par le thème.</sys:String>
   <sys:String x:Key="IncludeHidden">Inclure les jeux masqués dans les statistiques</sys:String>
   <sys:String x:Key="AutoUpdate">Les valeurs se mettent automatiquement à jour lorsque votre bibliothèque change.</sys:String>
@@ -16,16 +18,24 @@
   <sys:String x:Key="CurrentMonthData">Données du mois en cours :</sys:String>
   <sys:String x:Key="SnapshotTooltip">Indique la date de création de la référence pour le mois en cours.</sys:String>
   <sys:String x:Key="ResetBtn">Réinitialiser pour ce mois</sys:String>
-  <sys:String x:Key="ResetBtnTooltip">Reconstruit la référence mensuelle immédiatement. À utiliser si les chiffres semblent incorrects ou si vous souhaitez simplement recommencer le suivi du mois.</sys:String>
+  <sys:String x:Key="ResetBtnTooltip">Reconstruit la base mensuelle immédiatement</sys:String>
+  <sys:String x:Key="ResetBtntip">À utiliser si les chiffres semblent incorrects ou si vous souhaitez simplement recommencer le suivi du mois.</sys:String>
 
     <sys:String x:Key="GroupDynColors">Couleurs dynamiques</sys:String>
-    <sys:String x:Key="DynColors_Help">Couleurs d’accent auto depuis les backgrounds/covers. Vide le cache si les couleurs dérivent ou après beaucoup de changements d’images.</sys:String>
-    <sys:String x:Key="L_ClearColorCache">🧹 Vider le cache des couleurs</sys:String>
-    <sys:String x:Key="L_ClearColorCache_Tooltip">Supprime le cache des palettes pour le reconstruire automatiquement.</sys:String>
+    <sys:String x:Key="DynColors_Help">Vide le cache si les couleurs deviennent erronées ou après de nombreux changements d’images.</sys:String>
+    <sys:String x:Key="L_ClearColorCache">Reset color cache</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Desc">Supprime les couleurs mises en cache pour qu’elles soient recalculées.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Tooltip">Efface les couleurs en cache</sys:String>
     <sys:String x:Key="L_ClearColorCache_Done_Title">Aniki Helper</sys:String>
-    <sys:String x:Key="L_ClearColorCache_Done_Body">Cache des couleurs vidé. Il sera reconstruit automatiquement en parcourant les jeux.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Done_Body">Cache vidé. Il sera reconstruit automatiquement en parcourant les jeux.</sys:String>
     <sys:String x:Key="L_ClearColorCache_Error_Title">Aniki Helper</sys:String>
     <sys:String x:Key="L_ClearColorCache_Error_Body">Échec lors du vidage du cache des couleurs :</sys:String>
+    <sys:String x:Key="L_DynAutoPrecache_Title">Pré-chargement des couleurs dynamiques</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache">Pré-calculer les couleurs en arrière-plan</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache_Note">Améliore la vitesse d’affichage, mais peut provoquer de légers ralentissements sur les PC très faibles pendant la préparation des couleurs.</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache_Tooltip">Active le calcul des couleurs en arrière-plan pour une navigation plus fluide.</sys:String>
+    <sys:String x:Key="L_CacheManagement_Title">Gestion du cache des couleurs</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache_Desc">Prépare les données de couleur de vos jeux à l’avance pour accélérer l’affichage.</sys:String>
 
     <sys:String x:Key="ConfirmClearCache">Vider le cache des couleurs dynamiques ? Le fichier de palette sera supprimé puis recréé automatiquement.</sys:String>
     <sys:String x:Key="CacheClearedMsg">Cache des couleurs vidé. Il se reconstruira automatiquement quand vous parcourez les jeux.</sys:String>
@@ -34,14 +44,39 @@
     <sys:String x:Key="GroupSteamFeatures">Fonctionnalités Steam</sys:String>
     <sys:String x:Key="SteamPlayers_Title">Joueurs actuels pour les jeux Steam</sys:String>
     <sys:String x:Key="SteamFeatures_Help">Affiche le nombre de joueurs en temps réel pour les jeux Steam. Peut légèrement augmenter le temps de chargement lors du changement de jeu.</sys:String>
-    <sys:String x:Key="SteamPlayers_Enable">Activer le nombre de joueurs Steam (expérimental)</sys:String>
-    <sys:String x:Key="SteamInitCache">Préremplir le cache</sys:String>
+    <sys:String x:Key="SteamPlayers_Enable">Activer le nombre de joueurs Steam</sys:String>
+    <sys:String x:Key="SteamInitCache">Analyser la bibliothèque</sys:String>
     <sys:String x:Key="SteamInitCache_Tooltip">Crée le cache des mises à jour Steam pour tous les jeux de la bibliothèque.</sys:String>
     <sys:String x:Key="ConfirmInitSteamCache">Aniki Helper va analyser vos jeux et créer le cache des dernières mises à jour. Continuer ?</sys:String>
     <sys:String x:Key="InitSteamCacheDoneMsg">Terminé !</sys:String>
     <sys:String x:Key="SteamInitCache_ProgressTitle">Cache des mises à jour Steam</sys:String>
-    <sys:String x:Key="SteamInitCache_ProgressTitle2">Permet d’éviter l’apparition du badge « Nouvelle mise à jour » lors du premier survol d’un jeu.</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressDesc">Enregistre les informations récentes de mises à jour Steam pour vos jeux installés. Cela améliore la précision des notifications “Nouvelle mise à jour disponible”.</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressNote">Vous pouvez remplir ce cache maintenant pour analyser toute la bibliothèque en une fois. Sinon, il se remplit progressivement lorsque vous parcourez vos jeux.</sys:String>
     <sys:String x:Key="SteamInitCache_ProgressText">Analyse des jeux… {0}/{1}</sys:String>
+    <sys:String x:Key="LOCSteamLastScan">Dernier scan automatique:</sys:String>
+    <sys:String x:Key="SteamUpdates_Enable">Activer le scan des mises à jour Steam pour les jeux</sys:String>
+    <sys:String x:Key="SteamUpdates_Enable_Help">Désactive toutes les vérifications de mises à jour Steam (scan automatique + jeu sélectionné) si cette option est désactivée.</sys:String>
+
+    <sys:String x:Key="GroupAnikiFeatures">Aniki News</sys:String>
+    <sys:String x:Key="AnikiNews_Title1">News</sys:String>
+    <sys:String x:Key="AnikiNews_Title">Paramètres du flux</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Desc">Par défaut, la source est IGN Gaming globale. Vous pouvez entrer n’importe quelle URL RSS pour personnaliser le flux.</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Help">Optionnel : entrez l’URL d’un flux RSS personnalisé. Laissez vide pour utiliser la source par défaut.</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Tooltip">Si défini, le plugin utilisera cette URL au lieu du flux par défaut.</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Help2">Exemples de flux compatibles :</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple1">Actu Gaming : https://actugaming.net/feed</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple2">la creme du gaming : https://lacremedugaming.fr/feed</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple3">Steam News : https://store.steampowered.com/feeds/news/collection/featured</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache">Vider le cache des news</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache_Tooltip">Efface le cache des articles et force un rechargement propre du flux.</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache_Note">À utiliser après un changement de flux pour nettoyer les anciennes news.</sys:String>
+    <sys:String x:Key="NewsScan_Enable">Activer le scan des news RSS</sys:String>
+    <sys:String x:Key="NewsScan_Desc">Aniki News affiche un fil d’actualités dans le thème, il récupére automatiquement les actualités et annonces via un flux RSS.</sys:String>
+    <sys:String x:Key="NewsScan_Enable_Help">Désactive toute récupération des actualités RSS (scan automatique).</sys:String>
+
+
+    <sys:String x:Key="AnikiNews_ClearCache_Confirm">Vider le cache des news ? Les anciens articles seront effacés et le flux sera rechargé.</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache_Done">Cache des news vidé. Le flux sera mis à jour automatiquement.</sys:String>
 
 
 </ResourceDictionary>

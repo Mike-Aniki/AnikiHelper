@@ -117,6 +117,58 @@ namespace AnikiHelper
             }
         }
 
+        private void ClearNewsCache_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                var api = vm?.Api;
+                if (vm == null || api == null)
+                {
+                    return;
+                }
+
+                // Texte de confirmation (spécifique aux news ou générique)
+                var confirmText = (string)Application.Current.TryFindResource("AnikiNews_ClearCache_Confirm")
+                                  ?? "Clear news cache? Old articles will be removed and the feed will be reloaded.";
+
+                var res = api.Dialogs.ShowMessage(
+                    confirmText,
+                    "Aniki Helper",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (res != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
+                // Appelle le ViewModel
+                vm.ClearNewsCache();
+
+                var doneText = (string)Application.Current.TryFindResource("AnikiNews_ClearCache_Done")
+                               ?? "News cache cleared. The feed will refresh automatically.";
+
+                api.Dialogs.ShowMessage(
+                    doneText,
+                    "Aniki Helper",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                var api = (DataContext as AnikiHelperSettingsViewModel)?.Api;
+                if (api != null)
+                {
+                    api.Dialogs.ShowErrorMessage("Error while clearing news cache:\n" + ex.Message, "Aniki Helper");
+                }
+                else
+                {
+                    MessageBox.Show("Error while clearing news cache:\n" + ex.Message, "Aniki Helper");
+                }
+            }
+        }
+
         private async void InitializeSteamCache_Click(object sender, RoutedEventArgs e)
         {
             try

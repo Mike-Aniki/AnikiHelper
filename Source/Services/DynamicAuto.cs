@@ -36,34 +36,51 @@ namespace AnikiHelper
         private const int TransitionSteps = 8;      // + more steps = smoother
 
         // --- Precache optionnel (désactivé par défaut via ressource) ---
-        private const int PrecacheDelayMs = 9000;   // attendre après le boot
-        private const int PrecacheGapMs = 200;    // 1 image / 200 ms
-        private const int PrecacheMax = 200;    // cap par session
+        private const int PrecacheDelayMs = 20000;   // attendre après le boot
+        private const int PrecacheGapMs = 600;    // 1 image / 600 ms
+        private const int PrecacheMax = 100;    // cap par session
 
         // Activité utilisateur pour stopper le precache dès qu'on bouge
         private static long lastUserActivityTicks = 0; 
         private static bool IsIdleForMs(int ms) =>
         (Environment.TickCount - Interlocked.Read(ref lastUserActivityTicks)) >= ms;
 
-        // Helper: lire un bool ressource pour activer/désactiver le precache
+        // Helper: lire un bool ressource pour activer/désactiver le precache        
         private static bool IsPrecacheEnabled()
         {
             try
             {
-                var r = Application.Current?.Resources?["DynamicAutoPrecacheEnabled"];
-                return r is bool b && b;
+                var dict = Application.Current?.Resources;
+                if (dict == null)
+                    return false;
+
+                // 1) DynamicAuto doit être activé par le thème
+                var dynEnabled = dict["DynamicAutoEnabled"] as bool?;
+                if (dynEnabled != true)
+                    return false;
+
+                // 2) Le user doit avoir coché le checkbox dans les settings
+                var plugin = AnikiHelper.Instance;
+                if (plugin?.Settings?.DynamicAutoPrecacheUserEnabled != true)
+                    return false;
+
+                // Tout est OK -> on autorise le pré-cache
+                return true;
             }
-            catch { return false; }
+            catch
+            {
+                return false;
+            }
         }
+
+
+
+
+
 
 
         private static bool lastActive = false;
         private static int tickGate = 0; // 0 = libre, 1 = in progress (re-entry barrier)
-
-        // === Compteurs de cache ===
-        private static int hitsRam = 0;
-        private static int hitsDisk = 0;
-        private static int missesDecode = 0;
 
         // === Cache palettes en RAM pour éviter les recalculs inutiles ===
         private const int CacheMax = 1500; // sécurité RAM
@@ -167,15 +184,7 @@ namespace AnikiHelper
             }
             catch { }
 
-            log.Info($"[DynColor] Loaded persistent palette cache: {paletteCacheDisk.Count} entries.");
-
-
         }
-
-
-
-
-
 
 
         private static void ArmSaveAccentCache()
@@ -217,8 +226,6 @@ namespace AnikiHelper
                 File.Move(tmp, cacheFilePath);
             }
             catch { }
-
-            log.Info($"[DynColor] Persistent cache saved: {paletteCacheDisk.Count} entries → {cacheFilePath}");
 
         }
 
@@ -334,13 +341,7 @@ namespace AnikiHelper
             Directory.CreateDirectory(userDataPath);
 
             cacheFilePath = Path.Combine(userDataPath, "palette_cache.json");
-            log.Info($"[DynColor] Cache path: {cacheFilePath}");
-
             LoadAccentCache();
-
-
-
-         
 
 
             // 4) Start the timer
@@ -409,82 +410,87 @@ namespace AnikiHelper
                         // --- Resolve usable image + build palette HORS UI THREAD ---
                         var target = await Task.Run(() =>
                         {
-                            if (!TryGetImageFor(current, out var src, out var used, out var ext, out var key))
-                                return (Palette)null;
+                            string source = "NONE";
 
-                            // 1) RAM cache instantaneous (thread-safe)
-                            if (!string.IsNullOrEmpty(key))
+                            try
                             {
-                                Palette cachedPal;
-                                lock (paletteLock)
+                                if (!TryGetImageFor(current, out var src, out var used, out var ext, out var key))
                                 {
-                                    paletteCache.TryGetValue(key, out cachedPal);
-                                }
-                                if (cachedPal != null)
-                                {
-                                    Interlocked.Increment(ref hitsRam);
-                                    return cachedPal;
+                                    source = "NO_IMAGE";
+                                    return (Palette)null;
                                 }
 
+                                // 1) RAM cache
+                                if (!string.IsNullOrEmpty(key))
+                                {
+                                    Palette cachedPal;
+                                    lock (paletteLock)
+                                    {
+                                        paletteCache.TryGetValue(key, out cachedPal);
+                                    }
+                                    if (cachedPal != null)
+                                    {
+                                        source = "RAM";
+                                        return cachedPal;
+                                    }
+                                }
+
+                                // 2) DISK cache 
+                                if (!string.IsNullOrEmpty(key))
+                                {
+                                    PaletteDto dto = null;
+                                    lock (cacheLock)
+                                    {
+                                        paletteCacheDisk.TryGetValue(key, out dto);
+                                    }
+                                    if (dto != null)
+                                    {
+                                        var palFromDisk = FromDto(dto);
+                                        PutCache(key, palFromDisk);
+                                        source = "DISK";
+                                        return palFromDisk;
+                                    }
+                                }
+
+                                // 3) Décodage + calcul
+                                source = $"DECODE_{used ?? "unknown"}";
+
+                                var pf = PixelFormats.Bgra32;
+                                if (src.Format != pf)
+                                {
+                                    src = new FormatConvertedBitmap(src, pf, null, 0);
+                                    src.Freeze();
+                                }
+
+                                int w = src.PixelWidth;
+                                int h = src.PixelHeight;
+                                int stride = (w * pf.BitsPerPixel + 7) / 8;
+                                byte[] pixels = new byte[stride * h];
+                                src.CopyPixels(pixels, stride, 0);
+
+                                var accent = GetDominantVividColor_FromPixels(pixels, w, h, stride);
+                                var pal = BuildPalette(accent);
+
+                                if (!string.IsNullOrEmpty(key))
+                                {
+                                    PutCache(key, pal);
+                                    lock (cacheLock)
+                                    {
+                                        paletteCacheDisk[key] = ToDto(pal);
+                                    }
+                                    ArmSaveAccentCache();
+                                }
+
+                                return pal;
                             }
-
-
-                            // 2) DISK cache 
-                            if (!string.IsNullOrEmpty(key))
+                            catch
                             {
-                                PaletteDto dto = null;
-                                lock (cacheLock)
-                                {
-                                    paletteCacheDisk.TryGetValue(key, out dto);
-                                }
-                                if (dto != null)
-                                {
-                                    var palFromDisk = FromDto(dto);
-                                    PutCache(key, palFromDisk);   // hydrate RAM 
-                                    Interlocked.Increment(ref hitsDisk);
-                                    return palFromDisk;
-                                }
-
-
+                                return null;
                             }
-
-
-
-                            // 3) Décodage + calcul (fallback)
-                            var pf = PixelFormats.Bgra32;
-                            if (src.Format != pf)
-                            {
-                                src = new FormatConvertedBitmap(src, pf, null, 0);
-                                src.Freeze();
-                            }
-
-                            int w = src.PixelWidth;
-                            int h = src.PixelHeight;
-                            int stride = (w * pf.BitsPerPixel + 7) / 8;
-                            byte[] pixels = new byte[stride * h];
-                            src.CopyPixels(pixels, stride, 0);
-
-                            var accent = GetDominantVividColor_FromPixels(pixels, w, h, stride);
-                            var pal = BuildPalette(accent);
-
-                            // 4) Backups (RAM + DISK palette complète)
-                            if (!string.IsNullOrEmpty(key))
-                            {
-                                PutCache(key, pal);
-                                lock (cacheLock)
-                                {
-                                    paletteCacheDisk[key] = ToDto(pal);
-                                }
-                                ArmSaveAccentCache();
-                            }
-
-
-                            Interlocked.Increment(ref missesDecode);
-                            log.Debug($"[DynColor] MISS (decode) {current?.Name}");
-                            return pal;
-
 
                         }, ct);
+
+
 
                         if (ct.IsCancellationRequested || target is null) return;
 
@@ -720,6 +726,31 @@ namespace AnikiHelper
 
             return false;
         }
+
+        // Retourne uniquement la clé de cache, sans décoder l'image
+        private static bool TryGetImageKeyOnly(Game g, out string cacheKey)
+        {
+            cacheKey = null;
+
+            var bgPath = SafeFullPath(g.BackgroundImage);
+            if (!string.IsNullOrEmpty(bgPath) && !IsVideo(bgPath) && HasUsableImageExt(bgPath))
+            {
+                cacheKey = MakeCacheKey(bgPath);
+                if (!string.IsNullOrEmpty(cacheKey))
+                    return true;
+            }
+
+            var coverPath = SafeFullPath(g.CoverImage);
+            if (!string.IsNullOrEmpty(coverPath) && !IsVideo(coverPath) && HasUsableImageExt(coverPath))
+            {
+                cacheKey = MakeCacheKey(coverPath);
+                if (!string.IsNullOrEmpty(cacheKey))
+                    return true;
+            }
+
+            return false;
+        }
+
 
 
         private static bool IsDynamicAutoActive()
@@ -1540,40 +1571,49 @@ namespace AnikiHelper
 
                 var games = api.Database.Games?.ToList() ?? new List<Game>();
                 int total = games.Count;
-                int added = 0, processed = 0, skippedNoImage = 0, skippedAlready = 0;
-
-                log.Info($"[DynColor] Trickle precache started (candidates={total}, cap={PrecacheMax}).");
+                int added = 0, skippedNoImage = 0, skippedAlready = 0;
 
                 foreach (var g in games)
                 {
-                    if (added >= PrecacheMax) break;
+                    if (added >= PrecacheMax)
+                        break;
 
-                    // Attendre l'inactivité (ex. 3500 ms sans navigation)
-                    while (!IsIdleForMs(3500))
-                    {
-                        await Task.Delay(300);
-                        if (!IsPrecacheEnabled()) return; // si l'utilisateur le coupe
-                    }
+                    // Stop si Playnite n'est plus actif OU si l'option s'est désactivée
+                    if (!IsAppActive() || !IsPrecacheEnabled())
+                        break;
 
-                    processed++;
-
-                    if (!TryGetImageFor(g, out var bmp, out _, out _, out var key) || string.IsNullOrEmpty(key))
+                    // 1) On récupère uniquement la clé sans décoder
+                    if (!TryGetImageKeyOnly(g, out var key) || string.IsNullOrEmpty(key))
                     {
                         skippedNoImage++;
                         continue;
                     }
 
-                    // Déjà en RAM ?
+                    // 2) Cache RAM ?
                     bool inRam;
                     lock (paletteLock) inRam = paletteCache.ContainsKey(key);
-                    if (inRam) { skippedAlready++; continue; }
+                    if (inRam)
+                    {
+                        skippedAlready++;
+                        continue;
+                    }
 
-                    // Déjà sur disque ?
+                    // 3) Cache Disque ?
                     bool inDisk;
                     lock (cacheLock) inDisk = paletteCacheDisk.ContainsKey(key);
-                    if (inDisk) { skippedAlready++; continue; }
+                    if (inDisk)
+                    {
+                        skippedAlready++;
+                        continue;
+                    }
 
-                    // Construit vite fait (bitmap déjà downscalé par TryLoadBitmap)
+                    // 4) Ici seulement on décode l'image
+                    if (!TryGetImageFor(g, out var bmp, out var used, out _, out _))
+                    {
+                        skippedNoImage++;
+                        continue;
+                    }
+
                     var pf = PixelFormats.Bgra32;
                     if (bmp.Format != pf)
                     {
@@ -1594,20 +1634,18 @@ namespace AnikiHelper
 
                     added++;
 
-                    // Pas d'écriture fichier ici : c'est le timer batch (45 s) qui s'en charge.
                     await Task.Delay(PrecacheGapMs);
+
+                    SaveAccentCacheNow(null, EventArgs.Empty);
                 }
-
-                // Sauvegarde immédiate possible en fin de run (sinon, le batch timer le fera)
-                SaveAccentCacheNow(null, EventArgs.Empty);
-
-                log.Info($"[DynColor] Trickle precache done. processed={processed}, added={added}, skippedNoImage={skippedNoImage}, skippedAlready={skippedAlready}.");
             }
             catch (Exception ex)
             {
                 log.Warn(ex, "[DynColor] Trickle precache failed.");
             }
         }
+
+
 
     }
 }

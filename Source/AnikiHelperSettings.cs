@@ -107,7 +107,7 @@ namespace AnikiHelper
         public int UsedTenthsInt => (int)Math.Round(UsedPercentage / 10.0);
     }
 
-    
+
     public class SteamRecentUpdateItem : ObservableObject
     {
         private string gameName;
@@ -145,12 +145,20 @@ namespace AnikiHelper
             set => SetValue(ref iconPath, value);
         }
 
-        // 🔥 sert pour le badge NEW
+        // Badge NEW
         private bool isRecent;
         public bool IsRecent
         {
             get => isRecent;
             set => SetValue(ref isRecent, value);
+        }
+
+        // Contenu HTML complet du patchnote (pour la fenêtre de droite)
+        private string html;
+        public string Html
+        {
+            get => html;
+            set => SetValue(ref html, value);
         }
     }
 
@@ -172,6 +180,9 @@ namespace AnikiHelper
         private int topPlayedMax = 10;
         private bool playtimeStoredInHours = false;
         private bool playtimeUseDaysFormat = false;
+
+        // ===== Dynamic colors / precache =====
+        private bool dynamicAutoPrecacheUserEnabled = true;
 
         // ===== Stockage =====
         private readonly ObservableCollection<DiskUsageItem> diskUsages = new ObservableCollection<DiskUsageItem>();
@@ -326,7 +337,69 @@ namespace AnikiHelper
             set => SetValue(ref steamCurrentPlayersError, value);
         }
 
+        // === Global News Steam ===
 
+        public ObservableCollection<SteamGlobalNewsItem> SteamGlobalNews { get; set; }
+            = new ObservableCollection<SteamGlobalNewsItem>();
+        public DateTime? SteamGlobalNewsLastRefreshUtc { get; set; }
+
+        // URL RSS personnalisée pour la section Global News
+        private string steamNewsCustomFeedUrl;
+        public string SteamNewsCustomFeedUrl
+        {
+            get => steamNewsCustomFeedUrl;
+            set => SetValue(ref steamNewsCustomFeedUrl, value);
+        }
+
+        // True si le flux custom est invalide (erreur de téléchargement / parsing)
+        private bool steamNewsCustomFeedInvalid;
+        public bool SteamNewsCustomFeedInvalid
+        {
+            get => steamNewsCustomFeedInvalid;
+            set => SetValue(ref steamNewsCustomFeedInvalid, value);
+        }
+
+        // Active ou non le scan des news globales (flux RSS)
+        private bool newsScanEnabled = true;
+        public bool NewsScanEnabled
+        {
+            get => newsScanEnabled;
+            set => SetValue(ref newsScanEnabled, value);
+        }
+
+        public DateTime LastNewsScanUtc { get; set; } = DateTime.MinValue;
+
+
+
+
+        // === Global toast notification (generic system) ===
+        private string globalToastMessage;
+        public string GlobalToastMessage
+        {
+            get => globalToastMessage;
+            set => SetValue(ref globalToastMessage, value);
+        }
+
+        private string globalToastType;
+        public string GlobalToastType
+        {
+            get => globalToastType;
+            set => SetValue(ref globalToastType, value);
+        }
+
+        private string globalToastStamp;
+        public string GlobalToastStamp
+        {
+            get => globalToastStamp;
+            set => SetValue(ref globalToastStamp, value);
+        }
+
+        private bool globalToastFlip;
+        public bool GlobalToastFlip
+        {
+            get => globalToastFlip;
+            set => SetValue(ref globalToastFlip, value);
+        }
 
 
         // ===== Listes exposées =====
@@ -377,6 +450,13 @@ namespace AnikiHelper
             }
         }
 
+        // Active/désactive le pré-cache DynamicAuto (piloté par l’utilisateur)
+        public bool DynamicAutoPrecacheUserEnabled
+        {
+            get => dynamicAutoPrecacheUserEnabled;
+            set => SetValue(ref dynamicAutoPrecacheUserEnabled, value);
+        }
+
         // Active ou non la récupération du nombre de joueurs Steam (désactivé par défaut)
         private bool steamPlayerCountEnabled = false;
         public bool SteamPlayerCountEnabled
@@ -385,6 +465,17 @@ namespace AnikiHelper
             set => SetValue(ref steamPlayerCountEnabled, value);
         }
 
+        // Active ou non le scan des mises à jour Steam
+        // - Scan auto des derniers jeux joués
+        // - Scan des patchnotes quand on sélectionne un jeu
+        private bool steamUpdatesScanEnabled = true;
+        public bool SteamUpdatesScanEnabled
+        {
+            get => steamUpdatesScanEnabled;
+            set => SetValue(ref steamUpdatesScanEnabled, value);
+        }
+
+
         // Active l'invite de création du cache Steam au démarrage
         private bool askSteamUpdateCacheAtStartup = true;
         public bool AskSteamUpdateCacheAtStartup
@@ -392,6 +483,29 @@ namespace AnikiHelper
             get => askSteamUpdateCacheAtStartup;
             set => SetValue(ref askSteamUpdateCacheAtStartup, value);
         }
+
+        // Horodatage du dernier scan auto des mises à jour Steam (UTC)
+        private DateTime? lastSteamRecentCheckUtc;
+        public DateTime? LastSteamRecentCheckUtc
+        {
+            get => lastSteamRecentCheckUtc;
+            set => SetValue(ref lastSteamRecentCheckUtc, value);
+        }
+
+        // Affichage lisible de la date du dernier scan Steam
+        [DontSerialize]
+        public string LastSteamRecentCheckDisplay
+        {
+            get
+            {
+                if (LastSteamRecentCheckUtc == null)
+                    return "Never";
+
+                var local = LastSteamRecentCheckUtc.Value.ToLocalTime();
+                return local.ToString("g"); // Exemple : 01/11/2025 14:35
+            }
+        }
+
 
         #endregion
 
@@ -474,6 +588,16 @@ namespace AnikiHelper
 
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
+                LastSteamRecentCheckUtc = saved.LastSteamRecentCheckUtc;
+
+
+                DynamicAutoPrecacheUserEnabled = saved.DynamicAutoPrecacheUserEnabled;
+
+                SteamNewsCustomFeedUrl = saved?.SteamNewsCustomFeedUrl
+                                         ?? "https://store.steampowered.com/feeds/news/collection/featured";
+                SteamNewsCustomFeedInvalid = saved.SteamNewsCustomFeedInvalid;
+                SteamGlobalNewsLastRefreshUtc = saved.SteamGlobalNewsLastRefreshUtc;
+
 
             }
 
@@ -999,6 +1123,7 @@ namespace AnikiHelper
                 System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ResetMonthlySnapshot failed: " + ex.Message);
             }
         }
+
         // === Clears the dynamic color cache ===
         public void ClearColorCache()
         {
@@ -1012,6 +1137,22 @@ namespace AnikiHelper
                 throw;
             }
         }
+
+        // === Clears the news cache ===
+        public void ClearNewsCache()
+        {
+            try
+            {
+                plugin?.ClearNewsCache();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AnikiHelperSettingsViewModel] ClearNewsCache failed: {ex.Message}");
+                throw;
+            }
+        }
+
+
         // Initializes the Steam update cache for all Steam games
         public async Task InitializeSteamUpdatesCacheAsync()
         {
