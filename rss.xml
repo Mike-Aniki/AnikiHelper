@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Aniki News</title>
+    <link>https://github.com/Mike-Aniki</link>
+    <description>News perso pour le thème Aniki / Aniki Helper</description>
+    <language>en-us</language>
+    <lastBuildDate>Sun, 23 Nov 2025 13:00:00 GMT</lastBuildDate>
+
+    <item>
+      <title>Aniki Remake 2.1.5 – New Stats View</title>
+      <link>https://github.com/Mike-Aniki/Aniki-ReMake/releases</link>
+      <guid>aniki-2.1.5</guid>
+      <pubDate>Sun, 23 Nov 2025 12:00:00 GMT</pubDate>
+      <description><![CDATA[
+        New layout for the Stats view, better readability and a more "console UI" feeling.
+      ]]></description>
+    </item>
+
+    <item>
+      <title>New: Aniki News hub</title>
+      <link>https://github.com/Mike-Aniki/Aniki-ReMake/wiki</link>
+      <guid>aniki-news-hub</guid>
+      <pubDate>Sat, 22 Nov 2025 18:30:00 GMT</pubDate>
+      <description><![CDATA[
+        Introducing the new "Aniki News" view: RSS feed, latest Steam updates, and global news – all in one place.
+      ]]></description>
+    </item>
+
+  </channel>
+</rss>
