@@ -16,9 +16,25 @@
              type="image/png" />
 
       <description><![CDATA[
-        New layout for the Stats view, better readability and a more "console UI" feeling.
+       <p> New layout for the Stats view, better readability and a more "console UI" feeling.</p>
+        
         <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/MainViewRounded.png" 
      alt="GameClosing animation" />
+<br/>
+        <p>Voici un aperçu complet de la nouvelle vue :</p>
+
+        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/ViewScreenShot.png" 
+     alt="Preview 1" />
+
+<br/>
+
+<img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/ViewSuccess.png" 
+     alt="Preview 2" />
+
+<br/>
+
+<p>La vue prend en charge les flux RSS, les updates Steam, etc.</p>
+        
       ]]></description>
     </item>
 
