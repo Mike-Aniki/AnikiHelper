@@ -38,6 +38,34 @@
       ]]></description>
     </item>
 
+    
+    <item>
+  <title>Playnite 10.44 – Nouvelle mise à jour</title>
+  <link>https://github.com/JosefNemec/Playnite</link>
+  <guid>playnite-10-44</guid>
+  <pubDate>Sun, 23 Nov 2025 16:45:00 GMT</pubDate>
+
+  <enclosure 
+    url="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/Playnite.png"
+    type="image/png" />
+
+  <description><![CDATA[
+<p>The version <b>Playnite 10.44</b> is now available. Here are all the official fixes and improvements:</p>
+
+<ul>
+  <li>Fully manually added games no longer default to installed state</li>
+  <li>Random game picker via F6 doesn't work in Fullscreen mode</li>
+  <li>Playnite doesn't open in Fullscreen mode when auto data backups are enabled</li>
+  <li>Improved manual update check process</li>
+  <li>Playnite not working properly when FIPS enforcement policy is enabled (by Rast1234)</li>
+  <li>Increased maximum of selectable columns and rows in Fullscreen mode</li>
+  <li>Library update is skipped when making or restoring backup</li>
+  <li>Default interface language is not selected properly (by CanRanBan)</li>
+</ul>
+
+<p>Recommended update for all users.</p>
+  ]]></description>
+</item>
 
   </channel>
 </rss>
