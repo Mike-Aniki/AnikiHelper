@@ -6,66 +6,58 @@
     <description>News perso pour le thème Aniki / Aniki Helper</description>
     <language>en-us</language>
     <lastBuildDate>Sun, 23 Nov 2025 13:00:00 GMT</lastBuildDate>
-
+    
+      <!-- Playnite Update -->
     <item>
-      <title>Aniki Remake 2.1.5 – New Stats View</title>
-      <link>https://github.com/Mike-Aniki/Aniki-ReMake/releases</link>
-      <guid>aniki-2.1.5</guid>
-      <pubDate>Sun, 23 Nov 2025 12:00:00 GMT</pubDate>
-      <enclosure url="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/Aniki.png"
-             type="image/png" />
+        <title>Playnite 10.44 – New update</title>
+        <link>https://github.com/JosefNemec/Playnite</link>
+        <guid>playnite-10-44</guid>
+        <pubDate>Sun, 23 Nov 2025 14:00:00 GMT</pubDate>
+        <description><![CDATA[
+                <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/Playnite.png" 
+                 alt="Preview 2" />
+                <br/>
+                
+                <p>The version <b>Playnite 10.44</b> is now available. Here are all the official fixes and improvements:</p>
+                
+                <ul>
+                  <li>Fully manually added games no longer default to installed state</li>
+                  <li>Random game picker via F6 doesn't work in Fullscreen mode</li>
+                  <li>Playnite doesn't open in Fullscreen mode when auto data backups are enabled</li>
+                  <li>Improved manual update check process</li>
+                  <li>Playnite not working properly when FIPS enforcement policy is enabled (by Rast1234)</li>
+                  <li>Increased maximum of selectable columns and rows in Fullscreen mode</li>
+                  <li>Library update is skipped when making or restoring backup</li>
+                  <li>Default interface language is not selected properly (by CanRanBan)</li>
+                </ul>
+          
+                <p>Recommended update for all users.</p>
+          
+          ]]></description>
+    </item>
 
-      <description><![CDATA[
-       <p> New layout for the Stats view, better readability and a more "console UI" feeling.</p>
-        
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/MainViewRounded.png" 
-     alt="GameClosing animation" />
-<br/>
-        <p>Voici un aperçu complet de la nouvelle vue :</p>
-
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/ViewScreenShot.png" 
-     alt="Preview 1" />
-
-<br/>
-
-<img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/ViewSuccess.png" 
-     alt="Preview 2" />
-
-<br/>
-
-<p>La vue prend en charge les flux RSS, les updates Steam, etc.</p>
-        
-      ]]></description>
+      <!-- Aniki Remake -->
+    <item>
+        <title>Aniki ReMake – New update</title>
+        <link>https://github.com/JosefNemec/Playnite</link>
+        <guid>AnikiReMake-v2-1-6</guid>
+        <pubDate>Sun, 23 Nov 2025 14:07:00 GMT</pubDate>
+        <description><![CDATA[
+                <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/MainViewSquare.png" 
+                 alt="Preview 2" />
+                <br/>
+                
+                <p>The version <b>Aniki ReMake v2.1.6</b> is now available:</p>
+                
+                <ul>
+                  <li>Fix Avatar from extrametada on login screen.</li>                  
+                </ul>
+          
+                <p>Recommended update for all users.</p>
+          
+          ]]></description>
     </item>
 
     
-    <item>
-  <title>Playnite 10.44 – Nouvelle mise à jour</title>
-  <link>https://github.com/JosefNemec/Playnite</link>
-  <guid>playnite-10-44</guid>
-  <pubDate>Sun, 23 Nov 2025 16:45:00 GMT</pubDate>
-
-  <enclosure 
-    url="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/Playnite.png"
-    type="image/png" />
-
-  <description><![CDATA[
-<p>The version <b>Playnite 10.44</b> is now available. Here are all the official fixes and improvements:</p>
-
-<ul>
-  <li>Fully manually added games no longer default to installed state</li>
-  <li>Random game picker via F6 doesn't work in Fullscreen mode</li>
-  <li>Playnite doesn't open in Fullscreen mode when auto data backups are enabled</li>
-  <li>Improved manual update check process</li>
-  <li>Playnite not working properly when FIPS enforcement policy is enabled (by Rast1234)</li>
-  <li>Increased maximum of selectable columns and rows in Fullscreen mode</li>
-  <li>Library update is skipped when making or restoring backup</li>
-  <li>Default interface language is not selected properly (by CanRanBan)</li>
-</ul>
-
-<p>Recommended update for all users.</p>
-  ]]></description>
-</item>
-
   </channel>
 </rss>
