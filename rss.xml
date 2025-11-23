@@ -11,7 +11,7 @@
     <item>
         <title>Playnite 10.44 – New update</title>
         <link>https://github.com/JosefNemec/Playnite</link>
-        <guid>playnite-10-44</guid>
+        <guid isPermaLink="false">playnite-10-44</guid>
         <pubDate>Sun, 23 Nov 2025 14:00:00 GMT</pubDate>
         <description><![CDATA[
                 <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/Playnite.png" 
@@ -40,7 +40,7 @@
     <item>
         <title>Aniki ReMake – New update</title>
         <link>https://github.com/JosefNemec/Playnite</link>
-        <guid>AnikiReMake-v2-1-6</guid>
+        <guid isPermaLink="false">AnikiReMake-v2-1-6</guid>
         <pubDate>Sun, 23 Nov 2025 14:07:00 GMT</pubDate>
         <description><![CDATA[
                 <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/MainViewSquare.png" 
