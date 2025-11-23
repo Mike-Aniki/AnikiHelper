@@ -12,20 +12,16 @@
       <link>https://github.com/Mike-Aniki/Aniki-ReMake/releases</link>
       <guid>aniki-2.1.5</guid>
       <pubDate>Sun, 23 Nov 2025 12:00:00 GMT</pubDate>
+      <enclosure url="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/Aniki.png"
+             type="image/png" />
+
       <description><![CDATA[
         New layout for the Stats view, better readability and a more "console UI" feeling.
+        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/MainViewRounded.png" 
+     alt="GameClosing animation" />
       ]]></description>
     </item>
 
-    <item>
-      <title>New: Aniki News hub</title>
-      <link>https://github.com/Mike-Aniki/Aniki-ReMake/wiki</link>
-      <guid>aniki-news-hub</guid>
-      <pubDate>Sat, 22 Nov 2025 18:30:00 GMT</pubDate>
-      <description><![CDATA[
-        Introducing the new "Aniki News" view: RSS feed, latest Steam updates, and global news – all in one place.
-      ]]></description>
-    </item>
 
   </channel>
 </rss>
