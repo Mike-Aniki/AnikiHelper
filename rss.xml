@@ -29,6 +29,34 @@
           ]]></description>
     </item>
 
+     <!-- Toogle -->
+    <item>
+        <title>Toggle 1.9.2 – New update</title>
+        <link>https://github.com/jonosellier/toggle-theme-playnite</link>
+        <guid isPermaLink="false">Toggle-1.9.2</guid>
+        <pubDate>Sun, 23 Nov 2025 04:12:00 GMT</pubDate>
+        <description><![CDATA[
+                <img src="https://raw.githubusercontent.com/jonosellier/toggle-theme-playnite/refs/heads/main/screenshots/home-2.png" 
+                 alt="Toggle" />
+                <br/>                
+                 <p>The version <b>Toggle 1.9.2 </b> is now available:</p>
+                
+                <ul>
+                     <li>Changelog:</li>
+                     <li>Made button UI more consistent across views</li>
+                     <li>Added banner image generation and integrated banners into UI</li>
+                     <li>Introduced new 2-tier Game Details view with HowLongToBeat (HLTB) integration</li>
+                     <li>Fixed progress bar clipping issue</li>
+                     <li>Updated default button focus behavior for better controller and keyboard navigation (thanks pinn73)</li>
+                     <li>Various UI fixes and polish improvements</li>    
+                     <li>Fixed PSP banner bug (thanks TwoTracks)</li>
+                </ul>
+
+          <p>By jonosellier</p>
+                    
+          ]]></description>
+    </item>
+
       <!-- Warning -->
     <item>
         <title>Phishing scam campaign warning</title>
