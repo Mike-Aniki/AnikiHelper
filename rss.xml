@@ -61,8 +61,8 @@
     <item>
         <title>Phishing scam campaign warning</title>
         <link>https://github.com/JosefNemec/Playnite</link>
-        <guid isPermaLink="false">Warning1</guid>
-        <pubDate>Sun, 24 Nov 2025 13:14:00 GMT</pubDate>
+        <guid isPermaLink="false">Warning-1</guid>
+        <pubDate>Sun, 24 Nov 2025 14:00:00 GMT</pubDate>
         <description><![CDATA[
                 <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/WarningNews.png" 
                  alt="Warning" />
@@ -70,7 +70,9 @@
                 
                 <p>Several users have recently reported receiving emails offering paid promotion for Playnite. This is a scam/phishing attempt, not a legitimate sponsorship offer.</p>
                 <p>Crow confirms that no sponsorship campaign is running, and no third party has been authorized to run one. Playnite has no PR staff, and nobody other than Crow is authorized to officially represent the project.</p>
-                <p>This also applies to any third-party distribution of Playnite itself: only download Playnite from the official website (<a href="https://playnite.link/">playnite.link</a>) or the official GitHub page (<a href="https://github.com/JosefNemec/Playnite/releases">github.com/JosefNemec/Playnite</a>).</p>              
+                <p>This also applies to any third-party distribution of Playnite itself: only download Playnite from the official website or the official GitHub page.</p>     
+
+                <p>By Crow</p>
           
           ]]></description>
     </item>
