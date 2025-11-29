@@ -111,3 +111,19 @@ Packages:
       - Added plugin settings toggles to individually enable/disable.
       - Added support for custom RSS feeds via plugin settings.
       - Reworked the plugin settings UI.
+  - Version: 1.2.0
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-11-29
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.2.0/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_2_0.pext
+    Changelog:
+      - Optimized plugin startup with a proper delay before scans. Fixes the crash when launching the Aniki Remake theme.
+      - Reworked the plugin Settings window.
+      - Added new RSS sources for Playnite add-on releases linked to their GitHub pages, and for Steam deals based on Game-Deals.
+      - Added detection for new Playnite add-on releases to display a notification.
+      - Added filtering for certain RSS feeds (IGN…) to automatically exclude articles about deals / Black Friday / discounts.
+      - Added a clear message in the settings regarding incompatible RSS feeds.
+      - Added the option to display only the most recent news item.
+      - Added a “Suggested Games for You” system based on recently played games.
+      - Fixed the Steam “update available” badge, some games never displayed it due to missing cached versions.
+      - Improved the overall cache system, fewer reloads and better reliability.
+      - Fixed the issue where some RSS feeds refreshed too slowly.
