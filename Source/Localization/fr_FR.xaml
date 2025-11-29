@@ -63,10 +63,7 @@
     <sys:String x:Key="AnikiNews_CustomFeed_Desc">Par défaut, la source est IGN Gaming globale. Vous pouvez entrer n’importe quelle URL RSS pour personnaliser le flux.</sys:String>
     <sys:String x:Key="AnikiNews_CustomFeed_Help">Optionnel : entrez l’URL d’un flux RSS personnalisé. Laissez vide pour utiliser la source par défaut.</sys:String>
     <sys:String x:Key="AnikiNews_CustomFeed_Tooltip">Si défini, le plugin utilisera cette URL au lieu du flux par défaut.</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Help2">Exemples de flux compatibles :</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Exemple1">Actu Gaming : https://actugaming.net/feed</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Exemple2">la creme du gaming : https://lacremedugaming.fr/feed</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Exemple3">Steam News : https://store.steampowered.com/feeds/news/collection/featured</sys:String>
+    
     <sys:String x:Key="AnikiNews_ClearCache">Vider le cache des news</sys:String>
     <sys:String x:Key="AnikiNews_ClearCache_Tooltip">Efface le cache des articles et force un rechargement propre du flux.</sys:String>
     <sys:String x:Key="AnikiNews_ClearCache_Note">À utiliser après un changement de flux pour nettoyer les anciennes news.</sys:String>
@@ -77,6 +74,15 @@
 
     <sys:String x:Key="AnikiNews_ClearCache_Confirm">Vider le cache des news ? Les anciens articles seront effacés et le flux sera rechargé.</sys:String>
     <sys:String x:Key="AnikiNews_ClearCache_Done">Cache des news vidé. Le flux sera mis à jour automatiquement.</sys:String>
+
+    <sys:String x:Key="AnikiNews_CustomFeed_Help2">Exemples de flux compatibles :</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple1">Actu Gaming : https://actugaming.net/feed</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple2">la creme du gaming : https://lacremedugaming.fr/feed</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple3">JVFrance: https://www.jvfrance.com/feed</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple4">Cowcotland : https://feeds.feedburner.com/cowcotland</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple5">Steam News : https://store.steampowered.com/feeds/news/collection/featured</sys:String>
+
+    <sys:String x:Key="NewsScan_Enable_Help2">Si vous voyez toujours les news IGN après avoir changé le flux RSS et vidé le cache, cela signifie que le lien ajouté n’est pas compatible.</sys:String>
 
 
 </ResourceDictionary>

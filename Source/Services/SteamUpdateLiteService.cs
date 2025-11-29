@@ -82,31 +82,54 @@ namespace AnikiHelper
 
                         var t = title.ToLowerInvariant();
 
+                        // --- MOTS-CLÉS ---
                         string[] keywords =
                         {
+                            // EN
                             "patch", "patch notes",
                             "hotfix", "hot fix",
                             "changelog", "change log",
-                            "update", "title update",
+                            "update", "title update", "technical update",
                             "major update", "minor update",
                             "balance update",
-                            "bugfix", "bug fix", "fixes",
+                            "bugfix", "bug fix", "bug fixes", "bug fixed",
                             "release notes",
-                            "version ", "version:", "ver.", "v."
+
+                            // FR
+                            "mise à jour", "mise a jour",
+                            "avis de maintenance",
+                            "maintenance et de correctif",
+                            "maintenance",
+                            "correctif", "correctifs"
                         };
 
+                        // Si un mot-clé clair apparaît → update validée
                         if (keywords.Any(k => t.Contains(k)))
                             return true;
 
-                        // Simple detection of an x.y or x.y.z format
-                        for (int i = 0; i < t.Length - 2; i++)
-                        {
-                            if (char.IsDigit(t[i]) && t[i + 1] == '.' && char.IsDigit(t[i + 2]))
-                                return true;
-                        }
+                        // --- DÉTECTION AVANCÉE DES NUMÉROS DE VERSION ---
 
+                        // v1.2 / v 1.2 / v.1.2 / v1.2.3 / v1.2.3.4
+                        if (System.Text.RegularExpressions.Regex.IsMatch(t, @"\bv\.?\s*\d+(\.\d+){1,3}\b"))
+                            return true;
+
+                        // 1.2 / 1.2.3 / 1.2.3.4 / 0.9.0.1 etc.
+                        if (System.Text.RegularExpressions.Regex.IsMatch(t, @"\b\d+(\.\d+){1,3}\b"))
+                            return true;
+
+                        // Patch #10 / Patch # 10
+                        if (System.Text.RegularExpressions.Regex.IsMatch(t, @"patch\s*#\s*\d+"))
+                            return true;
+
+                        // Hotfix avec numéro ou date
+                        if (System.Text.RegularExpressions.Regex.IsMatch(t, @"hotfix\s*\d*"))
+                            return true;
+                        
+                        // Rien trouvé → ce n'est PAS une update
+                        
                         return false;
                     }
+
 
                     // === UPDATE ONLY ===
                     var candidate = items

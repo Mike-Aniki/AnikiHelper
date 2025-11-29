@@ -69,10 +69,7 @@
     <sys:String x:Key="AnikiNews_CustomFeed_Desc">By default, the source is IGN Global Gaming. You can enter any RSS URL to customize the feed.</sys:String>
     <sys:String x:Key="AnikiNews_CustomFeed_Help">Optional: enter a custom RSS feed URL. Leave empty to use the default source.</sys:String>
     <sys:String x:Key="AnikiNews_CustomFeed_Tooltip">If set, the plugin will fetch news from this URL instead of the default feed.</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Help2">Examples of compatible feeds:</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Exemple1">IGN Games Global : https://feeds.feedburner.com/ign/games-all</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Exemple2">Steam News : https://store.steampowered.com/feeds/news/collection/featured</sys:String>
-    <sys:String x:Key="AnikiNews_CustomFeed_Exemple3">Eurogamer : https://www.eurogamer.net/feed</sys:String>
+    
     <sys:String x:Key="AnikiNews_ClearCache">Clear news cache</sys:String>
     <sys:String x:Key="AnikiNews_ClearCache_Tooltip">Clear the cached articles and force a fresh reload of the feed.</sys:String>
     <sys:String x:Key="AnikiNews_ClearCache_Note">Use this after changing the feed to clear old news.</sys:String>
@@ -83,7 +80,14 @@
     <sys:String x:Key="AnikiNews_ClearCache_Confirm">Clear news cache? Old articles will be removed and the feed will be reloaded.</sys:String>
     <sys:String x:Key="AnikiNews_ClearCache_Done">News cache cleared. The feed will refresh automatically.</sys:String>
 
+    <sys:String x:Key="AnikiNews_CustomFeed_Help2">Examples of compatible feeds:</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple1">IGN Games Global : https://feeds.feedburner.com/ign/games-all</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple2">Steam News : https://store.steampowered.com/feeds/news/collection/featured</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple3">Eurogamer : https://www.eurogamer.net/feed</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple4">PC Gamer: https://www.pcgamer.com/rss</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple5">GameSpot: https://www.gamespot.com/feeds/mashup</sys:String>
 
+    <sys:String x:Key="NewsScan_Enable_Help2">If you still see the IGN news even after changing the RSS link and clearing the cache, it means the link you added isn’t compatible.</sys:String>
 
 
 </ResourceDictionary>

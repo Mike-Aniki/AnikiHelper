@@ -556,6 +556,11 @@
                                    Style="{StaticResource SmallNoteText}"
                                    Margin="0,4,0,8"/>
 
+                        <!-- Aide courte (grise) -->
+                        <TextBlock Text="{DynamicResource NewsScan_Enable_Help2}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,4,0,8"/>
+
                         <!-- Bouton Clear Cache + note -->
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                             <Button Content="{DynamicResource AnikiNews_ClearCache}"
@@ -587,9 +592,14 @@
                                    Style="{StaticResource SmallNoteText}"
                                    FontSize="12"
                                    Margin="0,4,0,2"/>
-
-
-                       
+                        <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple4}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   FontSize="12"
+                                   Margin="0,4,0,2"/>
+                        <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple5}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   FontSize="12"
+                                   Margin="0,4,0,2"/>
 
                     </StackPanel>
                 </Grid>

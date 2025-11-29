@@ -197,14 +197,57 @@ namespace AnikiHelper
         private ulong totalPlaytimeMinutes;
         private ulong averagePlaytimeMinutes;
 
+        // === Jeu suggéré pour le Welcome Hub ===
+
+        private string suggestedGameName;
+        public string SuggestedGameName
+        {
+            get => suggestedGameName;
+            set => SetValue(ref suggestedGameName, value);
+        }
+
+        private string suggestedGameCoverPath;
+        public string SuggestedGameCoverPath
+        {
+            get => suggestedGameCoverPath;
+            set => SetValue(ref suggestedGameCoverPath, value);
+        }
+
+        private string suggestedGameBackgroundPath;
+        public string SuggestedGameBackgroundPath
+        {
+            get => suggestedGameBackgroundPath;
+            set => SetValue(ref suggestedGameBackgroundPath, value);
+        }
+
+        // "Parce que vous aimez : ..."
+        private string suggestedGameSourceName;
+        public string SuggestedGameSourceName
+        {
+            get => suggestedGameSourceName;
+            set => SetValue(ref suggestedGameSourceName, value);
+        }
+
+        // Raison textuelle (optionnelle) : même genre, même dev, etc.
+        private string suggestedGameReason;
+        public string SuggestedGameReason
+        {
+            get => suggestedGameReason;
+            set => SetValue(ref suggestedGameReason, value);
+        }
+
+
         // ===== JEU LE PLUS JOUE DU MOIS =====
         private string thisMonthTopGameName;
         private string thisMonthTopGamePlaytime;
         private string thisMonthTopGameCoverPath;
+        private string thisMonthTopGameBackgroundPath;
+
 
         public string ThisMonthTopGameName { get => thisMonthTopGameName; set => SetValue(ref thisMonthTopGameName, value); }
         public string ThisMonthTopGamePlaytime { get => thisMonthTopGamePlaytime; set => SetValue(ref thisMonthTopGamePlaytime, value); }
         public string ThisMonthTopGameCoverPath { get => thisMonthTopGameCoverPath; set => SetValue(ref thisMonthTopGameCoverPath, value); }
+        public string ThisMonthTopGameBackgroundPath { get => thisMonthTopGameBackgroundPath; set => SetValue(ref thisMonthTopGameBackgroundPath, value); }
 
         // === Stats "ce mois-ci" ===
         private int thisMonthPlayedCount;
@@ -343,6 +386,45 @@ namespace AnikiHelper
             = new ObservableCollection<SteamGlobalNewsItem>();
         public DateTime? SteamGlobalNewsLastRefreshUtc { get; set; }
 
+        // === Snapshot pour le Welcome Hub : dernière news globale ===
+
+        private string latestNewsTitle;
+        public string LatestNewsTitle
+        {
+            get => latestNewsTitle;
+            set => SetValue(ref latestNewsTitle, value);
+        }
+
+        private string latestNewsDateString;
+        public string LatestNewsDateString
+        {
+            get => latestNewsDateString;
+            set => SetValue(ref latestNewsDateString, value);
+        }
+
+        private string latestNewsSummary;
+        public string LatestNewsSummary
+        {
+            get => latestNewsSummary;
+            set => SetValue(ref latestNewsSummary, value);
+        }
+
+        private string latestNewsGameName;
+        public string LatestNewsGameName
+        {
+            get => latestNewsGameName;
+            set => SetValue(ref latestNewsGameName, value);
+        }
+
+        private string latestNewsLocalImagePath;
+        public string LatestNewsLocalImagePath
+        {
+            get => latestNewsLocalImagePath;
+            set => SetValue(ref latestNewsLocalImagePath, value);
+        }
+
+
+
         // URL RSS personnalisée pour la section Global News
         private string steamNewsCustomFeedUrl;
         public string SteamNewsCustomFeedUrl
@@ -360,14 +442,47 @@ namespace AnikiHelper
                 if (!string.Equals(old, value, StringComparison.OrdinalIgnoreCase))
                 {
                     SteamGlobalNewsLastRefreshUtc = null;
-                    LastNewsScanUtc = DateTime.MinValue;   //  ⬅️ AJOUTE CETTE LIGNE
+                    LastNewsScanUtc = DateTime.MinValue;  
 
                 }
             }
         }
 
+        // === Playnite Actu (flux RSS fixe, non customisable) ===
+
+        // 10 dernières news Playnite (ou Aniki+Playnite) lues depuis ton flux GitHub
+        public ObservableCollection<SteamGlobalNewsItem> PlayniteNews { get; set; }
+            = new ObservableCollection<SteamGlobalNewsItem>();
+
+        // Dernière date où on a scanné le flux Playnite
+        public DateTime? PlayniteNewsLastRefreshUtc { get; set; }
+
+        // Clé de la dernière news déjà “consommée” (pour ne pas spammer le toast)
+        private string playniteNewsLastKey;
+        public string PlayniteNewsLastKey
+        {
+            get => playniteNewsLastKey;
+            set => SetValue(ref playniteNewsLastKey, value);
+        }
+
+        // True = il y a au moins une news plus récente que PlayniteNewsLastKey
+        // (à utiliser pour le badge “NEW” sur l’onglet Playnite Actu)
+        private bool playniteNewsHasNew;
+        public bool PlayniteNewsHasNew
+        {
+            get => playniteNewsHasNew;
+            set => SetValue(ref playniteNewsHasNew, value);
+        }
 
 
+        // === Steam Deals (remises Steam via RSS game-deals.app) ===
+
+        // 15 dernières promos (7 jours max)
+        public ObservableCollection<SteamGlobalNewsItem> Deals { get; set; }
+            = new ObservableCollection<SteamGlobalNewsItem>();
+
+        // Dernière date de scan (UTC) pour le flux des deals
+        public DateTime? LastDealsScanUtc { get; set; }
 
 
         // True si le flux custom est invalide (erreur de téléchargement / parsing)
@@ -637,7 +752,19 @@ namespace AnikiHelper
                 SteamNewsCustomFeedInvalid = saved.SteamNewsCustomFeedInvalid;
                 SteamGlobalNewsLastRefreshUtc = saved.SteamGlobalNewsLastRefreshUtc;
 
+                // ====== Playnite News : il manquait ça ======
+                PlayniteNewsLastRefreshUtc = saved.PlayniteNewsLastRefreshUtc;
+                PlayniteNewsLastKey = saved.PlayniteNewsLastKey;
+                PlayniteNewsHasNew = saved.PlayniteNewsHasNew;
 
+                if (saved.PlayniteNews != null && saved.PlayniteNews.Any())
+                {
+                    PlayniteNews.Clear();
+                    foreach (var it in saved.PlayniteNews)
+                    {
+                        PlayniteNews.Add(it);
+                    }
+                }
             }
 
             // === Bouton "Refresh SuccessStory" pour le thème ===
