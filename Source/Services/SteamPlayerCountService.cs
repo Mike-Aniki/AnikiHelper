@@ -13,8 +13,7 @@ namespace AnikiHelper
         public string Error { get; set; }
     }
 
-    // DTO pour la réponse JSON de l'API Steam
-    // { "response": { "result": 1, "player_count": 12345 } }
+    // DTO 
     public class SteamPlayerCountApiResponse
     {
         public InnerResponse response { get; set; }
@@ -26,7 +25,6 @@ namespace AnikiHelper
         }
     }
 
-    // Entrée de cache (remplace le ValueTuple)
     public class SteamPlayerCacheEntry
     {
         public DateTime FetchedAt { get; set; }
@@ -37,7 +35,6 @@ namespace AnikiHelper
 
     public class SteamPlayerCountService
     {
-        // Petit cache mémoire (SteamID -> résultat)
         private readonly Dictionary<string, SteamPlayerCacheEntry> cache
             = new Dictionary<string, SteamPlayerCacheEntry>();
 
@@ -55,7 +52,6 @@ namespace AnikiHelper
                 };
             }
 
-            // 1) Regarder dans le cache
             if (cache.TryGetValue(steamId, out var entry))
             {
                 if (DateTime.Now - entry.FetchedAt < cacheDuration)
@@ -69,7 +65,6 @@ namespace AnikiHelper
                 }
             }
 
-            // 2) Appel API Steam
             try
             {
                 var url = $"https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid={steamId}";

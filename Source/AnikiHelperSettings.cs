@@ -16,7 +16,9 @@ using System.Windows;
 
 namespace AnikiHelper
 {
-    // ===== DTOs exposés au thème =====
+    // DTOs exposés au thème
+    // DTOs exposed to the theme
+
     public class TopPlayedItem
     {
         public string Name { get; set; }
@@ -54,7 +56,8 @@ namespace AnikiHelper
         public string IconPath { get; set; }
     }
 
-    // --- DTOs pour SuccessStory (désérialisation typée) ---
+    // DTOs SuccessStory
+
     internal class SsGame { public string Name { get; set; } }
 
     internal class SsItem
@@ -153,7 +156,7 @@ namespace AnikiHelper
             set => SetValue(ref isRecent, value);
         }
 
-        // Contenu HTML complet du patchnote (pour la fenêtre de droite)
+        // Complete HTML content of the patch note 
         private string html;
         public string Html
         {
@@ -171,24 +174,24 @@ namespace AnikiHelper
         [DontSerialize]
         public RelayCommand RefreshSuccessStoryCommand { get; }
 
-        // Info snapshot (affiché dans settings)
+        // Info snapshot 
         private string snapshotDateString;
         public string SnapshotDateString { get => snapshotDateString; set => SetValue(ref snapshotDateString, value); }
 
-        // ===== Options stats / affichage =====
+        // Options stats / display 
         private bool includeHidden = false;
         private int topPlayedMax = 10;
         private bool playtimeStoredInHours = false;
         private bool playtimeUseDaysFormat = false;
 
-        // ===== Dynamic colors / precache =====
+        // Dynamic colors / precache 
         private bool dynamicAutoPrecacheUserEnabled = true;
 
-        // ===== Stockage =====
+        // Storage 
         private readonly ObservableCollection<DiskUsageItem> diskUsages = new ObservableCollection<DiskUsageItem>();
         public ObservableCollection<DiskUsageItem> DiskUsages => diskUsages;
 
-        // ===== Stats (valeurs) =====
+        // Stats (values)
         private int totalCount;
         private int installedCount;
         private int notInstalledCount;
@@ -197,7 +200,7 @@ namespace AnikiHelper
         private ulong totalPlaytimeMinutes;
         private ulong averagePlaytimeMinutes;
 
-        // === Jeu suggéré pour le Welcome Hub ===
+        // Suggested game for the Welcome Hub
 
         private string suggestedGameName;
         public string SuggestedGameName
@@ -220,7 +223,7 @@ namespace AnikiHelper
             set => SetValue(ref suggestedGameBackgroundPath, value);
         }
 
-        // "Parce que vous aimez : ..."
+        // Reference games for the suggestion
         private string suggestedGameSourceName;
         public string SuggestedGameSourceName
         {
@@ -228,28 +231,36 @@ namespace AnikiHelper
             set => SetValue(ref suggestedGameSourceName, value);
         }
 
-        // Raison textuelle (optionnelle) : même genre, même dev, etc.
-        private string suggestedGameReason;
-        public string SuggestedGameReason
+        // Reason for game suggestion
+
+        private string suggestedGameReasonKey;
+        public string SuggestedGameReasonKey
         {
-            get => suggestedGameReason;
-            set => SetValue(ref suggestedGameReason, value);
+            get => suggestedGameReasonKey;
+            set => SetValue(ref suggestedGameReasonKey, value);
         }
 
+        private string suggestedGameBannerText;
+        public string SuggestedGameBannerText
+        {
+            get => suggestedGameBannerText;
+            set => SetValue(ref suggestedGameBannerText, value);
+        }
 
-        // ===== JEU LE PLUS JOUE DU MOIS =====
+        // JEU LE PLUS JOUE DU MOIS 
+        // MOST PLAYED GAME OF THE MONTH
+
         private string thisMonthTopGameName;
         private string thisMonthTopGamePlaytime;
         private string thisMonthTopGameCoverPath;
         private string thisMonthTopGameBackgroundPath;
-
 
         public string ThisMonthTopGameName { get => thisMonthTopGameName; set => SetValue(ref thisMonthTopGameName, value); }
         public string ThisMonthTopGamePlaytime { get => thisMonthTopGamePlaytime; set => SetValue(ref thisMonthTopGamePlaytime, value); }
         public string ThisMonthTopGameCoverPath { get => thisMonthTopGameCoverPath; set => SetValue(ref thisMonthTopGameCoverPath, value); }
         public string ThisMonthTopGameBackgroundPath { get => thisMonthTopGameBackgroundPath; set => SetValue(ref thisMonthTopGameBackgroundPath, value); }
 
-        // === Stats "ce mois-ci" ===
+        // This month's stats
         private int thisMonthPlayedCount;
         private ulong thisMonthPlayedTotalMinutes;
 
@@ -261,7 +272,7 @@ namespace AnikiHelper
         }
         public string ThisMonthPlayedTotalString => PlaytimeToString(ThisMonthPlayedTotalMinutes, PlaytimeUseDaysFormat);
 
-        // === Résumé de session (bindé par le thème) ===
+        // Session summary
         private string sessionGameName;
         public string SessionGameName { get => sessionGameName; set => SetValue(ref sessionGameName, value); }
 
@@ -274,10 +285,11 @@ namespace AnikiHelper
         private string sessionTotalPlaytimeString;
         public string SessionTotalPlaytimeString { get => sessionTotalPlaytimeString; set => SetValue(ref sessionTotalPlaytimeString, value); }
 
-        // Stamp unique à chaque notif pour relancer storyboard (binding côté XAML)
+        // Unique stamp for each notification
         private string sessionNotificationStamp;
         public string SessionNotificationStamp { get => sessionNotificationStamp; set => SetValue(ref sessionNotificationStamp, value); }
-        // --- Session notification ---
+
+        // Session notification
         private bool sessionNotificationFlip;
         public bool SessionNotificationFlip
         {
@@ -293,7 +305,7 @@ namespace AnikiHelper
         }
 
 
-        // === Nouveaux trophées (comptage + état logique) ===
+        // New trophies
         private int sessionNewAchievementsCount;
         public int SessionNewAchievementsCount
         {
@@ -310,7 +322,7 @@ namespace AnikiHelper
 
         // === Steam Update / Patch notes ===
 
-        // Titre de la news (ex : "Update 1.02 – Bug fixes")
+        // News headline
         private string steamUpdateTitle;
         public string SteamUpdateTitle
         {
@@ -325,7 +337,7 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdateIsNew, value);
         }
 
-        // Date formatée pour affichage (ex : "14/11/2025 13:42")
+        // Date 
         private string steamUpdateDate;
         public string SteamUpdateDate
         {
@@ -333,7 +345,7 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdateDate, value);
         }
 
-        // Contenu HTML (pour ton HtmlTextView dans le thème)
+        // Content HTML
         private string steamUpdateHtml;
         public string SteamUpdateHtml
         {
@@ -341,7 +353,7 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdateHtml, value);
         }
 
-        // True = on a une news pour ce jeu, False = rien trouvé / erreur
+        // Update Available
         private bool steamUpdateAvailable;
         public bool SteamUpdateAvailable
         {
@@ -349,7 +361,6 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdateAvailable, value);
         }
 
-        // Message simple pour le thème ("No Update available", "Error", etc.)
         private string steamUpdateError;
         public string SteamUpdateError
         {
@@ -357,7 +368,7 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdateError, value);
         }
 
-        // === Steam Current Players (nombre de joueurs connectés) ===
+        // Steam Current Players (nombre de joueurs connectés)
 
         private string steamCurrentPlayersString;
         public string SteamCurrentPlayersString
@@ -380,13 +391,13 @@ namespace AnikiHelper
             set => SetValue(ref steamCurrentPlayersError, value);
         }
 
-        // === Global News Steam ===
+        // Global News Steam
 
         public ObservableCollection<SteamGlobalNewsItem> SteamGlobalNews { get; set; }
             = new ObservableCollection<SteamGlobalNewsItem>();
         public DateTime? SteamGlobalNewsLastRefreshUtc { get; set; }
 
-        // === Snapshot pour le Welcome Hub : dernière news globale ===
+        // Snapshot for Welcome Hub
 
         private string latestNewsTitle;
         public string LatestNewsTitle
@@ -425,20 +436,17 @@ namespace AnikiHelper
 
 
 
-        // URL RSS personnalisée pour la section Global News
+        // URL RSS 
         private string steamNewsCustomFeedUrl;
         public string SteamNewsCustomFeedUrl
         {
             get => steamNewsCustomFeedUrl;
             set
             {
-                // On garde l'ancienne valeur pour voir s'il y a VRAIMENT un changement
                 var old = steamNewsCustomFeedUrl;
 
                 SetValue(ref steamNewsCustomFeedUrl, value);
 
-                // Si l'URL a vraiment changé (modifiée dans les settings),
-                // on reset l'heure du dernier scan pour forcer un refresh.
                 if (!string.Equals(old, value, StringComparison.OrdinalIgnoreCase))
                 {
                     SteamGlobalNewsLastRefreshUtc = null;
@@ -448,16 +456,16 @@ namespace AnikiHelper
             }
         }
 
-        // === Playnite Actu (flux RSS fixe, non customisable) ===
+        // Playnite News 
 
-        // 10 dernières news Playnite (ou Aniki+Playnite) lues depuis ton flux GitHub
+        // Last 10 from GitHub
         public ObservableCollection<SteamGlobalNewsItem> PlayniteNews { get; set; }
             = new ObservableCollection<SteamGlobalNewsItem>();
 
-        // Dernière date où on a scanné le flux Playnite
+        // Last scanned date
         public DateTime? PlayniteNewsLastRefreshUtc { get; set; }
 
-        // Clé de la dernière news déjà “consommée” (pour ne pas spammer le toast)
+        // Key to the latest news 
         private string playniteNewsLastKey;
         public string PlayniteNewsLastKey
         {
@@ -465,8 +473,7 @@ namespace AnikiHelper
             set => SetValue(ref playniteNewsLastKey, value);
         }
 
-        // True = il y a au moins une news plus récente que PlayniteNewsLastKey
-        // (à utiliser pour le badge “NEW” sur l’onglet Playnite Actu)
+        // badge “NEW” for Playnite news
         private bool playniteNewsHasNew;
         public bool PlayniteNewsHasNew
         {
@@ -475,17 +482,16 @@ namespace AnikiHelper
         }
 
 
-        // === Steam Deals (remises Steam via RSS game-deals.app) ===
+        // Steam Deals via game-deals.app
 
-        // 15 dernières promos (7 jours max)
+        // Last 15 promotions (7 days max)
         public ObservableCollection<SteamGlobalNewsItem> Deals { get; set; }
             = new ObservableCollection<SteamGlobalNewsItem>();
 
-        // Dernière date de scan (UTC) pour le flux des deals
+        // Last scan date
         public DateTime? LastDealsScanUtc { get; set; }
 
 
-        // True si le flux custom est invalide (erreur de téléchargement / parsing)
         private bool steamNewsCustomFeedInvalid;
         public bool SteamNewsCustomFeedInvalid
         {
@@ -493,7 +499,7 @@ namespace AnikiHelper
             set => SetValue(ref steamNewsCustomFeedInvalid, value);
         }
 
-        // Active ou non le scan des news globales (flux RSS)
+        // Enable or disable scanning
         private bool newsScanEnabled = true;
         public bool NewsScanEnabled
         {
@@ -506,7 +512,6 @@ namespace AnikiHelper
 
                 if (changed)
                 {
-                    // Si tu viens de désactiver le scan → reset des timers
                     if (!value)
                     {
                         SteamGlobalNewsLastRefreshUtc = null;
@@ -516,14 +521,9 @@ namespace AnikiHelper
             }
         }
 
-
-
         public DateTime LastNewsScanUtc { get; set; } = DateTime.MinValue;
 
-
-
-
-        // === Global toast notification (generic system) ===
+        // Global toast notification
         private string globalToastMessage;
         public string GlobalToastMessage
         {
@@ -553,7 +553,8 @@ namespace AnikiHelper
         }
 
 
-        // ===== Listes exposées =====
+        // Listes exposées (Exhibited lists)
+
         public ObservableCollection<TopPlayedItem> TopPlayed { get; } = new ObservableCollection<TopPlayedItem>();
         public ObservableCollection<CompletionStatItem> CompletionStates { get; } = new ObservableCollection<CompletionStatItem>();
         public ObservableCollection<ProviderStatItem> GameProviders { get; } = new ObservableCollection<ProviderStatItem>();
@@ -561,13 +562,13 @@ namespace AnikiHelper
         public ObservableCollection<QuickItem> RecentAdded { get; } = new ObservableCollection<QuickItem>();
         public ObservableCollection<QuickItem> NeverPlayed { get; } = new ObservableCollection<QuickItem>();
 
-        // Succès récents (Top 3)
+        // Recent Trophy (Top 3)
         public ObservableCollection<RecentAchievementItem> RecentAchievements { get; } = new ObservableCollection<RecentAchievementItem>();
 
-        // Succès rares (Top 3)
+        // Rare Trophy (Top 3)
         public ObservableCollection<RareAchievementItem> RareTop { get; } = new ObservableCollection<RareAchievementItem>();
 
-        // Dernières mises à jour Steam (Top 10)
+        // Latest Steam game updates (Top 10)
         public ObservableCollection<SteamRecentUpdateItem> SteamRecentUpdates { get; } = new ObservableCollection<SteamRecentUpdateItem>();
 
 
@@ -601,14 +602,14 @@ namespace AnikiHelper
             }
         }
 
-        // Active/désactive le pré-cache DynamicAuto (piloté par l’utilisateur)
+        // Enables/disables DynamicAuto pre-caching
         public bool DynamicAutoPrecacheUserEnabled
         {
             get => dynamicAutoPrecacheUserEnabled;
             set => SetValue(ref dynamicAutoPrecacheUserEnabled, value);
         }
 
-        // Active ou non la récupération du nombre de joueurs Steam (désactivé par défaut)
+        // Enables or disables the retrieval of the number of Steam players
         private bool steamPlayerCountEnabled = false;
         public bool SteamPlayerCountEnabled
         {
@@ -616,9 +617,7 @@ namespace AnikiHelper
             set => SetValue(ref steamPlayerCountEnabled, value);
         }
 
-        // Active ou non le scan des mises à jour Steam
-        // - Scan auto des derniers jeux joués
-        // - Scan des patchnotes quand on sélectionne un jeu
+        // Enables or disables scanning for Games updates
         private bool steamUpdatesScanEnabled = true;
         public bool SteamUpdatesScanEnabled
         {
@@ -627,7 +626,7 @@ namespace AnikiHelper
         }
 
 
-        // Active l'invite de création du cache Steam au démarrage
+        // Enables the Steam cache creation prompt at startup
         private bool askSteamUpdateCacheAtStartup = true;
         public bool AskSteamUpdateCacheAtStartup
         {
@@ -635,7 +634,7 @@ namespace AnikiHelper
             set => SetValue(ref askSteamUpdateCacheAtStartup, value);
         }
 
-        // Horodatage du dernier scan auto des mises à jour Steam (UTC)
+        // Timestamp of the last automatic scan of games updates 
         private DateTime? lastSteamRecentCheckUtc;
         public DateTime? LastSteamRecentCheckUtc
         {
@@ -643,7 +642,7 @@ namespace AnikiHelper
             set => SetValue(ref lastSteamRecentCheckUtc, value);
         }
 
-        // Affichage lisible de la date du dernier scan Steam
+        // Displaying the date of the last scan
         [DontSerialize]
         public string LastSteamRecentCheckDisplay
         {
@@ -717,7 +716,7 @@ namespace AnikiHelper
             set => SetValue(ref loginRandomIndex, value);
         }
 
-        // Anti-répétition simple entre deux lancements
+        // anti-repetition between two launches
         public int LastLoginRandomIndex { get; set; }
 
         public AnikiHelperSettings() { }
@@ -752,7 +751,6 @@ namespace AnikiHelper
                 SteamNewsCustomFeedInvalid = saved.SteamNewsCustomFeedInvalid;
                 SteamGlobalNewsLastRefreshUtc = saved.SteamGlobalNewsLastRefreshUtc;
 
-                // ====== Playnite News : il manquait ça ======
                 PlayniteNewsLastRefreshUtc = saved.PlayniteNewsLastRefreshUtc;
                 PlayniteNewsLastKey = saved.PlayniteNewsLastKey;
                 PlayniteNewsHasNew = saved.PlayniteNewsHasNew;
@@ -767,22 +765,22 @@ namespace AnikiHelper
                 }
             }
 
-            // === Bouton "Refresh SuccessStory" pour le thème ===
+            // Bouton "Refresh SuccessStory"
             RefreshSuccessStoryCommand = new RelayCommand(
                 async () => await SuccessStoryBridge.RefreshSelectedGameAsync(plugin.PlayniteApi),
                 () => plugin?.PlayniteApi?.MainView?.SelectedGames?.Any() == true
             );
 
-            // Succès récents + watcher
+            // Recent Trophy + watcher
             LoadRecentAchievements(3);
             LoadRareTop(3);
             TryStartAchievementsWatcher();
 
-            // Stockage au démarrage
+            // Startup storage
             LoadDiskUsages();
         }
 
-        // ====== SUCCÈS RÉCENTS ======
+        // Recent Trophy
         public void RefreshRecentAchievements() => LoadRecentAchievements(3);
 
         private string FindSuccessStoryRoot()
@@ -1191,7 +1189,7 @@ namespace AnikiHelper
             }
             catch
             {
-                // si le logger plante, on ne bloque pas la sauvegarde
+
             }
 
             plugin.SavePluginSettings(this);
@@ -1299,7 +1297,7 @@ namespace AnikiHelper
             }
             catch
             {
-                // Ne bloque jamais la sauvegarde en cas d'erreur de log
+
             }
 
             plugin.SavePluginSettings(Settings);
@@ -1318,7 +1316,7 @@ namespace AnikiHelper
             }
         }
 
-        // === Clears the dynamic color cache ===
+        // Clears the dynamic color cache 
         public void ClearColorCache()
         {
             try
@@ -1332,7 +1330,7 @@ namespace AnikiHelper
             }
         }
 
-        // === Clears the news cache ===
+        // Clears the news cache
         public void ClearNewsCache()
         {
             try

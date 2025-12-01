@@ -18,7 +18,6 @@ namespace AnikiHelper
         {
             if (timer != null) return;
 
-            // Ajout :
             Application.Current.Exit += (_, __) => { timer?.Stop(); timer = null; processed.Clear(); };
 
             timer = new DispatcherTimer(DispatcherPriority.Background)
@@ -37,7 +36,6 @@ namespace AnikiHelper
 
             foreach (Window w in app.Windows)
             {
-                // Target only: Playnite.FullscreenApp.Windows.AddonsUpdateWindow
                 if (!string.Equals(w.GetType().FullName,
                                    "Playnite.FullscreenApp.Windows.AddonsUpdateWindow",
                                    StringComparison.Ordinal))
@@ -51,7 +49,6 @@ namespace AnikiHelper
                 processed.Add(handle);
                 w.Closed += (_, __) => processed.Remove(handle);
 
-                // Defer styling until the visual tree is constructed
                 w.Dispatcher.InvokeAsync(() => ApplyToInternalBorders(w), DispatcherPriority.Loaded);
             }
         }
@@ -61,7 +58,7 @@ namespace AnikiHelper
         {
             try
             {
-                // Collect all Border children in the visual tree
+                // Collect all Border children 
                 var borders = FindVisualChildren<Border>(win).ToList();
                 if (borders.Count == 0) return;
 
@@ -104,7 +101,7 @@ namespace AnikiHelper
             }
             catch
             {
-                // Intentionally ignore; styling is best-effort and should never break the window
+
             }
         }
 

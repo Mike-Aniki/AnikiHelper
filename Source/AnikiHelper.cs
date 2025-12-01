@@ -33,13 +33,12 @@ namespace AnikiHelper
 
         private const int GlobalNewsRefreshIntervalHours = 3;
 
-        // Playnite Actu : 1 scan max / 24h
+        // Playnite News : 1 scan / 24h
         private const int PlayniteNewsRefreshIntervalHours = 24;
 
-        // Playnite Actu : plusieurs flux possibles (fusionnés)
+        // Playnite news feed 
         private static readonly string[] PlayniteNewsFeedUrls = new[]
         {
-            // Flux principal GitHub
             "https://github.com/Mike-Aniki/AnikiHelper/releases.atom",
             "https://github.com/jonosellier/toggle-theme-playnite/releases.atom",
             "https://github.com/And360red/Solaris/releases.atom",
@@ -57,9 +56,9 @@ namespace AnikiHelper
 
 
         // === Steam Deals (game-deals.app) ===
-        private const int DealsRefreshIntervalHours = 12; // 12h réel
-        private const int DealsMaxDays = 7;               // garder 7 jours max
-        private const int DealsMaxItems = 15;             // garder/afficher 15 deals max
+        private const int DealsRefreshIntervalHours = 12; // 12h 
+        private const int DealsMaxDays = 7;               // keep for a maximum of 7 days
+        private const int DealsMaxItems = 15;             // keep a maximum of 15 deals
         private const string DealsFeedUrl =
             "https://game-deals.app/rss/discounts/steam";
 
@@ -67,7 +66,7 @@ namespace AnikiHelper
         // === Diagnostics and paths ===
         private string GetDataRoot() => Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
 
-        // Met à jour le snapshot Welcome Hub à partir d'une liste de news triées
+        // News update for Welcome Hub
         private void UpdateLatestNewsFromList(IList<SteamGlobalNewsItem> items)
         {
             try
@@ -82,7 +81,6 @@ namespace AnikiHelper
                     return;
                 }
 
-                // On prend la première : dans notre cache elle est déjà la plus récente
                 var latest = items[0];
 
                 Settings.LatestNewsTitle = latest.Title ?? string.Empty;
@@ -97,12 +95,13 @@ namespace AnikiHelper
             }
         }
 
-        // Charge les news globales depuis CacheNews.json si Settings.SteamGlobalNews est vide
+        // Charge les news globales depuis CacheNews.json si Settings.SteamGlobalNews est vide 
+        // Load global news from CacheNews.json if Settings.SteamGlobalNews is empty 
+
         private void LoadNewsFromCacheIfNeeded()
         {
             try
             {
-                // Si on a déjà des news en mémoire, on resynchronise au moins le snapshot
                 if (Settings.SteamGlobalNews != null && Settings.SteamGlobalNews.Count > 0)
                 {
                     UpdateLatestNewsFromList(Settings.SteamGlobalNews.ToList());
@@ -144,9 +143,8 @@ namespace AnikiHelper
                     }
                 });
 
-                // Met à jour le snapshot pour le Welcome Hub à partir du cache
                 UpdateLatestNewsFromList(ordered);
-                SavePluginSettings(Settings); // ✅ on persiste aussi LatestNews*
+                SavePluginSettings(Settings); 
             }
             catch (Exception ex)
             {
@@ -164,8 +162,6 @@ namespace AnikiHelper
             public string Html { get; set; }
         }
 
-        // Clé stable pour une news Playnite : on se base sur Titre + Url,
-        // la date ne sert qu'à trier, pas à détecter le "NEW".
         private static string MakePlayniteNewsKey(SteamGlobalNewsItem item)
         {
             if (item == null)
@@ -176,7 +172,6 @@ namespace AnikiHelper
             var title = item.Title ?? string.Empty;
             var url = item.Url ?? string.Empty;
 
-            // Si vraiment on n'a ni titre ni URL, on ne tente rien
             if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(url))
             {
                 return string.Empty;
@@ -203,14 +198,13 @@ namespace AnikiHelper
             {
                 var json = File.ReadAllText(path);
 
-                // Format actuel : steamId -> SteamUpdateCacheEntry
                 var asNew = Serialization.FromJson<Dictionary<string, SteamUpdateCacheEntry>>(json);
                 if (asNew != null)
                 {
                     return asNew;
                 }
 
-                // Old format: steamId -> title (converted on the fly)
+                // Old format
                 var asOld = Serialization.FromJson<Dictionary<string, string>>(json);
                 if (asOld != null)
                 {
@@ -248,7 +242,7 @@ namespace AnikiHelper
             }
             catch
             {
-                // ce n'est qu'un cache, on ignore
+
             }
         }
 
@@ -271,13 +265,12 @@ namespace AnikiHelper
                         Playnite.SDK.Models.Game game = null;
                         try
                         {
-                            // We find the game corresponding to this SteamID
                             game = PlayniteApi.Database.Games
                                 .FirstOrDefault(g => GetSteamGameId(g) == steamId);
                         }
                         catch
                         {
-                            // if it breaks, the game remains null
+
                         }
 
                         // Paths calculated on the fly -> nothing in the JSON
@@ -364,7 +357,7 @@ namespace AnikiHelper
             return string.IsNullOrEmpty(path) ? string.Empty : path;
         }
 
-        // === Global toast helper ===
+        // Global toast helper
         private void ShowGlobalToast(string message, string type = null)
         {
             try
@@ -387,11 +380,11 @@ namespace AnikiHelper
             }
             catch
             {
-                // visuel only
+
             }
         }
 
-        // === Localisation helper (utilise les ressources du thème) ===
+        // Localisation helper
         private static string Loc(string key, string fallback)
         {
             try
@@ -406,10 +399,8 @@ namespace AnikiHelper
         }
 
 
-        // ✅ helper for game name
         private static string Safe(string s) => string.IsNullOrWhiteSpace(s) ? "(Unnamed Game)" : s;
 
-        // Nettoie le HTML Steam pour l'affichage en Fullscreen
         private static string CleanHtml(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw))
@@ -421,10 +412,10 @@ namespace AnikiHelper
 
             try
             {
-                // 1) Supprimer complètement les images
+                // 1) Delete images completely
                 html = Regex.Replace(html, "<img[^>]*>", string.Empty, RegexOptions.IgnoreCase);
 
-                // 2) Remplacer les liens par leur texte interne (on garde le contenu, pas le href)
+                // 2) Remplace les liens par des texte (Replace links with text)
                 html = Regex.Replace(
                     html,
                     "<a[^>]*>(.*?)</a>",
@@ -432,14 +423,15 @@ namespace AnikiHelper
                     RegexOptions.IgnoreCase | RegexOptions.Singleline
                 );
 
-                // 3) Supprimer les attributs class="..." et style="..."
+                // 3) Supprimer les attributs class et style (Remove class and style attributes)
+
                 html = Regex.Replace(html, "\\sclass=\"[^\"]*\"", string.Empty, RegexOptions.IgnoreCase);
                 html = Regex.Replace(html, "\\sstyle=\"[^\"]*\"", string.Empty, RegexOptions.IgnoreCase);
 
-                // 4) Supprimer les <p> vides
+                // 4) Supprime les <p> vides (Remove empty <p> tags)
                 html = Regex.Replace(html, "<p>\\s*</p>", string.Empty, RegexOptions.IgnoreCase);
 
-                // 5) Réduire les gros paquets de <br> successifs
+                // 5) Réduire les gros paquets de <br> successifs (Reduce large successive <br> tags)
                 html = Regex.Replace(
                     html,
                     "(<br\\s*/?>\\s*){3,}",
@@ -451,7 +443,6 @@ namespace AnikiHelper
             }
             catch
             {
-                // si ça foire, on renvoie simplement le HTML brut
                 return raw;
             }
 
@@ -467,32 +458,30 @@ namespace AnikiHelper
         public override Guid Id { get; } = Guid.Parse("96a983a3-3f13-4dce-a474-4052b718bb52");
 
 
-        // === Session tracking (start/stop) ===
+        // Session tracking
         private readonly Dictionary<Guid, DateTime> sessionStartAt = new Dictionary<Guid, DateTime>();
         private readonly Dictionary<Guid, ulong> sessionStartPlaytimeMinutes = new Dictionary<Guid, ulong>(); // Playnite = secondes -> minutes stockées ici
 
 
-        // === Steam Update (badge "new" pour la session en cours) ===
+        // Games Update toast "new"
         private readonly HashSet<string> steamUpdateNewThisSession = new HashSet<string>();
-
-        // === Steam Update (toasts déjà affichés pour cette session) ===
         private readonly HashSet<string> steamUpdateToastShownThisSession = new HashSet<string>();
 
-        // === Steam Update (RSS simplifié) ===
+        // Games Steam Update (RSS simplified)
         private readonly SteamUpdateLiteService steamUpdateService;
         private readonly DispatcherTimer steamUpdateTimer;
         private Playnite.SDK.Models.Game pendingUpdateGame;
         private readonly DispatcherTimer dealsTimer;
 
 
-        // === Steam current players ===
+        // Steam current players
         private readonly SteamPlayerCountService steamPlayerCountService = new SteamPlayerCountService();
 
-        // GUID du plugin Steam officiel (Playnite)
+        // GUID plugin Steam officiel
         private static readonly Guid SteamPluginId = Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab");
 
 
-        // Format minutes -> "3h27"
+        // Format minutes
         private static string FormatHhMmFromMinutes(int minutes)
         {
             if (minutes < 0) minutes = 0;
@@ -508,13 +497,13 @@ namespace AnikiHelper
 
             try
             {
-                // 1) Jeu provenant directement du plugin Steam
+                // 1) Jeu provenant directement du plugin Steam (Game coming directly from the Steam plugin
                 if (game.PluginId == SteamPluginId && !string.IsNullOrWhiteSpace(game.GameId))
                 {
                     return game.GameId;
                 }
 
-                // 2) Sinon, on tente de trouver un lien Steam dans Game.Links
+                // 2) Sinon, trouver un lien Steam dans Game.Links (Otherwise, find a Steam link in Game.Links)
                 if (game.Links != null)
                 {
                     foreach (var link in game.Links)
@@ -533,24 +522,23 @@ namespace AnikiHelper
             }
             catch
             {
-                // on s'en fout, on retourne null si ça foire
+
             }
 
             return null;
         }
 
-        // Retourne les N derniers jeux joués qui ont un SteamID valable
+        // Retourne les N derniers jeux joués qui ont un SteamID valable (returns the last N games played that have a valid SteamID)
         private List<Playnite.SDK.Models.Game> GetRecentSteamGames(int maxGames)
         {
             try
             {
                 var games = PlayniteApi.Database.Games
-                    .Where(g => g.LastActivity != null)                 // déjà lancés
-                    .OrderByDescending(g => g.LastActivity)             // du plus récent au plus ancien
-                    .Take(Math.Max(1, maxGames))                        // sécurité
+                    .Where(g => g.LastActivity != null)                 
+                    .OrderByDescending(g => g.LastActivity)             
+                    .Take(Math.Max(1, maxGames))                       
                     .ToList();
 
-                // on ne garde que ceux qui ont un SteamID
                 return games
                     .Where(g => !string.IsNullOrWhiteSpace(GetSteamGameId(g)))
                     .ToList();
@@ -618,7 +606,6 @@ namespace AnikiHelper
                 return;
             }
 
-            // Si le scan des mises à jour est désactivé, on ne fait PAS l'appel patchnote
             if (Settings.SteamUpdatesScanEnabled)
             {
                 await UpdateSteamUpdateForGameAsync(g);
@@ -629,7 +616,6 @@ namespace AnikiHelper
                 ResetSteamUpdate();
             }
 
-            // Compteur de joueurs Steam reste actif même si les updates sont coupées
             await UpdateSteamPlayerCountForGameAsync(g);
         }
 
@@ -641,10 +627,8 @@ namespace AnikiHelper
                 var nowUtc = DateTime.UtcNow;
                 var last = Settings.SteamGlobalNewsLastRefreshUtc;
 
-                // Log minimal d'entrée
                 logger.Debug($"[NewsScan] Start (force={force}, enabled={Settings.NewsScanEnabled})");
 
-                // Scan désactivé
                 if (!Settings.NewsScanEnabled)
                 {
                     logger.Debug("[NewsScan] Skipped (disabled)");
@@ -690,7 +674,6 @@ namespace AnikiHelper
                     logger.Debug("[NewsScan] Updated settings & memory list");
                 });
 
-                // Met à jour le snapshot Hub avec les items fraîchement scannés
                 UpdateLatestNewsFromList(items);
 
             }
@@ -719,7 +702,7 @@ namespace AnikiHelper
         }
 
 
-        // === Playnite Actu : scan des flux GitHub, 10 dernières news fusionnées, badge + toast ===
+        // Playnite News
         private async Task RefreshPlayniteNewsAsync(bool force = false, bool silent = false)
         {
             try
@@ -741,7 +724,6 @@ namespace AnikiHelper
                     }
                 }
 
-                // 🔁 Récupération de TOUS les flux via le service générique
                 var allItems = new List<SteamGlobalNewsItem>();
 
                 foreach (var url in PlayniteNewsFeedUrls)
@@ -769,19 +751,18 @@ namespace AnikiHelper
                     }
                 }
 
-                // Si aucun flux n'a rien renvoyé, on évite le crash
                 if (allItems.Count == 0)
                 {
                     allItems = new List<SteamGlobalNewsItem>();
                 }
 
-                // On garde juste les 10 dernières (tri date desc sur l'ensemble fusionné)
+                // On garde juste les 10 dernières (only keep the last 10.)
                 var ordered = allItems
                     .OrderByDescending(n => n.PublishedUtc)
                     .Take(10)
                     .ToList();
 
-                // Détection “NEW” : on compare la clé de la première news avec ce qu’on avait stocké
+                // Détection “NEW”
                 var previousKey = Settings.PlayniteNewsLastKey ?? string.Empty;
                 var topItem = ordered.FirstOrDefault();
                 var newKey = topItem != null ? MakePlayniteNewsKey(topItem) : string.Empty;
@@ -820,7 +801,7 @@ namespace AnikiHelper
                     SavePluginSettings(Settings);
                 });
 
-                // Toast global uniquement si nouvelle news détectée
+                // Toast global 
                 if (hasNew && topItem != null)
                 {
                     var title = topItem.Title?.Trim();
@@ -840,7 +821,7 @@ namespace AnikiHelper
         }
 
 
-        // === Steam Deals : promos Steam via game-deals.app ===
+        // Steam Deals via game-deals.app
         private async Task RefreshDealsAsync(bool force = false, bool silent = false)
         {
             try
@@ -862,7 +843,6 @@ namespace AnikiHelper
                     }
                 }
 
-                // Récupération du flux via le service générique déjà existant
                 var items = await steamGlobalNewsService
                     .GetGenericFeedAsync(DealsFeedUrl)
                     .ConfigureAwait(false);
@@ -872,7 +852,7 @@ namespace AnikiHelper
                     items = new List<SteamGlobalNewsItem>();
                 }
 
-                // 7 jours max + 15 items max
+                // 7 day  max + 15 items max
                 var threshold = nowUtc.AddDays(-DealsMaxDays);
 
                 var filtered = items
@@ -910,7 +890,7 @@ namespace AnikiHelper
 
         private async void DealsTimer_Tick(object sender, EventArgs e)
         {
-            // On ne lance le scan que si on est en mode Fullscreen
+            // Only start the scan if you are in full-screen mode.
             if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
             {
                 return;
@@ -927,7 +907,6 @@ namespace AnikiHelper
 
             try
             {
-                // --- Option désactivée ---
                 if (!Settings.NewsScanEnabled)
                 {
                     return;
@@ -936,21 +915,19 @@ namespace AnikiHelper
                 var now = DateTime.UtcNow;
                 var lastScan = Settings.LastNewsScanUtc;
 
-                // --- Cooldown (si pas forcé) ---
                 if (!force && lastScan != DateTime.MinValue)
                 {
                     var hoursSince = (now - lastScan).TotalHours;
                     if (hoursSince < GlobalNewsRefreshIntervalHours)
                     {
-                        return; // Trop tôt → stop
+                        return; 
                     }
                 }
 
-                // --- Scan RSS ---
+                // Scan RSS 
                 var svc = new SteamGlobalNewsService(PlayniteApi, Settings);
                 var items = await svc.GetGlobalNewsAsync();
 
-                // --- Mise à jour UI + settings (liste + date du scan) ---
                 Application.Current.Dispatcher.Invoke(() =>
                 {
                     Settings.SteamGlobalNews.Clear();
@@ -959,18 +936,14 @@ namespace AnikiHelper
 
                     Settings.LastNewsScanUtc = now;
 
-                    // Sauvegarde de la liste et de LastNewsScanUtc
                     SavePluginSettings(Settings);
                 });
 
-                // --- Mise à jour du snapshot Welcome Hub ---
                 UpdateLatestNewsFromList(items);
 
-                // *** AJOUT IMPORTANT ***
-                // Sauvegarde aussi les champs LatestNewsTitle / LatestNewsLocalImagePath / etc.
                 SavePluginSettings(Settings);
 
-                // Log minimal
+                // Log 
                 if (!silent)
                 {
                     logger.Info("[AnikiHelper] Global News refreshed.");
@@ -984,8 +957,6 @@ namespace AnikiHelper
 
 
 
-        // Met à jour le cache Steam pour un jeu donné au démarrage
-        // Renvoie true si un toast a été envoyé, false sinon.
         private async Task<bool> UpdateSteamUpdateCacheOnlyForGameAsync(Playnite.SDK.Models.Game game)
         {
             var notified = false;
@@ -1019,7 +990,6 @@ namespace AnikiHelper
                     published = published.ToUniversalTime();
                 }
 
-                // 🔴 CAS 1 : aucune entrée dans le cache pour ce jeu → on initialise SANS toast
                 if (cachedEntry == null)
                 {
                     cache[steamId] = new SteamUpdateCacheEntry
@@ -1031,20 +1001,17 @@ namespace AnikiHelper
                     };
 
                     SaveSteamUpdatesCache(cache);
-                    // pas de steamUpdateNewThisSession, pas de toast
                     return false;
                 }
 
-                // 🟢 CAS 2 : le jeu est déjà connu dans le cache → on peut parler de "nouvelle maj"
                 var lastPublished = cachedEntry.LastPublishedUtc;
                 var sessionKey = $"{steamId}|{result.Title}";
 
-                // "vraie" nouvelle update = date Steam plus récente que celle du cache
                 bool isRealNew = published > lastPublished;
 
                 if (isRealNew)
                 {
-                    // maj complète du cache
+                    // complete cache update
                     cachedEntry.Title = result.Title;
                     cachedEntry.GameName = Safe(game.Name);
                     cachedEntry.LastPublishedUtc = published;
@@ -1068,7 +1035,6 @@ namespace AnikiHelper
                 }
                 else
                 {
-                    // Pas une nouvelle version, mais on enrichit le cache si nécessaire
                     bool needsUpdate = false;
 
                     if (string.IsNullOrWhiteSpace(cachedEntry.Html) && !string.IsNullOrEmpty(cleanedHtml))
@@ -1107,32 +1073,29 @@ namespace AnikiHelper
 
 
 
-        // Au démarrage : vérifie les updates Steam pour les N derniers jeux joués (en tâche de fond)
+        // On startup: check for updates (in the background)
         private async Task CheckSteamUpdatesForRecentGamesAsync(int maxGames = 20)
         {
             try
             {
-                // 1) Vérif mode + focus
+                // 1) Check mode + focus
                 if (!IsSteamRecentScanAllowed())
                 {
                     return;
                 }
 
-                // 2) Limite de fréquence : pas plus d'un scan toutes les 2 heures
+                // 2) Frequency limit: no more than one scan every 2 hours
                 var nowUtc = DateTime.UtcNow;
                 var last = Settings.LastSteamRecentCheckUtc;
 
                 if (last.HasValue && (nowUtc - last.Value).TotalHours < 4)
                 {
-                    // dernier scan trop récent → on sort
                     return;
                 }
 
-                // On enregistre tout de suite le timestamp pour ne pas rescanner 10 fois au démarrage
                 Settings.LastSteamRecentCheckUtc = nowUtc;
                 SavePluginSettings(Settings);
 
-                // 3) Candidats = jeux avec une LastActivity, triés du plus récent au plus ancien
                 var allRecent = PlayniteApi.Database.Games
                     .Where(g => g.LastActivity != null)
                     .OrderByDescending(g => g.LastActivity)
@@ -1152,7 +1115,7 @@ namespace AnikiHelper
                         break;
                     }
 
-                    // Si on perd le focus en cours de route, on arrête
+                    // If we lose focus along the way, we stop.
                     if (!IsSteamRecentScanAllowed())
                     {
                         break;
@@ -1161,19 +1124,16 @@ namespace AnikiHelper
                     var steamId = GetSteamGameId(g);
                     if (string.IsNullOrWhiteSpace(steamId))
                     {
-                        continue; // pas de SteamID => on ignore simplement
+                        continue; 
                     }
 
                     scanned++;
 
                     var notified = await UpdateSteamUpdateCacheOnlyForGameAsync(g);
 
-                    // Si un toast a été affiché, on laisse ton anim vivre sa vie (~9 s)
-                    // Sinon, petit délai pour ne pas spammer l'API.
+                    // short delay to avoid spamming the API.
                     var delayMs = notified ? 10000 : 500;
 
-                    // On découpe le delay en petits morceaux pour pouvoir
-                    // arrêter proprement si la fenêtre perd le focus.
                     int remaining = delayMs;
                     const int step = 200; // 200 ms
 
@@ -1190,7 +1150,6 @@ namespace AnikiHelper
                     }
                 }
 
-                // On reconstruit la liste des 10 dernières updates depuis le cache
                 RefreshSteamRecentUpdatesFromCache();
             }
             catch (Exception ex)
@@ -1198,9 +1157,6 @@ namespace AnikiHelper
                 logger.Warn(ex, "[AnikiHelper] CheckSteamUpdatesForRecentGamesAsync failed.");
             }
         }
-
-
-
 
 
         private async Task UpdateSteamUpdateForGameAsync(Playnite.SDK.Models.Game game)
@@ -1221,7 +1177,7 @@ namespace AnikiHelper
                     return;
                 }
 
-                // === 1) On tente d'abord le CACHE ===
+                // 1) First, we try the CACHE
                 var cache = LoadSteamUpdatesCache();
 
                 cache.TryGetValue(steamId, out var cachedEntry);
@@ -1249,20 +1205,19 @@ namespace AnikiHelper
                         Settings.SteamUpdateHtml = cachedHtml;
                         Settings.SteamUpdateAvailable = true;
                         Settings.SteamUpdateError = string.Empty;
-                        Settings.SteamUpdateIsNew = false; // le badge "NEW" sera géré après par la réponse Steam
+                        Settings.SteamUpdateIsNew = false; 
                     });
 
                     hadUsableCache = true;
                 }
 
-                // === 2) Puis on essaie d'appeler Steam pour rafraîchir ===
+                // 2) Then we try to call Steam to refresh
                 var result = await steamUpdateService.GetLatestUpdateAsync(steamId);
                 if (result == null || string.IsNullOrWhiteSpace(result.Title))
                 {
-                    // Pas de résultat Steam
+                    // No Steam results
                     if (!hadUsableCache)
                     {
-                        // Aucun cache exploitable -> afficher une erreur
                         System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                         {
                             Settings.SteamUpdateError = "No update available";
@@ -1270,13 +1225,12 @@ namespace AnikiHelper
                             Settings.SteamUpdateIsNew = false;
                         });
                     }
-                    // Si on avait déjà quelque chose en cache, on laisse l'affichage tel quel
                     return;
                 }
 
                 var cleanedHtml = CleanHtml(result.HtmlBody ?? string.Empty);
 
-                // --- Detection of "new update" ---
+                // Detection of "new update" 
                 bool isNew = false;
                 var sessionKey = $"{steamId}|{result.Title}";
 
@@ -1293,7 +1247,7 @@ namespace AnikiHelper
                     published = published.ToUniversalTime();
                 }
 
-                // === Pas encore de cache pour ce jeu ===
+                // No cache for this game yet
                 if (string.IsNullOrWhiteSpace(lastTitle))
                 {
                     cache[steamId] = new SteamUpdateCacheEntry
@@ -1314,14 +1268,14 @@ namespace AnikiHelper
 
                     var lastPublished = cachedEntry?.LastPublishedUtc ?? DateTime.MinValue;
 
-                    // uniquement si la DATE est plus récente que celle du cache.
+                    // only if the DATE is more recent than the cache date.
                     bool isRealNew =
-                        lastPublished == DateTime.MinValue ||        // vieux cache sans date fiable
-                        published > lastPublished;                   // publication plus récente
+                        lastPublished == DateTime.MinValue ||        
+                        published > lastPublished;                   
 
                     if (isRealNew)
                     {
-                        // ✅ Nouvelle update -> badge NEW + maj du cache
+                        // New update -> NEW badge + cache update
                         isNew = true;
 
                         cache[steamId] = new SteamUpdateCacheEntry
@@ -1337,8 +1291,7 @@ namespace AnikiHelper
                     }
                     else
                     {
-                        // ❌ Même version (même date) -> pas NEW,
-                        // mais on peut quand même mettre à jour le texte/HTML (changement de langue etc.)
+                        // Same version (same date) -> not NEW
 
                         if (string.IsNullOrWhiteSpace(cachedEntry?.Html) ||
                             !string.Equals(cachedEntry.Title, result.Title, StringComparison.Ordinal))
@@ -1350,7 +1303,6 @@ namespace AnikiHelper
                             SaveSteamUpdatesCache(cache);
                         }
 
-                        // On garde le badge NEW si on l'avait déjà déclenché dans cette session
                         if (steamUpdateNewThisSession.Contains(sessionKey))
                         {
                             isNew = true;
@@ -1359,7 +1311,7 @@ namespace AnikiHelper
                 }
 
 
-                // --- 3) On pousse la version "fraîche" dans les Settings (par-dessus le cache) ---
+                // 3) Push the "fresh" version into Settings
                 System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                 {
                     Settings.SteamUpdateTitle = result.Title;
@@ -1375,7 +1327,7 @@ namespace AnikiHelper
                     Settings.SteamUpdateIsNew = isNew;
                 });
 
-                // ✅ Toast global uniquement si c'est une nouvelle update (titre différent du cache)
+                // Global toast only if it's a new update
                 if (isNew)
                 {
                     if (!steamUpdateToastShownThisSession.Contains(sessionKey))
@@ -1398,8 +1350,6 @@ namespace AnikiHelper
             {
                 logger.Warn(ex, "[AnikiHelper] UpdateSteamUpdateForGameAsync failed.");
 
-                // Si on n'avait rien en cache, on affiche une erreur ;
-                // si on avait déjà un patchnote depuis le cache, on ne touche plus à l'UI.
                 System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                 {
                     if (!Settings.SteamUpdateAvailable && string.IsNullOrWhiteSpace(Settings.SteamUpdateHtml))
@@ -1506,7 +1456,6 @@ namespace AnikiHelper
                             progress.CurrentProgressValue = index;
                             progress.Text = string.Format(baseText, index, steamGames.Count);
 
-                            // déjà présent avec Html -> on saute
                             if (cache.TryGetValue(entry.SteamId, out var existing) &&
                                 !string.IsNullOrWhiteSpace(existing?.Html))
                             {
@@ -1568,7 +1517,7 @@ namespace AnikiHelper
 
 
 
-        // ====== SuccessStory helpers ======
+        // SuccessStory helpers
 
         // Try to find the "SuccessStory" folder in ExtensionsData
         private string FindSuccessStoryRoot()
@@ -1578,11 +1527,11 @@ namespace AnikiHelper
                 var root = PlayniteApi?.Paths?.ExtensionsDataPath;
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return null;
 
-                // cas "classique"
+                
                 var classic = Path.Combine(root, "cebe6d32-8c46-4459-b993-5a5189d60788", "SuccessStory");
                 if (Directory.Exists(classic)) return classic;
 
-                // fallback: chercher récursivement un dossier se terminant par "SuccessStory"
+                // fallback
                 foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
                 {
                     if (dir.EndsWith("SuccessStory", StringComparison.OrdinalIgnoreCase))
@@ -1593,9 +1542,9 @@ namespace AnikiHelper
             return null;
         }
 
-        
 
-        // === Helpers métadonnées pour le scoring des jeux suggérés ===
+
+        // Helpers for scoring suggested games
 
         private IEnumerable<string> GetGenreNames(Playnite.SDK.Models.Game g)
         {
@@ -1605,7 +1554,7 @@ namespace AnikiHelper
                 return result;
             }
 
-            // Propriété directe (si dispo)
+            // Direct ownership (if available)
             try
             {
                 if (g.Genres != null)
@@ -1775,7 +1724,7 @@ namespace AnikiHelper
             return result;
         }
 
-        // Détection "jeu terminé" très simple via CompletionStatus.Name
+        // "Game finish" detection 
         private bool IsGameFinished(Playnite.SDK.Models.Game g)
         {
             if (g == null)
@@ -1810,11 +1759,9 @@ namespace AnikiHelper
                    || name.Contains("finished");
         }
 
-        // ================================
         //  Helpers pour les suggestions
-        // ================================
 
-        // Genres/tags trop génériques qu'on ne veut pas utiliser
+        // Genres/tags that are too generic
         private static readonly HashSet<string> GenericGenreTagNames =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -1840,7 +1787,7 @@ namespace AnikiHelper
         "Jeu indé"
             };
 
-        // Ne garder que les mots-clés "spécifiques" (on vire les trucs génériques)
+        // Keep only "specific" keywords 
         private static IEnumerable<string> GetSpecificKeywords(IEnumerable<string> names)
         {
             if (names == null)
@@ -1859,7 +1806,7 @@ namespace AnikiHelper
 
                 if (GenericGenreTagNames.Contains(trimmed))
                 {
-                    continue; // trop générique
+                    continue; 
                 }
 
                 yield return trimmed;
@@ -1913,7 +1860,7 @@ namespace AnikiHelper
             return "generic";
         }
 
-        // Certaines familles ne doivent *jamais* être suggérées entre elles
+        // Certaines familles ne doivent *jamais* être suggérées entre elles (Certain families should *never* be suggested to each other)
         private static bool AreFamiliesIncompatible(string refFam, string candFam)
         {
             if (string.IsNullOrEmpty(refFam) ||
@@ -1926,20 +1873,17 @@ namespace AnikiHelper
             refFam = refFam.ToLowerInvariant();
             candFam = candFam.ToLowerInvariant();
 
-            // Anime/fighting vs shooter/party = incohérent
             if ((refFam == "anime_fight" && (candFam == "shooter" || candFam == "party")) ||
                 (candFam == "anime_fight" && (refFam == "shooter" || refFam == "party")))
             {
                 return true;
             }
 
-            // Soulslike vs sport/racing/party = non
             if (refFam == "souls" && (candFam == "sport" || candFam == "racing" || candFam == "party"))
                 return true;
             if (candFam == "souls" && (refFam == "sport" || refFam == "racing" || refFam == "party"))
                 return true;
 
-            // JRPG vs shooter/sport = bof
             if (refFam == "jrpg" && (candFam == "shooter" || candFam == "sport"))
                 return true;
             if (candFam == "jrpg" && (refFam == "shooter" || refFam == "sport"))
@@ -1959,7 +1903,8 @@ namespace AnikiHelper
             s.SuggestedGameCoverPath = string.Empty;
             s.SuggestedGameBackgroundPath = string.Empty;
             s.SuggestedGameSourceName = string.Empty;
-            s.SuggestedGameReason = string.Empty;
+            s.SuggestedGameReasonKey = string.Empty;
+            s.SuggestedGameBannerText = string.Empty;
 
             var games = PlayniteApi.Database.Games.ToList();
             if (!s.IncludeHidden)
@@ -1974,16 +1919,14 @@ namespace AnikiHelper
 
             Func<ulong, ulong> ToMinutes = raw => raw / 60UL;
 
-            const int RefDaysLimit = 45;      // jeu de référence = joué récemment
+            const int RefDaysLimit = 45;     
             var now = DateTime.Now;
 
-            // =======================================================
-            // 1) Trouver le jeu de référence récent
-            // =======================================================
+            // 1) Trouver le jeu de référence (Find the reference game)
 
             Playnite.SDK.Models.Game refGame = null;
 
-            // 1A) Multi-mois (progression récente + activité réelle)
+            // 1A) recent progress 
             try
             {
                 var snapshots = LoadAllMonthlySnapshots();
@@ -2001,7 +1944,7 @@ namespace AnikiHelper
                     if (g == null)
                         continue;
 
-                    // Récence : jeu joué dans les 45 derniers jours
+                    // Game played within the last 45 days
                     if (g.LastActivity == null ||
                        (now - g.LastActivity.Value).TotalDays > RefDaysLimit)
                     {
@@ -2022,10 +1965,10 @@ namespace AnikiHelper
             }
             catch
             {
-                // on laisse refGame = null, on passera au fallback
+                
             }
 
-            // 1B) Fallback : delta du mois en cours
+            // 1B) Fallback 
             if (refGame == null)
             {
                 try
@@ -2047,7 +1990,6 @@ namespace AnikiHelper
 
                         var currMinutes = ToMinutes(g.Playtime);
 
-                        // On ignore les jeux qui n'ont pas de base dans le snapshot
                         if (!snapshot.TryGetValue(g.Id, out var baseMinutes))
                         {
                             continue;
@@ -2072,8 +2014,7 @@ namespace AnikiHelper
                 }
             }
 
-
-            // 1C) Fallback : dernier jeu joué parmi les 45 derniers jours
+            // 1C) Fallback : last game played in the last 45 days
             if (refGame == null)
             {
                 refGame = games
@@ -2085,7 +2026,7 @@ namespace AnikiHelper
 
             if (refGame == null)
             {
-                return; // rien trouvé
+                return; 
             }
 
             var refName = Safe(refGame.Name);
@@ -2094,9 +2035,7 @@ namespace AnikiHelper
             var refDevs = GetDeveloperNames(refGame).ToList();
             var refPubs = GetPublisherNames(refGame).ToList();
 
-            // =======================================================
-            // 2) Trouver la meilleure suggestion
-            // =======================================================
+            // 2) Trouver la meilleure suggestion (Find the best suggestion)
 
             int bestScore = 0;
             Playnite.SDK.Models.Game bestGame = null;
@@ -2105,71 +2044,71 @@ namespace AnikiHelper
             foreach (var g in games)
             {
                 if (g.Id == refGame.Id)
-                    continue; // ne pas recommander le même jeu
+                    continue;
 
-                // Exclure les jeux marqués comme "fini"
+                // Exclude games marked as "finished"
                 if (IsGameFinished(g))
                     continue;
 
-                // === Données du candidat ===
+                // Candidate data
                 var genres = GetGenreNames(g).ToList();
                 var tags = GetTagNames(g).ToList();
                 var devs = GetDeveloperNames(g).ToList();
                 var pubs = GetPublisherNames(g).ToList();
 
-                // === Détection univers/famille (ref VS candidat) ===
+                // Détection univers/famille
                 var refFam = DetectFamily(refGenres, refTags);
                 var candFam = DetectFamily(genres, tags);
 
-                // Incohérence forte (ex: anime fighter → TPS réaliste)
+                // Incohérence forte
                 if (AreFamiliesIncompatible(refFam, candFam))
                     continue;
 
                 int score = 0;
                 string reason = string.Empty;
 
-                // Genres en commun
+                // Common genres
                 var sharedGenres = refGenres.Intersect(genres, StringComparer.OrdinalIgnoreCase).ToList();
                 if (sharedGenres.Count > 0)
                 {
                     score += sharedGenres.Count * 15;
-                    reason = "Même genre";
+                    reason = "SameGenre";
                 }
 
-                // Tags en commun
+                // Common tags
                 var sharedTags = refTags.Intersect(tags, StringComparer.OrdinalIgnoreCase).ToList();
                 if (sharedTags.Count > 0)
                 {
                     score += sharedTags.Count * 20;
                     if (string.IsNullOrEmpty(reason))
-                        reason = "Tags similaires";
+                        reason = "SimilarTags";
                 }
 
-                // Même développeur
+                // Same developer
                 var sharedDevs = refDevs.Intersect(devs, StringComparer.OrdinalIgnoreCase).ToList();
                 if (sharedDevs.Count > 0)
                 {
                     score += sharedDevs.Count * 60;
-                    reason = "Même développeur";
+                    reason = "SameDeveloper";
                 }
 
-                // Même éditeur
+                // Same publisher
                 var sharedPubs = refPubs.Intersect(pubs, StringComparer.OrdinalIgnoreCase).ToList();
                 if (sharedPubs.Count > 0)
                 {
                     score += sharedPubs.Count * 15;
                     if (string.IsNullOrEmpty(reason))
-                        reason = "Même éditeur";
+                        reason = "SamePublisher";
                 }
 
-                // Bonus backlog (pas ou peu joué)
+                // Bonus backlog 
                 var minutes = ToMinutes(g.Playtime);
                 if (minutes == 0)
                     score += 25;
-                else if (minutes < 120) // < 2h → jeu à découvrir
+                else if (minutes < 120) // < 2h 
                     score += 15;
 
-                // Bonus "installé"
+                // Bonus "installed"
                 if (g.IsInstalled == true)
                     score += 10;
 
@@ -2187,9 +2126,41 @@ namespace AnikiHelper
             if (bestGame == null)
                 return;
 
-            // =======================================================
-            // 3) Construction des chemins
-            // =======================================================
+            // 3) Construction of the banner text
+
+            string banner = string.Empty;
+
+            if (!string.IsNullOrEmpty(bestReason) && !string.IsNullOrEmpty(refName))
+            {
+                switch (bestReason)
+                {
+                    case "SameGenre":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SameGenre", "Same genre as {0}"),
+                            refName);
+                        break;
+
+                    case "SimilarTags":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SimilarTags", "Similar tags to {0}"),
+                            refName);
+                        break;
+
+                    case "SameDeveloper":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SameDeveloper", "Same developer as {0}"),
+                            refName);
+                        break;
+
+                    case "SamePublisher":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SamePublisher", "Same publisher as {0}"),
+                            refName);
+                        break;
+                }
+            }
+
+            // 4) Construction des chemins (Road construction)
 
             string coverPath = GetGameCoverPath(bestGame);
 
@@ -2201,9 +2172,7 @@ namespace AnikiHelper
             if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(bestGame.Icon))
                 bgPath = PlayniteApi.Database.GetFullFilePath(bestGame.Icon);
 
-            // =======================================================
-            // 4) Push vers Settings
-            // =======================================================
+            // 5) Push vers Settings
 
             System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
             {
@@ -2211,19 +2180,12 @@ namespace AnikiHelper
                 s.SuggestedGameName = Safe(bestGame.Name);
                 s.SuggestedGameCoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath;
                 s.SuggestedGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
-                s.SuggestedGameReason = bestReason ?? string.Empty;
+                s.SuggestedGameReasonKey = bestReason ?? string.Empty;
+                s.SuggestedGameBannerText = banner ?? string.Empty;
             });
         }
 
-
-
-
-
-
-
-
-
-        // === Monthly snapshot (in the folder for THIS extension) ===
+        // Monthly snapshot
         private string GetMonthlyDir()
         {
             var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString(), "monthly");
@@ -2240,7 +2202,6 @@ namespace AnikiHelper
             {
                 if (!File.Exists(file))
                 {
-                    // minutes (Playnite stocke playtime en secondes)
                     var snap = PlayniteApi.Database.Games.ToDictionary(g => g.Id, g => g.Playtime / 60UL);
                     var json = Serialization.ToJson(snap, true);
                     File.WriteAllText(file, json);
@@ -2276,7 +2237,6 @@ namespace AnikiHelper
                 return result;
             }
 
-            // On ne garde que les N derniers mois pour éviter que 2022 pèse encore en 2025
             const int MaxMonths = 4;
             if (snapshots.Count > MaxMonths)
             {
@@ -2285,7 +2245,7 @@ namespace AnikiHelper
 
             var validGameIds = new HashSet<Guid>(games.Select(g => g.Id));
 
-            // 1) Mois terminés : delta entre deux snapshots consécutifs
+            // 1) Mois terminés 
             for (int i = 0; i < snapshots.Count - 1; i++)
             {
                 var a = snapshots[i];
@@ -2319,7 +2279,7 @@ namespace AnikiHelper
                 }
             }
 
-            // 2) Dernier mois vs playtime actuel (mois en cours)
+            // 2) Last month vs. current playtime 
             var last = snapshots[snapshots.Count - 1];
             Func<ulong, ulong> ToMinutes = raw => raw / 60UL;
 
@@ -2367,7 +2327,7 @@ namespace AnikiHelper
                             System.Globalization.DateTimeStyles.None,
                             out monthStart))
                     {
-                        continue; // nom de fichier pas au bon format
+                        continue; 
                     }
 
                     try
@@ -2387,11 +2347,11 @@ namespace AnikiHelper
                     }
                     catch
                     {
-                        // fichier cassé => on ignore
+
                     }
                 }
 
-                // tri du plus ancien au plus récent
+                // sorted from oldest to newest
                 list.Sort((a, b) => a.MonthStart.CompareTo(b.MonthStart));
             }
             catch (Exception ex)
@@ -2440,7 +2400,6 @@ namespace AnikiHelper
                 var now = DateTime.Now;
                 var monthStart = new DateTime(now.Year, now.Month, 1);
 
-                // Charge (ou crée) le snapshot du mois
                 var snapshot = LoadMonthSnapshot(monthStart);
 
                 // Si le jeu est déjà dans le snapshot, on ne touche à rien
@@ -2459,7 +2418,7 @@ namespace AnikiHelper
                 }
                 else
                 {
-                    // Fallback au cas où (devrait être rare)
+                    // Fallback
                     var current = (ulong)(g.Playtime / 60UL);
                     if (sessionMinutes > 0 && current > (ulong)sessionMinutes)
                     {
@@ -2487,7 +2446,7 @@ namespace AnikiHelper
         }
 
 
-        // Reset snapshot (repart de maintenant)
+        // Reset snapshot
         public void ResetMonthlySnapshot()
         {
             try
@@ -2512,19 +2471,17 @@ namespace AnikiHelper
             }
         }
 
-        // --- Supprime le cache de couleurs dynamiques (JSON disque + RAM) ---
+        // Clears the dynamic color cache 
         public void ClearDynamicColorCache()
         {
             try
             {
-                // 1) Purge RAM + timers côté moteur
                 DynamicAuto.ClearPersistentCache(alsoRam: true);
 
-                // 2) Supprime les fichiers de cache disque (nouveau + tmp + ancien v1)
                 var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
                 var fileNew = Path.Combine(dir, "palette_cache.json");
                 var fileTmp = fileNew + ".tmp";
-                var fileOld = Path.Combine(dir, "palette_cache_v1.json"); // pour nettoyer l’héritage
+                var fileOld = Path.Combine(dir, "palette_cache_v1.json"); 
 
                 int deleted = 0;
                 if (File.Exists(fileNew)) { File.Delete(fileNew); deleted++; }
@@ -2540,12 +2497,12 @@ namespace AnikiHelper
             }
         }
 
-        // --- Supprime le cache de News ---
+        // Deletes the News cache
         public void ClearNewsCache()
         {
             try
             {
-                // 1) Vider la liste en mémoire
+                // 1) Clear the list in memory
                 Settings.SteamGlobalNews?.Clear();
                 Settings.PlayniteNews?.Clear();
                 Settings.Deals?.Clear();
@@ -2558,21 +2515,21 @@ namespace AnikiHelper
                 Settings.PlayniteNewsLastRefreshUtc = null;
                 Settings.LastDealsScanUtc = null;
 
-                // 3) Supprimer le fichier JSON
+                // 3) Delete the JSON file
                 var jsonPath = Path.Combine(GetDataRoot(), "CacheNews.json");
                 if (File.Exists(jsonPath))
                 {
                     File.Delete(jsonPath);
                 }
 
-                // 4) Supprimer le dossier NewsImages (miniatures)
+                // 4) Delete the NewsImages folder (thumbnails)
                 var imgRoot = Path.Combine(GetDataRoot(), "NewsImages");
                 if (Directory.Exists(imgRoot))
                 {
                     Directory.Delete(imgRoot, true);
                 }
 
-                // 5) Sauvegarder les settings mis à jour
+                // 5) Save the updated settings
                 SavePluginSettings(Settings);
             }
             catch (Exception ex)
@@ -2581,9 +2538,7 @@ namespace AnikiHelper
             }
         }
 
-
-
-        // Met à jour le texte d’info snapshot
+        // Updates the snapshot info text
         private void UpdateSnapshotInfoProperty(DateTime monthStart)
         {
             try
@@ -2618,18 +2573,16 @@ namespace AnikiHelper
         {
             Instance = this;
 
-            // On mémorise dès le début si on est en mode Fullscreen ou pas
+            // Fullscreen or not
             isFullscreenMode = api?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
 
-            // --- ViewModel ---
-            // ⚠ Ici, le constructeur AnikiHelperSettings(plugin) va déjà charger settings.json UNE SEULE FOIS.
+            // ViewModel 
             SettingsVM = new AnikiHelperSettingsViewModel(this);
             Properties = new GenericPluginProperties { HasSettings = true };
 
-            // Sécu absolue : jamais de Settings null
+            // Sécu jamais de Settings null (Security never from Settings null)
             if (SettingsVM.Settings == null)
             {
-                // On garde la version avec plugin, pour que tout l'écosystème soit initialisé proprement.
                 SettingsVM.Settings = new AnikiHelperSettings(this);
             }
 
@@ -2651,7 +2604,7 @@ namespace AnikiHelper
                 }
             };
 
-            // Timers uniquement en mode Fullscreen
+            // Timers only in Fullscreen mode
             if (isFullscreenMode)
             {
                 // Timer pour les updates Steam (debounce changement de jeu)
@@ -2670,10 +2623,6 @@ namespace AnikiHelper
             }
         }
 
-
-
-
-
         private void AddSettingsSupportSafe(string sourceName, string settingsRootPropertyName)
         {
             try
@@ -2690,14 +2639,11 @@ namespace AnikiHelper
             }
         }
 
-        // === Settings plumbing pour l’UI des Add-ons ===
         public override ISettings GetSettings(bool firstRunSettings)
         {
-            // Utilise le même ViewModel que tu crées dans le constructeur
             return SettingsVM ?? (SettingsVM = new AnikiHelperSettingsViewModel(this));
         }
 
-        // === Settings UI pour l’onglet Add-ons ===
         public override UserControl GetSettingsView(bool firstRunSettings)
         {
             var view = new AnikiHelperSettingsView
@@ -2711,26 +2657,22 @@ namespace AnikiHelper
         {
             try
             {
-                // Si le scan des mises à jour est désactivé, on ne propose rien
                 if (!Settings.SteamUpdatesScanEnabled)
                 {
                     return;
                 }
 
-                // On ne fait ça qu'en mode Fullscreen
                 if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
                 {
                     return;
                 }
 
-                // Si le cache existe déjà OU qu'on a déjà posé la question -> on ne fait rien
                 var cachePath = GetSteamUpdatesCachePath();
                 if (File.Exists(cachePath) || !Settings.AskSteamUpdateCacheAtStartup)
                 {
                     return;
                 }
 
-                // Texte et titre (avec support de localisation si tu ajoutes les clés plus tard)
                 var message = Loc(
                     "SteamInitCachePrompt_Message",
                     "Aniki Helper can create a one-time Steam update cache for your Steam games.\n\n" +
@@ -2750,16 +2692,13 @@ namespace AnikiHelper
 
                 if (result == MessageBoxResult.Yes)
                 {
-                    // On ne reproposera plus automatiquement
                     Settings.AskSteamUpdateCacheAtStartup = false;
                     SavePluginSettings(Settings);
 
-                    // Lance le scan global (fenêtre de progression Playnite)
                     _ = InitializeSteamUpdatesCacheForAllGamesAsync();
                 }
                 else
                 {
-                    // L'utilisateur ne veut pas => on ne repose plus la question
                     Settings.AskSteamUpdateCacheAtStartup = false;
                     SavePluginSettings(Settings);
                 }
@@ -2778,7 +2717,6 @@ namespace AnikiHelper
                 var win = System.Windows.Application.Current?.MainWindow;
                 if (win == null)
                 {
-                    // On ne sait pas → on ne bloque pas
                     return true;
                 }
 
@@ -2798,7 +2736,6 @@ namespace AnikiHelper
 
         private bool IsSteamRecentScanAllowed()
         {
-            // Si le scan des mises à jour est désactivé on block
             if (!Settings.SteamUpdatesScanEnabled)
                 return false;
 
@@ -2818,19 +2755,12 @@ namespace AnikiHelper
         {
             base.OnApplicationStarted(args);
 
-            // ----------------------------------------------
-            // 🟥 MODE DESKTOP → NE RIEN FAIRE
-            // ----------------------------------------------
+            
             if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
             {
                 return;
             }
 
-            // ----------------------------------------------
-            // 🟩 FULLSCREEN SEULEMENT À PARTIR D'ICI
-            // ----------------------------------------------
-
-            // --- Snapshots + Stats ---
             EnsureMonthlySnapshotSafe();
             RecalcStatsSafe();
 
@@ -2845,7 +2775,6 @@ namespace AnikiHelper
                 coll.CollectionChanged += (_, __) => RecalcStatsSafe();
             }
 
-            // --- Reset "safe" des notifications au démarrage ---
             try
             {
                 Settings.SessionGameName = string.Empty;
@@ -2873,14 +2802,12 @@ namespace AnikiHelper
             );
 
             // --- News globales Steam ---
-            // 1) charger immédiatement ce qu'il y a dans le JSON
             try
             {
                 LoadNewsFromCacheIfNeeded();
             }
             catch { }
 
-            // --- Steam Recent Updates (10 dernières mises à jour) ---
             try
             {
                 RefreshSteamRecentUpdatesFromCache();
@@ -2889,7 +2816,6 @@ namespace AnikiHelper
 
 
             // 2) lancer un scan RSS différé de 10s, limité à 1 fois / 3h
-            //    (seulement si le scan des news est activé dans les paramètres)
             if (Settings.NewsScanEnabled)
             {
                 try
@@ -2899,7 +2825,7 @@ namespace AnikiHelper
                 catch { }
             }
 
-            // --- Playnite Actu : scan auto du flux Playnite (indépendant du NewsScanEnabled global) ---
+            // Playnite News
             try
             {
                 _ = SchedulePlayniteNewsRefreshAsync();
@@ -2909,16 +2835,14 @@ namespace AnikiHelper
             // --- Steam Deals (game-deals.app) ---
             try
             {
-                // Premier scan au démarrage (respecte le cooldown 12h)
                 _ = RefreshDealsAsync(force: false, silent: true);
 
-                // Puis check toutes les heures
                 dealsTimer?.Start();
             }
             catch { }
 
 
-            // --- Random login screen ---
+            // Random login screen
             try
             {
                 var rand = new Random();
@@ -2940,14 +2864,12 @@ namespace AnikiHelper
             }
             catch { }
 
-            // --- Prompt éventuel pour construire le cache global Steam ---
             try
             {
                 TryAskForSteamUpdateCacheOnStartup();
             }
             catch { }
 
-            // --- Scan auto des mises à jour Steam (Fullscreen only) ---
             try
             {
                 _ = ScheduleSteamRecentUpdatesScanAsync(30);
@@ -2955,17 +2877,12 @@ namespace AnikiHelper
             catch { }
         }
 
-
-
-
         private async Task ScheduleSteamRecentUpdatesScanAsync(int maxGames)
         {
             try
             {
-                // Délai après démarrage pour laisser Playnite respirer
                 await Task.Delay(TimeSpan.FromSeconds(9));
 
-                // Si entre temps on a perdu le focus ou qu'on n'est pas en Fullscreen → on ne fait rien
                 if (!IsSteamRecentScanAllowed())
                 {
                     return;
@@ -2999,7 +2916,7 @@ namespace AnikiHelper
             }
         }
 
-        // Planifie un scan Playnite Actu (flux GitHub) ~8s après le démarrage
+        // Schedules a Playnite Actu scan (GitHub feed) ~8 seconds after startup
         private async Task SchedulePlayniteNewsRefreshAsync()
         {
             try
@@ -3039,11 +2956,6 @@ namespace AnikiHelper
         }
 
 
-
-
-
-
-
         public override void OnGameStarted(OnGameStartedEventArgs args)
         {
             base.OnGameStarted(args);
@@ -3066,19 +2978,19 @@ namespace AnikiHelper
                 return;
             }
 
-            // --- 1) Durée de session ---
+            // 1) Session duration
             var start = sessionStartAt.ContainsKey(g.Id) ? sessionStartAt[g.Id] : DateTime.Now;
             var elapsed = DateTime.Now - start;
             var sessionMinutes = (int)Math.Max(0, Math.Round(elapsed.TotalMinutes));
 
-            // --- 2) Total playtime ---
+            // 2) Total playtime
             var totalMinutes = (int)(g.Playtime / 60UL);
             if (totalMinutes <= 0 && sessionStartPlaytimeMinutes.ContainsKey(g.Id))
             {
                 totalMinutes = (int)sessionStartPlaytimeMinutes[g.Id] + sessionMinutes;
             }
 
-            // --- 3) Push vers Settings (pour le thème) ---
+            // 3) Push vers Settings
             System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
             {
                 var s = Settings;
@@ -3096,23 +3008,16 @@ namespace AnikiHelper
                 s.SessionNotificationArmed = true;
             });
 
-            // --- 3bis) S'il n'est pas encore dans le snapshot du mois, on l'ajoute avec la base de début de session ---
             EnsureGameInCurrentMonthSnapshot(g, sessionMinutes);
 
-            // --- 4) Nettoyage cache ---
+            // 4) Cache cleanup
             sessionStartAt.Remove(g.Id);
             sessionStartPlaytimeMinutes.Remove(g.Id);
 
-            // --- 5) Recalcul stats + snapshot (toujours synchrone pour l'instant) ---
+            // 5) Recalcul stats + snapshot 
             EnsureMonthlySnapshotSafe();
             RecalcStatsSafe();
         }
-
-
-
-
-
-
 
         #endregion
 
@@ -3185,7 +3090,7 @@ namespace AnikiHelper
                 }
             }
 
-            // ===== CE MOIS-CI (delta vs snapshot) =====
+            // THIS MONTH 
             try
             {
                 var now = DateTime.Now;
@@ -3200,7 +3105,7 @@ namespace AnikiHelper
 
                 foreach (var g in games)
                 {
-                    // ⚠ Ignore les jeux qui n'ont pas été joués ce mois-ci
+                    // Ignore les jeux qui n'ont pas été joués ce mois-ci (Ignore games that have not been played this month)
                     if (g.LastActivity == null || g.LastActivity < monthStart)
                     {
                         continue;
@@ -3208,8 +3113,7 @@ namespace AnikiHelper
 
                     var currMinutes = ToMinutes(g.Playtime);
 
-                    // ⚠ Nouveau comportement :
-                    // si le jeu n'est PAS dans le snapshot, on l'IGNORE pour ce mois
+                    // si le jeu n'est PAS dans le snapshot, on l'IGNORE pour ce mois (if the game is NOT in the snapshot, IGNORE it for this month)
                     if (!snapshot.TryGetValue(g.Id, out var baseMinutes))
                     {
                         continue;
@@ -3248,17 +3152,14 @@ namespace AnikiHelper
 
                     s.ThisMonthTopGameCoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath;
 
-                    // === BACKGROUND (local only, ignore HTTP) ===
                     string bgPath = null;
 
-                    // 1) BackgroundImage direct SI ce n’est pas un lien HTTP
                     if (!string.IsNullOrEmpty(topGame?.BackgroundImage) &&
                         !topGame.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                     {
                         bgPath = PlayniteApi.Database.GetFullFilePath(topGame.BackgroundImage);
                     }
 
-                    // 2) Si pas de background local valide → Cover locale
                     if (string.IsNullOrEmpty(bgPath) &&
                         !string.IsNullOrEmpty(topGame?.CoverImage) &&
                         !topGame.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
@@ -3266,7 +3167,6 @@ namespace AnikiHelper
                         bgPath = PlayniteApi.Database.GetFullFilePath(topGame.CoverImage);
                     }
 
-                    // 3) Sinon → icône locale
                     if (string.IsNullOrEmpty(bgPath) &&
                         !string.IsNullOrEmpty(topGame?.Icon) &&
                         !topGame.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
@@ -3401,7 +3301,6 @@ namespace AnikiHelper
         #endregion
     }
 
-    // --- Helper visuel pour parcourir la hiérarchie WPF ---
     public static class VisualTreeHelpers
     {
         public static IEnumerable<T> FindVisualChildren<T>(this DependencyObject depObj) where T : DependencyObject

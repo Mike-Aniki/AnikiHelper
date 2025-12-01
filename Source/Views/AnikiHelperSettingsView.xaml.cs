@@ -13,15 +13,9 @@ namespace AnikiHelper
         {
             InitializeComponent();
 
-            // IMPORTANT : on charge la locale Playnite ici, AVANT l’affichage
             LoadLocaleFromCurrentUICulture();
         }
 
-        /// <summary>
-        /// Injecte le dictionnaire de ressources correspondant à la langue de Playnite
-        /// (Playnite règle CurrentUICulture selon la langue choisie).
-        /// Ordre de recherche : fr-FR → fr_FR → fr  (puis fallback EN déjà chargé en XAML).
-        /// </summary>
         private void LoadLocaleFromCurrentUICulture()
         {
             try
@@ -52,7 +46,7 @@ namespace AnikiHelper
                     }
                     catch
                     {
-                        // on tente le suivant
+
                     }
                 }
             }

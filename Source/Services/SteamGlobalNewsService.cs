@@ -40,10 +40,10 @@ namespace AnikiHelper
 
     public class SteamGlobalNewsService
     {
-        // *** URL par défaut (tu peux remettre le flux Steam ici plus tard) ***
+        // Default URL 
         private readonly string baseUrl = "https://feeds.feedburner.com/ign/games-all";
 
-        // GUID du plugin Steam officiel Playnite (sert pour retrouver les jeux Steam)
+        // GUID of the official Steam plugin Playnite (used to find Steam games)
         private static readonly Guid SteamPluginId = Guid.Parse("CB91DFC9-B977-43BF-8E70-55F46E410FAB");
 
         private readonly IPlayniteAPI api;
@@ -52,10 +52,10 @@ namespace AnikiHelper
         private readonly ILogger logger = LogManager.GetLogger();
 
 
-        // Cache des news globales
-        private const int DisplayMaxItems = 20;  // Nombre de news visibles dans le thème.
-        private const int CacheMaxItems = DisplayMaxItems * 2;   // taille max du cache JSON garde simplement *deux fois plus* que ce qu’on affiche.
-        private const int CacheMaxDays = 30;     // on garde max jours dans le cache
+        // Global news cache
+        private const int DisplayMaxItems = 20;  // Nombre de news visibles dans le thème ( Number of news items visible in the theme)
+        private const int CacheMaxItems = DisplayMaxItems * 2;   // taille max du cache JSON 2 fois plus que DisplayMaxItems (Maximum JSON cache size twice as large as DisplayMaxItems)
+        private const int CacheMaxDays = 30;     // Max jours dans le cache (Max days in cache)
 
         private static readonly string[] PatchKeywords = new[]
         {
@@ -73,7 +73,8 @@ namespace AnikiHelper
             "correctifs"
         };
 
-        // Mots à virer pour les flux qui spamment les promos / deals / Black Friday
+        // Mots à virer pour les flux qui spamment les promos (Words to remove for feeds that spam promotions)
+
         private static readonly string[] SpamKeywords = new[]
         {
             "black friday",
@@ -87,7 +88,7 @@ namespace AnikiHelper
             "discount"
         };
 
-        // Liste des flux RSS qui doivent être filtrés (anti-promo / anti-deals)
+        // Liste des flux RSS qui doivent être filtrés ( List of RSS feeds that must be filtered)
         private static readonly string[] SpamFilteredFeeds = new[]
         {
             "feeds.feedburner.com/ign/games-all",   
@@ -111,7 +112,7 @@ namespace AnikiHelper
             steamLanguage = MapPlayniteLanguageToSteam(playniteLang);
         }
 
-        // === CHEMIN CACHE JSON ===
+        // JSON CACHE PATH 
         private string GetNewsCachePath()
         {
             var root = Path.Combine(api.Paths.ExtensionsDataPath, "96a983a3-3f13-4dce-a474-4052b718bb52");
@@ -124,7 +125,7 @@ namespace AnikiHelper
             return Path.Combine(root, "CacheNews.json");
         }
 
-        // === CHEMIN CACHE IMAGES ===
+        // IMAGES CACHE PATH
         private string GetNewsImagesRoot()
         {
             var root = Path.Combine(
@@ -155,7 +156,7 @@ namespace AnikiHelper
             }
         }
 
-        // Télécharge une image dans le cache et renvoie le chemin local
+        // Downloads an image to the cache 
         private async Task<string> DownloadImageToCacheAsync(string imageUrl)
         {
             try
@@ -165,7 +166,6 @@ namespace AnikiHelper
                     return string.Empty;
                 }
 
-                // Déduire l'extension depuis l'URL si possible
                 string ext = null;
                 try
                 {
@@ -174,10 +174,10 @@ namespace AnikiHelper
                 }
                 catch
                 {
-                    // ignore
+
                 }
 
-                // Fallback .jpg si extension chelou ou absente
+                // Fallback .jpg 
                 if (string.IsNullOrEmpty(ext) || ext.Length > 5)
                 {
                     ext = ".jpg";
@@ -186,13 +186,12 @@ namespace AnikiHelper
                 var fileName = ComputeHash(imageUrl) + ext;
                 var fullPath = Path.Combine(GetNewsImagesRoot(), fileName);
 
-                // Si déjà sur disque → on réutilise
                 if (File.Exists(fullPath))
                 {
                     return fullPath;
                 }
 
-                // Téléchargement brut (pas de resize, pas de WPF, pas de System.Drawing)
+                // Raw download 
                 using (var http = CreateHttpClient())
                 {
                     var bytes = await http.GetByteArrayAsync(imageUrl).ConfigureAwait(false);
@@ -209,13 +208,12 @@ namespace AnikiHelper
             }
             catch
             {
-                // En cas d'erreur → pas de crash, juste pas d'image
                 return string.Empty;
             }
         }
 
 
-        // Sauvegarde un BitmapSource en JPEG
+        // Saves a BitmapSource as a JPEG
         private void SaveJpeg(string path, System.Windows.Media.Imaging.BitmapSource bitmap)
         {
             var encoder = new System.Windows.Media.Imaging.JpegBitmapEncoder();
@@ -266,11 +264,10 @@ namespace AnikiHelper
             }
             catch
             {
-                // On ignore, pas de crash
+
             }
         }
 
-        // Ajoute &l=xxx au besoin
         private static string AddLangToUrl(string url, string lang)
         {
             if (string.IsNullOrWhiteSpace(lang))
@@ -280,20 +277,20 @@ namespace AnikiHelper
             return $"{url}{sep}l={lang}";
         }
 
-        // Petit helper générique pour d'autres flux RSS 
-        // On réutilise exactement le même parsing / filtrage de base.
+        // Small helper
         public Task<List<SteamGlobalNewsItem>> GetGenericFeedAsync(string url)
         {
             return LoadFeedAsync(url);
         }
 
 
-        // === MÉTHODE PRINCIPALE : ce que le thème appelle ===
+        // MAIN METHOD
         public async Task<List<SteamGlobalNewsItem>> GetGlobalNewsAsync()
         {
             logger.Info("[SteamGlobalNewsService] GetGlobalNewsAsync() starting...");
             logger.Info($"CustomFeed={settings?.SteamNewsCustomFeedUrl}, LastRefreshUtc={settings?.SteamGlobalNewsLastRefreshUtc}");
-            // 1) Charger le cache existant et virer les news trop vieilles
+
+            // 1) Load the existing cache and remove news that is too old
             var cache = LoadNewsCache();
             var nowUtc = DateTime.UtcNow;
             var minDateUtc = nowUtc.AddDays(-CacheMaxDays);
@@ -302,11 +299,10 @@ namespace AnikiHelper
                 .Where(n => n.PublishedUtc >= minDateUtc)
                 .ToList();
 
-            // Vérifier si le JSON existe réellement
+            // Check if the JSON actually exists
             bool cacheMissing = !File.Exists(GetNewsCachePath());
 
-            // Si on a déjà scanné il y a moins de 3h ET que le JSON existe,
-            // on renvoie simplement le cache (limité à DisplayMaxItems)
+            // If we have already scanned less than 3 hours ago AND the JSON exists, we simply return the cache. 
             if (!cacheMissing && settings?.SteamGlobalNewsLastRefreshUtc != null)
             {
                 var lastUtc = settings.SteamGlobalNewsLastRefreshUtc.Value;
@@ -321,16 +317,16 @@ namespace AnikiHelper
                 }
             }
 
-            // 2) Charger un flux frais (custom → sinon baseUrl)
+            // 2) Load a fresh feed 
             List<SteamGlobalNewsItem> fresh = null;
 
-            // Au départ, on reset le flag d’erreur du flux custom
+            //  custom stream error flag
             if (settings != null)
             {
                 settings.SteamNewsCustomFeedInvalid = false;
             }
 
-            // 2a) Flux custom défini par l’utilisateur ?
+            // 2a) User-defined custom feed
             var customUrl = settings?.SteamNewsCustomFeedUrl;
             if (!string.IsNullOrWhiteSpace(customUrl))
             {
@@ -348,7 +344,7 @@ namespace AnikiHelper
                 }
             }
 
-            // 2b) Si pas de custom ou flux custom vide → flux par défaut (langue Playnite puis fallback anglais)
+            // 2b) If no custom or empty custom feed → default feed
             if (fresh == null || fresh.Count == 0)
             {
                 var urlLang = AddLangToUrl(baseUrl, steamLanguage);
@@ -370,7 +366,7 @@ namespace AnikiHelper
                 fresh = new List<SteamGlobalNewsItem>();
             }
 
-            // 3) Fusion cache + fresh par clé unique (AppId + Titre + Date)
+            // 3) Merge cache + fresh by unique key (AppId + Title + Date)
             var allDict = new Dictionary<string, SteamGlobalNewsItem>();
 
             foreach (var item in cache)
@@ -385,27 +381,27 @@ namespace AnikiHelper
             foreach (var item in fresh)
             {
                 var key = MakeNewsKey(item);
-                // Le flux frais écrase la version ancienne du même article
+                // The new feed overwrites the old version of the same article.
                 allDict[key] = item;
             }
 
-            // 4) Nettoyage et limitation du cache
+            // 4) Cleaning and limiting the cache
             var merged = allDict.Values
                 .Where(n => n.PublishedUtc >= minDateUtc)
                 .OrderByDescending(n => n.PublishedUtc)
                 .Take(CacheMaxItems)
                 .ToList();
 
-            // 5) Sauvegarde sur disque
+            // 5) Saving to disk
             SaveNewsCache(merged);
 
-            // 5b) Met à jour le timestamp de dernier refresh
+            // 5b) Updates the last refresh timestamp
             if (settings != null)
             {
                 settings.SteamGlobalNewsLastRefreshUtc = nowUtc;
             }
 
-            // 6) On renvoie seulement les X dernières au thème
+            // 6) Only the last X are returned to the theme
             return merged
                 .OrderByDescending(n => n.PublishedUtc)
                 .Take(DisplayMaxItems)
@@ -420,12 +416,12 @@ namespace AnikiHelper
         {
             var http = new HttpClient();
 
-            // User-Agent de navigateur réel pour éviter le blocage anti-bots
+            // Real browser user agent to avoid anti-bot blocking
             http.DefaultRequestHeaders.UserAgent.ParseAdd(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/122.0 Safari/537.36");
 
-            // Demande explicitement du XML
+            // Explicitly request XML
             http.DefaultRequestHeaders.Accept.ParseAdd(
                 "application/rss+xml, text/xml, */*");
 
@@ -433,7 +429,7 @@ namespace AnikiHelper
         }
 
 
-        // === Chargement + parsing d’un flux unique ===
+        // Loading + parsing a single stream
         private async Task<List<SteamGlobalNewsItem>> LoadFeedAsync(string feedUrl)
         {
             try
@@ -484,7 +480,6 @@ namespace AnikiHelper
                         }
 
                         // --- Anti spam (Black Friday / Deals / Amazon / Promo) ---
-                        // S'applique uniquement aux flux listés dans SpamFilteredFeeds
                         if (SpamFilteredFeeds.Any(url =>
                                 feedUrl.IndexOf(url, StringComparison.OrdinalIgnoreCase) >= 0))
                         {
@@ -496,8 +491,7 @@ namespace AnikiHelper
                             }
                         }
 
-                        // Si c'est un flux GitHub, on préfixe TOUJOURS par le nom du repo,
-                        // sauf si le titre contient déjà ce nom.
+                        // If it's a GitHub feed, we ALWAYS prefix it with the repo name
                         if (feedUrl.IndexOf("github.com", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
                             var repoName = GetGitHubRepoNameFromFeedUrl(feedUrl);
@@ -512,16 +506,15 @@ namespace AnikiHelper
                         }
 
 
-                        // Détection flux custom (non Steam)
+                        // Custom stream detection (non-Steam)
                         bool isCustom = !feedUrl.Contains("steampowered");
 
-                        // Si ce n'est PAS un flux custom (donc Steam) → appliquer le filtre patch notes
                         if (!isCustom)
                         {
                             var lowerTitle = title.ToLowerInvariant();
                             if (PatchKeywords.Any(k => lowerTitle.Contains(k)))
                             {
-                                continue; // On ignore cette news
+                                continue; 
                             }
                         }
 
@@ -545,7 +538,7 @@ namespace AnikiHelper
 
                         var appId = ExtractAppIdFromUrl(link) ?? "global";
 
-                        // === GAME MATCH (si c'est vraiment du Steam) ===
+                        // === GAME MATCH ===
                         Game matchingGame = null;
                         if (appId != "global")
                         {
@@ -557,8 +550,8 @@ namespace AnikiHelper
 
                         var gameName = matchingGame?.Name ?? string.Empty;
 
-                        // === DESCRIPTION / SUMMARY ===
-                        // 1) On essaie d'abord de récupérer content:encoded (article complet)
+                        // DESCRIPTION / SUMMARY 
+                        // 1) First, we try to retrieve content:encoded (full article)
                         var encodedRaw = node
                             .Descendants()
                             .FirstOrDefault(x => x.Name.LocalName == "encoded")
@@ -570,20 +563,20 @@ namespace AnikiHelper
                             .FirstOrDefault(x => x.Name.LocalName == "content")
                             ?.Value;
 
-                        // 3) RSS classique : <description> ou <summary>
+                        // 3) Classic RSS: <description> or <summary>
                         var descOrSummary =
                             (string)node.Elements().FirstOrDefault(x => x.Name.LocalName == "description")
                             ?? (string)node.Elements().FirstOrDefault(x => x.Name.LocalName == "summary");
 
-                        // 4) Priorité : encoded > content > description/summary
+                        // 4) Priorité : encodé > contenu > description/résumé
                         string descRaw;
                         if (!string.IsNullOrWhiteSpace(encodedRaw))
                         {
-                            descRaw = encodedRaw;                // article complet (IGN, etc.)
+                            descRaw = encodedRaw;                
                         }
                         else if (!string.IsNullOrWhiteSpace(contentRaw))
                         {
-                            descRaw = contentRaw;                // ex : GitHub Releases (content type="html")
+                            descRaw = contentRaw;                
                         }
                         else
                         {
@@ -592,10 +585,10 @@ namespace AnikiHelper
 
 
 
-                        // ==== IMAGE : priorité enclosure / media:content / media:thumbnail / img dans description ====
+                        // IMAGE priorité 
                         string imageUrl = string.Empty;
 
-                        // Fallback image depuis le contenu encodé (article complet) si dispo
+                        // Fallback image 
                         if (string.IsNullOrEmpty(imageUrl) && !string.IsNullOrWhiteSpace(encodedRaw))
                         {
                             var imgFromEncoded = ExtractFirstImageUrl(encodedRaw);
@@ -659,7 +652,7 @@ namespace AnikiHelper
                             imageUrl = ExtractFirstImageUrl(descRaw);
                         }
 
-                        // === TEXTE A AFFICHER ===
+                        // TEXT TO DISPLAY 
 
                         var cleanedHtml = CleanHtmlForNews(descRaw);
                         var fullText = StripHtml(descRaw);
@@ -677,7 +670,7 @@ namespace AnikiHelper
                             finalHtml = $"<p>{encoded.Replace("\n", "<br/>")}</p>";
                         }
 
-                        // === IMAGE: ignorer les avatars GitHub ===
+                        // IMAGE: ignore GitHub avatars
                         if (isGitHubFeed &&
                             !string.IsNullOrEmpty(imageUrl) &&
                             imageUrl.IndexOf("avatars.githubusercontent.com", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -685,7 +678,7 @@ namespace AnikiHelper
                             imageUrl = string.Empty;
                         }
 
-                        // Télécharger l'image uniquement si elle est valide
+                        // Download the image only if it is valid
                         var localImagePath = string.Empty;
                         if (!string.IsNullOrWhiteSpace(imageUrl))
                         {
@@ -704,9 +697,9 @@ namespace AnikiHelper
                             CoverPath = GetGameCoverPath(matchingGame),
                             IconPath = GetGameIconPath(matchingGame),
                             Summary = summaryText,
-                            ImageUrl = imageUrl,            // URL RSS d’origine (si tu veux l’ouvrir dans le navigateur)
+                            ImageUrl = imageUrl,            // URL RSS d’origine 
                             HtmlDescription = finalHtml,    // HtmlTextView
-                            LocalImagePath = localImagePath // chemin local pour <Image>
+                            LocalImagePath = localImagePath // local path for <Image>
                         };
 
 
@@ -724,7 +717,6 @@ namespace AnikiHelper
             }
             catch
             {
-                // Si le RSS est pourri, on renvoie null → le caller gère fallback + flag
                 return null;
             }
         }
@@ -738,11 +730,9 @@ namespace AnikiHelper
             {
                 var uri = new Uri(feedUrl);
                 var segments = uri.AbsolutePath.Trim('/').Split('/');
-                // ex: /ashpynov/PlayniteSound/releases.atom
-                //      0        1            2
                 if (segments.Length >= 2)
                 {
-                    return segments[1]; // PlayniteSound
+                    return segments[1]; 
                 }
             }
             catch
@@ -754,7 +744,7 @@ namespace AnikiHelper
         }
 
 
-        // === Helpers existants (inchangés) ===
+        //  Helpers
 
         private static DateTime ParsePubDate(string raw, DateTime fallbackUtc)
         {
@@ -909,40 +899,30 @@ namespace AnikiHelper
 
             var options = RegexOptions.IgnoreCase | RegexOptions.Singleline;
 
-            // 0) Décoder les entités HTML (&lt; &gt; &#234; etc.)
             html = WebUtility.HtmlDecode(html);
 
-            // 0b) Virer un éventuel wrapper CDATA
             html = html.Replace("<![CDATA[", string.Empty)
                        .Replace("]]>", string.Empty);
 
-            // 1) Supprimer les commentaires HTML
             html = Regex.Replace(html, "<!--.*?-->", string.Empty, options);
 
-            // 2) Virer scripts / styles / head / meta / link / noscript
             html = Regex.Replace(html, "<(script|style|head|meta|link|noscript)[^>]*>.*?</\\1>",
                                  string.Empty, options);
 
-            // 3) Virer iframes / object / embed / video (on ne les affiche pas)
             html = Regex.Replace(html, "<(iframe|object|embed|video)[^>]*>.*?</\\1>",
                                  string.Empty, options);
 
-            // 4) Neutraliser les handlers JS et "javascript:" dans les attributs
             html = Regex.Replace(html, @"on\w+\s*=\s*""[^""]*""", string.Empty, options);
             html = Regex.Replace(html, @"on\w+\s*=\s*'[^']*'", string.Empty, options);
             html = Regex.Replace(html, @"javascript\s*:", string.Empty, options);
 
-            // 5) Supprimer les <div> / <p> totalement vides
             html = Regex.Replace(html, "<(div|p)[^>]*>\\s*</\\1>", string.Empty, options);
 
-            // 6) Normaliser les titres <h1>–<h6> en <p><strong>…</strong></p>
             html = Regex.Replace(html, "<h[1-6][^>]*>", "<p><strong>", options);
             html = Regex.Replace(html, "</h[1-6]>", "</strong></p>", options);
 
-            // 7) Compacter les <br> successifs (3+ → 2)
             html = Regex.Replace(html, "(<br\\s*/?>\\s*){3,}", "<br/><br/>", options);
 
-            // 7b) Supprimer les balises <a> mais garder le texte (pas de style "lien" dans le thème)
             html = Regex.Replace(
                 html,
                 "<a[^>]*>(?<text>.*?)</a>",
@@ -950,13 +930,10 @@ namespace AnikiHelper
                 options
             );
 
-            // 8) Trim
             html = html.Trim();
 
-            // 9) Normaliser les images (taille + centrage)
             html = NormalizeSteamImages(html);
 
-            // 10) Wrapper léger pour la lisibilité (taille quasi normale)
             html =
                 "<div style=\"line-height:1.5; font-size:102%;\">" +
                 html +

@@ -7,14 +7,11 @@
              d:DesignWidth="639"
              d:DesignHeight="399">
 
-    <!-- ========= RESSOURCES LOCALES (styles / couleurs) ========= -->
     <UserControl.Resources>
 
-        <!-- Fond neutre commun à toutes les sections -->
         <SolidColorBrush x:Key="CardBackgroundBrush" Color="#10000000"/>
         <SolidColorBrush x:Key="CardBackgroundHoverBrush" Color="#20000000"/>
 
-        <!-- Accent par section -->
         <SolidColorBrush x:Key="LibraryAccentBrush" Color="DarkGoldenrod"/>
         <SolidColorBrush x:Key="MonthlyAccentBrush" Color="DarkSlateGray"/>
         <SolidColorBrush x:Key="DynamicAccentBrush" Color="DarkRed"/>
@@ -23,7 +20,6 @@
 
         <SolidColorBrush x:Key="HeaderAccentBrush" Color="#FFB37AFF"/>
 
-        <!-- Boutons primaires neutres -->
         <LinearGradientBrush x:Key="PrimaryButtonBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#FF3A3D45" Offset="0"/>
             <GradientStop Color="#FF2C2F36" Offset="1"/>
@@ -45,7 +41,6 @@
         <SolidColorBrush x:Key="PrimaryButtonForegroundBrush" Color="#FFFFFFFF"/>
         <SolidColorBrush x:Key="PrimaryButtonForegroundDisabledBrush" Color="#88FFFFFF"/>
 
-        <!-- Carte de section avec hover -->
         <Style x:Key="SectionCard" TargetType="Border">
             <Setter Property="Margin" Value="0,12,0,0"/>
             <Setter Property="CornerRadius" Value="10"/>
@@ -70,7 +65,6 @@
             </Style.Triggers>
         </Style>
 
-        <!-- Titre “interne” dans une section -->
         <Style x:Key="SectionTitle" TargetType="TextBlock">
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="18"/>
@@ -79,21 +73,18 @@
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
 
-        <!-- Sous-titre / description (gris) -->
         <Style x:Key="SectionDescription" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#B3B3B3"/>
             <Setter Property="Margin" Value="0,0,0,12"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
 
-        <!-- Ligne de séparation (si besoin) -->
         <Style x:Key="SectionSeparator" TargetType="Border">
             <Setter Property="Height" Value="1"/>
             <Setter Property="Background" Value="#22FFFFFF"/>
             <Setter Property="Margin" Value="0,14,0,12"/>
         </Style>
 
-        <!-- Bouton principal (scan, reset, etc.) -->
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource PrimaryButtonForegroundBrush}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -142,7 +133,7 @@
                                         Value="{StaticResource PrimaryButtonBorderPressedBrush}"/>
                             </Trigger>
 
-                            <!-- Focus clavier/manette -->
+                            <!-- Focus -->
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="border"
                                         Property="BorderBrush"
@@ -164,7 +155,6 @@
             </Setter>
         </Style>
 
-        <!-- Petit texte gris (notes en bas de section) -->
         <Style x:Key="SmallNoteText" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#888888"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
@@ -178,7 +168,6 @@
 
         <StackPanel Margin="16,12,16,16" Orientation="Vertical">
 
-            <!-- ========= HEADER PLUGIN ========= -->
             <Border CornerRadius="10"
                     BorderBrush="#30FFFFFF"
                     BorderThickness="1"
@@ -221,7 +210,6 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Bandeau haut -->
                     <Border Grid.Row="0"
                             Background="{StaticResource LibraryAccentBrush}"
                             CornerRadius="10,10,0,0"
@@ -233,10 +221,8 @@
                                    HorizontalAlignment="Center"/>
                     </Border>
 
-                    <!-- Contenu -->
                     <StackPanel Grid.Row="1" Margin="12,10,12,12">
 
-                        <!-- Texte principal en blanc -->
                         <TextBlock Text="{DynamicResource StatsHelp}"
                                    Foreground="White"
                                    Margin="0,0,0,8"
@@ -295,7 +281,6 @@
 
                     <StackPanel Grid.Row="1" Margin="12,10,12,12">
 
-                        <!-- Texte principal en blanc -->
                         <TextBlock Text="{DynamicResource MonthlyHelp}"
                                    Foreground="White"
                                    Margin="0,0,0,8"
@@ -347,7 +332,6 @@
 
                     <StackPanel Grid.Row="1" Margin="12,10,12,12">
 
-                        <!-- Pre-cache -->
                         <TextBlock Text="{DynamicResource L_DynAutoPrecache_Title}"
                                    FontWeight="SemiBold"
                                    Foreground="White"
@@ -369,7 +353,6 @@
 
                         <Border Style="{StaticResource SectionSeparator}"/>
 
-                        <!-- Cache management -->
                         <TextBlock Text="{DynamicResource L_CacheManagement_Title}"
                                    FontWeight="SemiBold"
                                    Foreground="White"
@@ -433,8 +416,6 @@
 
                         <Border Style="{StaticResource SectionSeparator}"/>
 
-
-                        <!-- Init cache -->
                         <TextBlock Text="{DynamicResource SteamInitCache_ProgressTitle}"
                                    FontWeight="SemiBold"
                                    Foreground="White"
@@ -470,7 +451,6 @@
 
                         <Border Style="{StaticResource SectionSeparator}"/>
 
-                        <!-- Current players -->
                         <TextBlock Text="{DynamicResource SteamPlayers_Title}"
                                    FontWeight="SemiBold"
                                    Foreground="White"
@@ -484,8 +464,6 @@
                                   IsChecked="{Binding Settings.SteamPlayerCountEnabled}"
                                   Margin="0,4,0,8"/>
 
-                        
-                        
                     </StackPanel>
                 </Grid>
             </Border>
@@ -498,7 +476,6 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Bandeau haut avec titre -->
                     <Border Grid.Row="0"
                             Background="{StaticResource NewsAccentBrush}"
                             CornerRadius="10,10,0,0"
@@ -510,7 +487,6 @@
                                    HorizontalAlignment="Center"/>
                     </Border>
 
-                    <!-- Contenu de la carte -->
                     <StackPanel Grid.Row="1" Margin="12,10,12,12">
 
                         <TextBlock Text="{DynamicResource AnikiNews_Title1}"
@@ -522,7 +498,6 @@
                                    Style="{StaticResource SectionDescription}"
                                    Margin="0,4,0,8"/>
 
-                        <!-- Toggle global pour activer/désactiver le scan des news RSS -->
                         <CheckBox Content="{DynamicResource NewsScan_Enable}"
                                    IsChecked="{Binding Settings.NewsScanEnabled}"
                                    Margin="0,4,0,8"/>
@@ -539,29 +514,24 @@
                                    TextWrapping="Wrap"/>
 
 
-                        <!-- Description principale -->
                         <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Desc}"
                                    Style="{StaticResource SectionDescription}"
                                    Margin="0,4,0,8"
                                    TextWrapping="Wrap"/>
 
-                        <!-- Champ URL -->
                         <TextBox Text="{Binding Settings.SteamNewsCustomFeedUrl, UpdateSourceTrigger=PropertyChanged}"
                                  Margin="0,4,0,8"
                                  HorizontalAlignment="Stretch"
                                  ToolTip="{DynamicResource AnikiNews_CustomFeed_Tooltip}"/>
 
-                        <!-- Aide courte (grise) -->
                         <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Help}"
                                    Style="{StaticResource SmallNoteText}"
                                    Margin="0,4,0,8"/>
 
-                        <!-- Aide courte (grise) -->
                         <TextBlock Text="{DynamicResource NewsScan_Enable_Help2}"
                                    Style="{StaticResource SmallNoteText}"
                                    Margin="0,4,0,8"/>
 
-                        <!-- Bouton Clear Cache + note -->
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                             <Button Content="{DynamicResource AnikiNews_ClearCache}"
                                     Style="{StaticResource PrimaryButton}"

@@ -168,7 +168,7 @@ namespace AnikiHelper
                     return;
 
 
-                // Invoke Refresh(...)
+                // Invoke Refresh
                 var dbType = pluginDb.GetType();
 
                 var mRefreshGuid = dbType.GetMethod("Refresh", new[] { typeof(Guid) });

@@ -39,7 +39,7 @@ namespace AnikiHelper
             var app = Application.Current;
             if (app == null) return;
 
-            // Fullscreen uniquement
+            // Fullscreen only
             var win = app.Windows.Cast<Window>().FirstOrDefault(w =>
             {
                 var t = w.GetType().FullName ?? "";

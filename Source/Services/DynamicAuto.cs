@@ -1,9 +1,4 @@
-﻿// Dynamic color theme driver + animated transitions.
-// - Touches only: Glyph/Text/HLTB/Highlight/Glow colors, OverlayMenu, ButtonPlay,
-//   Focus/NoFocus/Menu borders, and a few auxiliary color keys.
-// - Color source: game Background first, then Cover as fallback.
-
-using Playnite.SDK;
+﻿using Playnite.SDK;
 using Playnite.SDK.Models;
 using System;
 using System.Collections.Generic;
@@ -35,17 +30,17 @@ namespace AnikiHelper
         private const int TransitionMs = 120;        // total fade time
         private const int TransitionSteps = 8;      // + more steps = smoother
 
-        // --- Precache optionnel (désactivé par défaut via ressource) ---
+        // Precache optionnel
         private const int PrecacheDelayMs = 20000;   // attendre après le boot
         private const int PrecacheGapMs = 600;    // 1 image / 600 ms
         private const int PrecacheMax = 100;    // cap par session
 
-        // Activité utilisateur pour stopper le precache dès qu'on bouge
+        // stopper le precache dès qu'on bouge
         private static long lastUserActivityTicks = 0; 
         private static bool IsIdleForMs(int ms) =>
         (Environment.TickCount - Interlocked.Read(ref lastUserActivityTicks)) >= ms;
 
-        // Helper: lire un bool ressource pour activer/désactiver le precache        
+        // Helper     
         private static bool IsPrecacheEnabled()
         {
             try
@@ -54,17 +49,16 @@ namespace AnikiHelper
                 if (dict == null)
                     return false;
 
-                // 1) DynamicAuto doit être activé par le thème
+                // 1) DynamicAuto must be enabled by the theme
                 var dynEnabled = dict["DynamicAutoEnabled"] as bool?;
                 if (dynEnabled != true)
                     return false;
 
-                // 2) Le user doit avoir coché le checkbox dans les settings
+                // 2) The user must have checked the checkbox in the settings.
                 var plugin = AnikiHelper.Instance;
                 if (plugin?.Settings?.DynamicAutoPrecacheUserEnabled != true)
                     return false;
 
-                // Tout est OK -> on autorise le pré-cache
                 return true;
             }
             catch
