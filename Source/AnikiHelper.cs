@@ -811,6 +811,18 @@ namespace AnikiHelper
                         : title;
 
                     ShowGlobalToast(msg, "playniteNews");
+
+                    Settings.PlayniteNewsHasNew = false;
+                    SavePluginSettings(Settings);
+                }
+                else
+                {
+                    // Reset si AUCUNE nouvelle news
+                    if (Settings.PlayniteNewsHasNew)
+                    {
+                        Settings.PlayniteNewsHasNew = false;
+                        SavePluginSettings(Settings);
+                    }
                 }
 
             }
@@ -2037,9 +2049,7 @@ namespace AnikiHelper
 
             // 2) Trouver la meilleure suggestion (Find the best suggestion)
 
-            int bestScore = 0;
-            Playnite.SDK.Models.Game bestGame = null;
-            string bestReason = string.Empty;
+            var candidates = new List<SuggestedGameCandidate>();
 
             foreach (var g in games)
             {
@@ -2115,16 +2125,63 @@ namespace AnikiHelper
                 if (score <= 0)
                     continue;
 
-                if (score > bestScore)
+                candidates.Add(new SuggestedGameCandidate
                 {
-                    bestScore = score;
-                    bestGame = g;
-                    bestReason = reason;
-                }
+                    Game = g,
+                    Score = score,
+                    Reason = string.IsNullOrEmpty(reason) ? string.Empty : reason
+                });
             }
 
-            if (bestGame == null)
+            // 2bis) Top 3 + rotation une fois par jour
+
+            if (candidates.Count == 0)
+            {
                 return;
+            }
+
+            // Date du jour (locale)
+            var today = DateTime.Now.Date;
+
+            SuggestedGameCandidate selected = null;
+
+            // 2bis-A : si on a déjà un jeu pour aujourd'hui ET qu'il est encore candidat, on le garde
+            if (s.SuggestedGameLastId != Guid.Empty &&
+                s.SuggestedGameLastChangeDate.Date == today)
+            {
+                selected = candidates.FirstOrDefault(c => c.Game.Id == s.SuggestedGameLastId);
+            }
+
+            // 2bis-B : sinon, on recalcule un top 3 et on choisit dedans
+            if (selected == null)
+            {
+                var ordered = candidates
+                    .OrderByDescending(c => c.Score)
+                    .ThenBy(c => c.Game.Name ?? string.Empty)
+                    .ToList();
+
+                // On garde un top 3 (ou moins si pas assez de jeux)
+                var topCandidates = ordered.Take(3).ToList();
+                if (topCandidates.Count == 0)
+                {
+                    return;
+                }
+
+                var rand = new Random();
+                selected = topCandidates[rand.Next(topCandidates.Count)];
+
+                s.SuggestedGameLastId = selected.Game.Id;
+                s.SuggestedGameLastChangeDate = today;
+            }
+
+            var bestGame = selected.Game;
+            var bestReason = selected.Reason ?? string.Empty;
+
+            if (bestGame == null)
+            {
+                return;
+            }
+
 
             // 3) Construction of the banner text
 
@@ -2183,6 +2240,8 @@ namespace AnikiHelper
                 s.SuggestedGameReasonKey = bestReason ?? string.Empty;
                 s.SuggestedGameBannerText = banner ?? string.Empty;
             });
+
+            SavePluginSettings(Settings);
         }
 
         // Monthly snapshot
@@ -2218,6 +2277,13 @@ namespace AnikiHelper
                 logger.Warn(ex, "[AnikiHelper] LoadMonthSnapshot failed");
                 return new Dictionary<Guid, ulong>();
             }
+        }
+
+        private class SuggestedGameCandidate
+        {
+            public Playnite.SDK.Models.Game Game { get; set; }
+            public int Score { get; set; }
+            public string Reason { get; set; }
         }
 
         private class MonthlySnapshotInfo

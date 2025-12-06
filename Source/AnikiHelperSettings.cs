@@ -247,6 +247,22 @@ namespace AnikiHelper
             set => SetValue(ref suggestedGameBannerText, value);
         }
 
+        // Rotation info for suggested game (top 3 / once per day)
+        private Guid suggestedGameLastId = Guid.Empty;
+        public Guid SuggestedGameLastId
+        {
+            get => suggestedGameLastId;
+            set => SetValue(ref suggestedGameLastId, value);
+        }
+
+        private DateTime suggestedGameLastChangeDate = DateTime.MinValue;
+        public DateTime SuggestedGameLastChangeDate
+        {
+            get => suggestedGameLastChangeDate;
+            set => SetValue(ref suggestedGameLastChangeDate, value);
+        }
+
+
         // JEU LE PLUS JOUE DU MOIS 
         // MOST PLAYED GAME OF THE MONTH
 

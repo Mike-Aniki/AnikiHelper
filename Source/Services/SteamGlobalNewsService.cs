@@ -78,15 +78,36 @@ namespace AnikiHelper
         private static readonly string[] SpamKeywords = new[]
         {
             "black friday",
+            "cyber monday",
+            "cybermonday",
+            "cyber-monday",
             "cashback",
             "amazon",
             "deal",
+            "deals",
             "promo",
             "promotion",
             "bon plan",
             "bargain",
-            "discount"
+            "discount",
+            "sale",
+            "soldes",
+            "réduction",
+            "offre",
+            "offres",
+            "price drop",
+            "price drops",
+            "lowest price",
+            "best price",
+            "best buy",
+            "walmart",
+            "coupon",
+            "voucher",
+            "-50%",
+            "-30%",
+            "-80%"
         };
+
 
         // Liste des flux RSS qui doivent être filtrés ( List of RSS feeds that must be filtered)
         private static readonly string[] SpamFilteredFeeds = new[]
@@ -478,6 +499,7 @@ namespace AnikiHelper
                         {
                             continue;
                         }
+
 
                         // --- Anti spam (Black Friday / Deals / Amazon / Promo) ---
                         if (SpamFilteredFeeds.Any(url =>
