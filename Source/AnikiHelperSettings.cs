@@ -172,6 +172,9 @@ namespace AnikiHelper
         private readonly global::AnikiHelper.AnikiHelper plugin;
 
         [DontSerialize]
+        private ILogger logger;
+
+        [DontSerialize]
         public RelayCommand RefreshSuccessStoryCommand { get; }
 
         // Info snapshot 
@@ -501,11 +504,20 @@ namespace AnikiHelper
         // Steam Deals via game-deals.app
 
         // Last 15 promotions (7 days max)
-        public ObservableCollection<SteamGlobalNewsItem> Deals { get; set; }
-            = new ObservableCollection<SteamGlobalNewsItem>();
+        private ObservableCollection<SteamGlobalNewsItem> deals = new ObservableCollection<SteamGlobalNewsItem>();
+        public ObservableCollection<SteamGlobalNewsItem> Deals
+        {
+            get => deals;
+            set => SetValue(ref deals, value);
+        }
 
         // Last scan date
-        public DateTime? LastDealsScanUtc { get; set; }
+        private DateTime? lastDealsScanUtc;
+        public DateTime? LastDealsScanUtc
+        {
+            get => lastDealsScanUtc;
+            set => SetValue(ref lastDealsScanUtc, value);
+        }
 
 
         private bool steamNewsCustomFeedInvalid;
@@ -591,6 +603,14 @@ namespace AnikiHelper
         // Watcher SuccessStory
         private FileSystemWatcher achievementsWatcher;
         private Timer debounceTimer;
+
+        // Cache SuccessStory root (évite de rescanner le disque trop souvent)
+        [DontSerialize]
+        private string cachedSsRoot;
+
+        [DontSerialize]
+        private DateTime cachedSsRootCheckedUtc = DateTime.MinValue;
+
 
         #region Options (bindables)
         public bool IncludeHidden { get => includeHidden; set => SetValue(ref includeHidden, value); }
@@ -740,6 +760,7 @@ namespace AnikiHelper
         public AnikiHelperSettings(global::AnikiHelper.AnikiHelper plugin)
         {
             this.plugin = plugin;
+            logger = LogManager.GetLogger();
 
             var saved = plugin.LoadPluginSettings<AnikiHelperSettings>();
             if (saved != null)
@@ -799,6 +820,48 @@ namespace AnikiHelper
         // Recent Trophy
         public void RefreshRecentAchievements() => LoadRecentAchievements(3);
 
+        private string GetSuccessStoryRootCached()
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+
+                // Si on a déjà un chemin en cache, on le réutilise tant qu'il existe
+                // et qu'on ne veut pas recheck trop souvent (10 min)
+                if (!string.IsNullOrWhiteSpace(cachedSsRoot))
+                {
+                    if (Directory.Exists(cachedSsRoot))
+                    {
+                        if ((now - cachedSsRootCheckedUtc) < TimeSpan.FromMinutes(10))
+                        {
+                            return cachedSsRoot;
+                        }
+
+                        // Si ça fait + de 10 min, on revalide rapidement
+                        if (Directory.EnumerateFiles(cachedSsRoot, "*.json", SearchOption.AllDirectories).Any())
+                        {
+                            cachedSsRootCheckedUtc = now;
+                            return cachedSsRoot;
+                        }
+                    }
+                }
+
+                // Sinon, on recherche (ta méthode existante)
+                var found = FindSuccessStoryRoot();
+
+                cachedSsRoot = found;
+                cachedSsRootCheckedUtc = now;
+
+                return found;
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper] GetSuccessStoryRootCached failed.");
+                return null;
+            }
+        }
+
+
         private string FindSuccessStoryRoot()
         {
             try
@@ -818,8 +881,12 @@ namespace AnikiHelper
                         return dir;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper] FindSuccessStoryRoot failed.");
+            }
             return null;
+
         }
 
         private IEnumerable<string> EnumerateSsCacheDirs(string ssRoot)
@@ -892,7 +959,7 @@ namespace AnikiHelper
             {
                 if (plugin?.PlayniteApi == null) return;
 
-                var ssRoot = FindSuccessStoryRoot();
+                var ssRoot = GetSuccessStoryRootCached();
                 if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
 
                 string[] files;
@@ -995,12 +1062,25 @@ namespace AnikiHelper
                 return;
             }
 
-            Application.Current?.Dispatcher?.Invoke(() =>
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+
+            void Apply()
             {
                 RecentAchievements.Clear();
                 foreach (var it in computed)
                     RecentAchievements.Add(it);
-            });
+            }
+
+            if (dispatcher.CheckAccess())
+            {
+                Apply();
+            }
+            else
+            {
+                dispatcher.BeginInvoke((Action)Apply);
+            }
+
         }
 
         public void RefreshRareAchievements() => LoadRareTop(3);
@@ -1013,7 +1093,7 @@ namespace AnikiHelper
             {
                 if (plugin?.PlayniteApi == null) return;
 
-                var ssRoot = FindSuccessStoryRoot();
+                var ssRoot = GetSuccessStoryRootCached();
                 if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
 
                 string[] files;
@@ -1140,12 +1220,25 @@ namespace AnikiHelper
                 return;
             }
 
-            Application.Current?.Dispatcher?.Invoke(() =>
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+
+            void Apply()
             {
                 RareTop.Clear();
                 foreach (var it in computed)
                     RareTop.Add(it);
-            });
+            }
+
+            if (dispatcher.CheckAccess())
+            {
+                Apply();
+            }
+            else
+            {
+                dispatcher.BeginInvoke((Action)Apply);
+            }
+
         }
 
         private void TryStartAchievementsWatcher()
@@ -1154,7 +1247,7 @@ namespace AnikiHelper
             {
                 if (plugin?.PlayniteApi == null) return;
 
-                var ssRoot = FindSuccessStoryRoot();
+                var ssRoot = GetSuccessStoryRootCached();
                 if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
 
                 achievementsWatcher?.Dispose();
@@ -1172,6 +1265,8 @@ namespace AnikiHelper
                 {
                     try
                     {
+                        cachedSsRootCheckedUtc = DateTime.MinValue;
+
                         LoadRecentAchievements(3);
                         LoadRareTop(3);
 
@@ -1190,8 +1285,12 @@ namespace AnikiHelper
                 achievementsWatcher.Deleted += pulse;
                 achievementsWatcher.Renamed += (_, __) => { debounceTimer.Stop(); debounceTimer.Start(); };
             }
-            catch { }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to start SuccessStory watcher.");
+            }
         }
+
 
         // ===== ISettings =====
         public void BeginEdit() { }
@@ -1200,16 +1299,16 @@ namespace AnikiHelper
         {
             try
             {
-                LogManager.GetLogger().Debug("[AnikiHelper] Settings saved.");
-
+                logger?.Debug("[AnikiHelper] Settings saved.");
             }
             catch
             {
-
+                // On évite de casser la sauvegarde à cause du log
             }
 
             plugin.SavePluginSettings(this);
         }
+
 
 
         public bool VerifySettings(out List<string> errors) { errors = null; return true; }
@@ -1263,10 +1362,17 @@ namespace AnikiHelper
             try
             {
                 var list = new List<DiskUsageItem>();
+
                 foreach (var di in DriveInfo.GetDrives())
                 {
                     if (!di.IsReady) continue;
-                    if (di.DriveType != DriveType.Fixed && di.DriveType != DriveType.Removable && di.DriveType != DriveType.Network) continue;
+
+                    if (di.DriveType != DriveType.Fixed &&
+                        di.DriveType != DriveType.Removable &&
+                        di.DriveType != DriveType.Network)
+                    {
+                        continue;
+                    }
 
                     ulong total = (ulong)Math.Max(0, di.TotalSize);
                     ulong free = (ulong)Math.Max(0, di.TotalFreeSpace);
@@ -1284,11 +1390,39 @@ namespace AnikiHelper
 
                 list = list.OrderBy(x => x.Label, StringComparer.OrdinalIgnoreCase).ToList();
 
-                diskUsages.Clear();
-                foreach (var it in list) diskUsages.Add(it);
+                void Apply()
+                {
+                    diskUsages.Clear();
+                    foreach (var it in list)
+                        diskUsages.Add(it);
+                }
+
+                var dispatcher = Application.Current?.Dispatcher;
+
+                // Si pas de dispatcher, on tente quand même d’appliquer direct (cas rare)
+                if (dispatcher == null)
+                {
+                    Apply();
+                    return;
+                }
+
+                // Si déjà sur le thread UI, on applique direct
+                if (dispatcher.CheckAccess())
+                {
+                    Apply();
+                    return;
+                }
+
+                // Sinon non bloquant
+                dispatcher.BeginInvoke((Action)Apply);
             }
-            catch { }
+            catch
+            {
+                // volontairement silencieux
+            }
         }
+
+
     }
 
     public class AnikiHelperSettingsViewModel : ObservableObject, ISettings

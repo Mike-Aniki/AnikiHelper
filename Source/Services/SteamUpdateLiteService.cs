@@ -2,7 +2,9 @@
 using System.Globalization;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
@@ -11,7 +13,7 @@ namespace AnikiHelper
     public class SteamUpdateLiteResult
     {
         public string Title { get; set; }
-        public DateTime Published { get; set; }
+        public DateTime Published { get; set; } // UTC
         public string HtmlBody { get; set; }
     }
 
@@ -20,37 +22,57 @@ namespace AnikiHelper
         private const string FeedTemplate = "https://store.steampowered.com/feeds/news/app/{0}/?l={1}";
         private readonly string steamLanguage;
 
+        // ✅ HttpClient partagé (évite de recréer/lag + support CancelToken)
+        private static readonly HttpClient http = CreateHttp();
+
+        private static HttpClient CreateHttp()
+        {
+            var client = new HttpClient();
+            client.DefaultRequestHeaders.Accept.ParseAdd("text/xml");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) SteamUpdateLite");
+            client.Timeout = TimeSpan.FromSeconds(20); // sécurité
+            return client;
+        }
+
         // PUBLIC: retrieves the latest update (Update/Patch Notes)
-        public async Task<SteamUpdateLiteResult> GetLatestUpdateAsync(string steamId)
+        public async Task<SteamUpdateLiteResult> GetLatestUpdateAsync(string steamId, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(steamId))
                 return null;
 
             // 1) We try in the Playnite language
-            var result = await GetLatestUpdateForLanguageAsync(steamId, steamLanguage);
+            var result = await GetLatestUpdateForLanguageAsync(steamId, steamLanguage, ct).ConfigureAwait(false);
             if (result != null)
                 return result;
 
             // 2) English fallback if Playnite ≠ English
             if (!string.Equals(steamLanguage, "english", StringComparison.OrdinalIgnoreCase))
             {
-                return await GetLatestUpdateForLanguageAsync(steamId, "english");
+                return await GetLatestUpdateForLanguageAsync(steamId, "english", ct).ConfigureAwait(false);
             }
 
             return null;
         }
 
-        private async Task<SteamUpdateLiteResult> GetLatestUpdateForLanguageAsync(string steamId, string language)
+        // Backward compatibility (si tu as encore des appels sans ct quelque part)
+        public Task<SteamUpdateLiteResult> GetLatestUpdateAsync(string steamId)
+            => GetLatestUpdateAsync(steamId, CancellationToken.None);
+
+        private async Task<SteamUpdateLiteResult> GetLatestUpdateForLanguageAsync(string steamId, string language, CancellationToken ct)
         {
             try
             {
-                using (var client = new WebClient())
-                {
-                    client.Headers[HttpRequestHeader.Accept] = "text/xml";
-                    client.Headers[HttpRequestHeader.UserAgent] =
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SteamUpdateLite";
+                ct.ThrowIfCancellationRequested();
 
-                    var xml = await client.DownloadStringTaskAsync(string.Format(FeedTemplate, steamId, language));
+                var url = string.Format(FeedTemplate, steamId, language);
+
+                // ✅ Annulable
+                using (var resp = await http.GetAsync(url, ct).ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode)
+                        return null;
+
+                    var xml = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                     if (string.IsNullOrWhiteSpace(xml))
                         return null;
 
@@ -66,11 +88,15 @@ namespace AnikiHelper
                     if (items.Count == 0)
                         return null;
 
-                    DateTime ParseDate(string raw)
+                    DateTime ParseDateUtc(string raw)
                     {
+                        // Steam RSS = RFC1123, souvent déjà UTC.
                         if (DateTime.TryParse(raw, CultureInfo.InvariantCulture,
-                            DateTimeStyles.AdjustToUniversal, out var dt))
-                            return dt.ToLocalTime();
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                            out var dt))
+                        {
+                            return dt.ToUniversalTime();
+                        }
 
                         return DateTime.MinValue;
                     }
@@ -82,7 +108,6 @@ namespace AnikiHelper
 
                         var t = title.ToLowerInvariant();
 
-                        // --- MOTS-CLÉS ---
                         string[] keywords =
                         {
                             // EN
@@ -103,38 +128,31 @@ namespace AnikiHelper
                             "correctif", "correctifs"
                         };
 
-                        // Si un mot-clé clair apparaît → update validée
                         if (keywords.Any(k => t.Contains(k)))
                             return true;
 
-                        // --- DÉTECTION AVANCÉE DES NUMÉROS DE VERSION ---
-
-                        // v1.2 / v 1.2 / v.1.2 / v1.2.3 / v1.2.3.4
+                        // v1.2 / v1.2.3 / v. 1.2 etc.
                         if (System.Text.RegularExpressions.Regex.IsMatch(t, @"\bv\.?\s*\d+(\.\d+){1,3}\b"))
                             return true;
 
-                        // 1.2 / 1.2.3 / 1.2.3.4 / 0.9.0.1 etc.
+                        // 1.2 / 1.2.3 / 0.9.0.1 etc.
                         if (System.Text.RegularExpressions.Regex.IsMatch(t, @"\b\d+(\.\d+){1,3}\b"))
                             return true;
 
-                        // Patch #10 / Patch # 10
+                        // Patch #10
                         if (System.Text.RegularExpressions.Regex.IsMatch(t, @"patch\s*#\s*\d+"))
                             return true;
 
-                        // Hotfix avec numéro ou date
+                        // Hotfix 12
                         if (System.Text.RegularExpressions.Regex.IsMatch(t, @"hotfix\s*\d*"))
                             return true;
-                        
-                        // Rien trouvé → ce n'est PAS une update
-                        
+
                         return false;
                     }
 
-
-                    // === UPDATE ONLY ===
                     var candidate = items
                         .Where(i => LooksLikeUpdate(i.Title))
-                        .OrderByDescending(i => ParseDate(i.Pub))
+                        .OrderByDescending(i => ParseDateUtc(i.Pub))
                         .FirstOrDefault();
 
                     if (candidate == null)
@@ -143,10 +161,15 @@ namespace AnikiHelper
                     return new SteamUpdateLiteResult
                     {
                         Title = candidate.Title,
-                        Published = ParseDate(candidate.Pub),
+                        Published = ParseDateUtc(candidate.Pub), // ✅ UTC
                         HtmlBody = candidate.Desc
                     };
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // ✅ Annulation propre
+                throw;
             }
             catch
             {

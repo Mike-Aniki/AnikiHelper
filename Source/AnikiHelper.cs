@@ -10,6 +10,7 @@ using System.Data;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -71,29 +72,33 @@ namespace AnikiHelper
         {
             try
             {
-                if (items == null || items.Count == 0)
+                OnUi(() =>
                 {
-                    Settings.LatestNewsTitle = string.Empty;
-                    Settings.LatestNewsDateString = string.Empty;
-                    Settings.LatestNewsSummary = string.Empty;
-                    Settings.LatestNewsGameName = string.Empty;
-                    Settings.LatestNewsLocalImagePath = string.Empty;
-                    return;
-                }
+                    if (items == null || items.Count == 0)
+                    {
+                        Settings.LatestNewsTitle = string.Empty;
+                        Settings.LatestNewsDateString = string.Empty;
+                        Settings.LatestNewsSummary = string.Empty;
+                        Settings.LatestNewsGameName = string.Empty;
+                        Settings.LatestNewsLocalImagePath = string.Empty;
+                        return;
+                    }
 
-                var latest = items[0];
+                    var latest = items[0];
 
-                Settings.LatestNewsTitle = latest.Title ?? string.Empty;
-                Settings.LatestNewsDateString = latest.DateString ?? string.Empty;
-                Settings.LatestNewsSummary = latest.Summary ?? string.Empty;
-                Settings.LatestNewsGameName = latest.GameName ?? string.Empty;
-                Settings.LatestNewsLocalImagePath = latest.LocalImagePath ?? string.Empty;
+                    Settings.LatestNewsTitle = latest.Title ?? string.Empty;
+                    Settings.LatestNewsDateString = latest.DateString ?? string.Empty;
+                    Settings.LatestNewsSummary = latest.Summary ?? string.Empty;
+                    Settings.LatestNewsGameName = latest.GameName ?? string.Empty;
+                    Settings.LatestNewsLocalImagePath = latest.LocalImagePath ?? string.Empty;
+                });
             }
             catch (Exception ex)
             {
                 logger.Error(ex, "[AnikiHelper] Failed to update LatestNews snapshot.");
             }
         }
+
 
         // Charge les news globales depuis CacheNews.json si Settings.SteamGlobalNews est vide 
         // Load global news from CacheNews.json if Settings.SteamGlobalNews is empty 
@@ -144,7 +149,7 @@ namespace AnikiHelper
                 });
 
                 UpdateLatestNewsFromList(ordered);
-                SavePluginSettings(Settings); 
+                SaveSettingsSafe();
             }
             catch (Exception ex)
             {
@@ -246,6 +251,26 @@ namespace AnikiHelper
             }
         }
 
+        private void FlushSteamUpdatesCacheIfNeeded()
+        {
+            Dictionary<string, SteamUpdateCacheEntry> snapshot = null;
+
+            lock (steamUpdatesCacheLock)
+            {
+                if (!steamUpdatesCacheDirty)
+                {
+                    return;
+                }
+
+                snapshot = new Dictionary<string, SteamUpdateCacheEntry>(steamUpdatesCache);
+                steamUpdatesCacheDirty = false;
+            }
+
+            // Écriture hors UI thread
+            Task.Run(() => SaveSteamUpdatesCache(snapshot));
+        }
+
+
         // Builds a list of the last 10 Steam updates for the theme
         public void RefreshSteamRecentUpdatesFromCache()
         {
@@ -300,13 +325,14 @@ namespace AnikiHelper
 
                 Application.Current?.Dispatcher?.Invoke(() =>
                 {
-                    var target = Settings.SteamRecentUpdates;
-                    target.Clear();
+                    Settings.SteamRecentUpdates.Clear();
                     foreach (var it in list)
                     {
-                        target.Add(it);
+                        Settings.SteamRecentUpdates.Add(it);
                     }
                 });
+
+
             }
             catch (Exception ex)
             {
@@ -362,27 +388,27 @@ namespace AnikiHelper
         {
             try
             {
-                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                var disp = System.Windows.Application.Current?.Dispatcher;
+                if (disp == null) return;
+
+                disp.BeginInvoke(new Action(() =>
                 {
                     var s = Settings;
 
-                    s.GlobalToastMessage = string.IsNullOrWhiteSpace(message)
-                        ? string.Empty
-                        : message;
-
+                    s.GlobalToastMessage = string.IsNullOrWhiteSpace(message) ? string.Empty : message;
                     s.GlobalToastType = type ?? string.Empty;
-
                     s.GlobalToastStamp = Guid.NewGuid().ToString();
 
                     s.GlobalToastFlip = false;
                     s.GlobalToastFlip = true;
-                });
+                }), DispatcherPriority.Background);
             }
-            catch
+            catch (Exception ex)
             {
-
+                logger.Debug(ex, "[AnikiHelper] ShowGlobalToast failed.");
             }
         }
+
 
         // Localisation helper
         private static string Loc(string key, string fallback)
@@ -397,6 +423,84 @@ namespace AnikiHelper
                 return fallback;
             }
         }
+
+        private int saveQueued = 0;
+
+        private void SaveSettingsSafe()
+        {
+            try
+            {
+                // évite les sauvegardes en rafale
+                if (Interlocked.Exchange(ref saveQueued, 1) == 1)
+                    return;
+
+                // Sauvegarde sur le thread UI, priorité basse (ne bloque pas la navigation)
+                _ = OnUiAsync(() =>
+                {
+                    try
+                    {
+                        SavePluginSettings(Settings);
+                    }
+                    catch
+                    {
+                    }
+                    finally
+                    {
+                        Interlocked.Exchange(ref saveQueued, 0);
+                    }
+                }, DispatcherPriority.Background);
+            }
+            catch
+            {
+            }
+        }
+
+
+
+
+        private void OnUi(Action action)
+        {
+            try
+            {
+                var d = Application.Current?.Dispatcher;
+                if (d == null || d.CheckAccess())
+                {
+                    action();
+                }
+                else
+                {
+                    d.Invoke(action);
+                }
+            }
+            catch
+            {
+                // no crash
+            }
+        }
+
+        private async Task OnUiAsync(Action action, DispatcherPriority priority = DispatcherPriority.Background)
+        {
+            try
+            {
+                var d = Application.Current?.Dispatcher;
+                if (d == null || d.CheckAccess())
+                {
+                    action();
+                }
+                else
+                {
+                    await d.InvokeAsync(action, priority);
+                }
+            }
+            catch
+            {
+                // no crash
+            }
+        }
+
+
+
+
 
 
         private static string Safe(string s) => string.IsNullOrWhiteSpace(s) ? "(Unnamed Game)" : s;
@@ -472,6 +576,16 @@ namespace AnikiHelper
         private readonly DispatcherTimer steamUpdateTimer;
         private Playnite.SDK.Models.Game pendingUpdateGame;
         private readonly DispatcherTimer dealsTimer;
+
+        // Steam updates cache (RAM + flush différé)
+        private readonly object steamUpdatesCacheLock = new object();
+        private Dictionary<string, SteamUpdateCacheEntry> steamUpdatesCache = new Dictionary<string, SteamUpdateCacheEntry>();
+        private bool steamUpdatesCacheDirty = false;
+        private DispatcherTimer steamUpdatesCacheFlushTimer;
+
+        // Anti-freeze: 1 update à la fois + annulation si navigation rapide
+        private readonly SemaphoreSlim steamUpdateGate = new SemaphoreSlim(1, 1);
+        private CancellationTokenSource steamUpdateCts;
 
 
         // Steam current players
@@ -606,18 +720,47 @@ namespace AnikiHelper
                 return;
             }
 
-            if (Settings.SteamUpdatesScanEnabled)
-            {
-                await UpdateSteamUpdateForGameAsync(g);
-            }
-            else
-            {
-                
-                ResetSteamUpdate();
-            }
+            steamUpdateCts?.Cancel();
+            steamUpdateCts?.Dispose();
+            steamUpdateCts = new CancellationTokenSource();
+            var ct = steamUpdateCts.Token;
 
-            await UpdateSteamPlayerCountForGameAsync(g);
+            bool acquired = false;
+
+            try
+            {
+                await steamUpdateGate.WaitAsync(ct);
+                acquired = true;
+
+                if (Settings.SteamUpdatesScanEnabled)
+                {
+                    await UpdateSteamUpdateForGameAsync(g, ct);
+                }
+                else
+                {
+                    ResetSteamUpdate();
+                }
+
+                await UpdateSteamPlayerCountForGameAsync(g);
+            }
+            catch (OperationCanceledException)
+            {
+                // normal
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] steamUpdateTimer_Tick failed.");
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    steamUpdateGate.Release();
+                }
+            }
         }
+
+
 
 
         private async Task RefreshGlobalSteamNewsAsync(bool force = false)
@@ -625,15 +768,24 @@ namespace AnikiHelper
             try
             {
                 var nowUtc = DateTime.UtcNow;
-                var last = Settings.SteamGlobalNewsLastRefreshUtc;
 
-                logger.Debug($"[NewsScan] Start (force={force}, enabled={Settings.NewsScanEnabled})");
+                DateTime? last = null;
+                bool enabled = false;
 
-                if (!Settings.NewsScanEnabled)
+                OnUi(() =>
+                {
+                    last = Settings.SteamGlobalNewsLastRefreshUtc;
+                    enabled = Settings.NewsScanEnabled;
+                });
+
+                logger.Debug($"[NewsScan] Start (force={force}, enabled={enabled})");
+
+                if (!enabled)
                 {
                     logger.Debug("[NewsScan] Skipped (disabled)");
                     return;
                 }
+
 
                 // Cooldown (3h)
                 if (!force && last.HasValue)
@@ -669,13 +821,14 @@ namespace AnikiHelper
                         Settings.SteamGlobalNews.Add(it);
 
                     Settings.SteamGlobalNewsLastRefreshUtc = nowUtc;
-                    SavePluginSettings(Settings);
 
                     logger.Debug("[NewsScan] Updated settings & memory list");
                 });
 
-                UpdateLatestNewsFromList(items);
+                // ✅ sauvegarde hors UI
+                SaveSettingsSafe();
 
+                UpdateLatestNewsFromList(items);
             }
             catch (Exception ex)
             {
@@ -708,7 +861,16 @@ namespace AnikiHelper
             try
             {
                 var nowUtc = DateTime.UtcNow;
-                var last = Settings.PlayniteNewsLastRefreshUtc;
+
+                // ⚠️ Lecture Settings sur UI thread (sécurité)
+                DateTime? last = null;
+                string previousKey = string.Empty;
+
+                OnUi(() =>
+                {
+                    last = Settings.PlayniteNewsLastRefreshUtc;
+                    previousKey = Settings.PlayniteNewsLastKey ?? string.Empty;
+                });
 
                 // Cooldown 24h
                 if (!force && last.HasValue)
@@ -724,12 +886,15 @@ namespace AnikiHelper
                     }
                 }
 
+                // 1) Fetch feeds OFF UI thread
                 var allItems = new List<SteamGlobalNewsItem>();
 
                 foreach (var url in PlayniteNewsFeedUrls)
                 {
                     if (string.IsNullOrWhiteSpace(url))
+                    {
                         continue;
+                    }
 
                     try
                     {
@@ -737,7 +902,7 @@ namespace AnikiHelper
                             .GetGenericFeedAsync(url)
                             .ConfigureAwait(false);
 
-                        if (items != null)
+                        if (items != null && items.Count > 0)
                         {
                             allItems.AddRange(items);
                         }
@@ -751,33 +916,23 @@ namespace AnikiHelper
                     }
                 }
 
-                if (allItems.Count == 0)
-                {
-                    allItems = new List<SteamGlobalNewsItem>();
-                }
-
-                // On garde juste les 10 dernières (only keep the last 10.)
+                // 2) Keep only the last 10
                 var ordered = allItems
                     .OrderByDescending(n => n.PublishedUtc)
                     .Take(10)
                     .ToList();
 
-                // Détection “NEW”
-                var previousKey = Settings.PlayniteNewsLastKey ?? string.Empty;
+                // 3) NEW detection
                 var topItem = ordered.FirstOrDefault();
                 var newKey = topItem != null ? MakePlayniteNewsKey(topItem) : string.Empty;
 
-                bool hasNew = false;
+                bool hasNew =
+                    !string.IsNullOrEmpty(newKey) &&
+                    !string.Equals(previousKey, newKey, StringComparison.Ordinal);
 
-                if (!string.IsNullOrEmpty(newKey) &&
-                    !string.Equals(previousKey, newKey, StringComparison.Ordinal))
+                // 4) Apply to Settings ON UI thread (no Save inside UI)
+                OnUi(() =>
                 {
-                    hasNew = true;
-                }
-
-                Application.Current?.Dispatcher?.Invoke(() =>
-                {
-                    // Sécu
                     if (Settings.PlayniteNews == null)
                     {
                         Settings.PlayniteNews =
@@ -797,11 +952,12 @@ namespace AnikiHelper
                     {
                         Settings.PlayniteNewsLastKey = newKey;
                     }
-
-                    SavePluginSettings(Settings);
                 });
 
-                // Toast global 
+                // ✅ Save OFF UI thread
+                SaveSettingsSafe();
+
+                // 5) Global toast if NEW
                 if (hasNew && topItem != null)
                 {
                     var title = topItem.Title?.Trim();
@@ -812,19 +968,23 @@ namespace AnikiHelper
 
                     ShowGlobalToast(msg, "playniteNews");
 
-                    Settings.PlayniteNewsHasNew = false;
-                    SavePluginSettings(Settings);
+                    // Reset the NEW flag (ON UI) + save
+                    OnUi(() => Settings.PlayniteNewsHasNew = false);
+                    SaveSettingsSafe();
                 }
                 else
                 {
-                    // Reset si AUCUNE nouvelle news
-                    if (Settings.PlayniteNewsHasNew)
+                    // Reset if no new item but flag is still true
+                    bool needReset = false;
+
+                    OnUi(() => needReset = Settings.PlayniteNewsHasNew);
+
+                    if (needReset)
                     {
-                        Settings.PlayniteNewsHasNew = false;
-                        SavePluginSettings(Settings);
+                        OnUi(() => Settings.PlayniteNewsHasNew = false);
+                        SaveSettingsSafe();
                     }
                 }
-
             }
             catch (Exception ex)
             {
@@ -833,13 +993,17 @@ namespace AnikiHelper
         }
 
 
+
         // Steam Deals via game-deals.app
         private async Task RefreshDealsAsync(bool force = false, bool silent = false)
         {
             try
             {
                 var nowUtc = DateTime.UtcNow;
-                var last = Settings.LastDealsScanUtc;
+
+                DateTime? last = null;
+                OnUi(() => last = Settings.LastDealsScanUtc);
+
 
                 // Cooldown 12h
                 if (!force && last.HasValue)
@@ -856,7 +1020,7 @@ namespace AnikiHelper
                 }
 
                 var items = await steamGlobalNewsService
-                    .GetGenericFeedAsync(DealsFeedUrl)
+                    .GetGenericFeedAsync(DealsFeedUrl, "DealsImages")
                     .ConfigureAwait(false);
 
                 if (items == null)
@@ -864,7 +1028,6 @@ namespace AnikiHelper
                     items = new List<SteamGlobalNewsItem>();
                 }
 
-                // 7 day  max + 15 items max
                 var threshold = nowUtc.AddDays(-DealsMaxDays);
 
                 var filtered = items
@@ -873,23 +1036,33 @@ namespace AnikiHelper
                     .Take(DealsMaxItems)
                     .ToList();
 
-                Application.Current?.Dispatcher?.Invoke(() =>
+                // ✅ Build the new collection OFF the UI thread
+                var newDeals = new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>(filtered);
+
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher != null)
                 {
-                    if (Settings.Deals == null)
+                    // ✅ Single UI update (no Clear + 15 Adds)
+                    await dispatcher.InvokeAsync(() =>
                     {
-                        Settings.Deals =
-                            new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
-                    }
+                        Settings.Deals = newDeals;
+                        Settings.LastDealsScanUtc = nowUtc;
+                    }, DispatcherPriority.Background).Task.ConfigureAwait(false);
 
-                    Settings.Deals.Clear();
-                    foreach (var it in filtered)
-                    {
-                        Settings.Deals.Add(it);
-                    }
-
+                }
+                else
+                {
+                    // Fallback (rare)
+                    Settings.Deals = newDeals;
                     Settings.LastDealsScanUtc = nowUtc;
-                    SavePluginSettings(Settings);
-                });
+                }
+
+                // ✅ Save outside UI thread work
+                SaveSettingsSafe();
+
+                // ✅ purge des images deals (après update)
+                steamGlobalNewsService.PurgeDealsImagesByAge(DealsMaxDays);
             }
             catch (Exception ex)
             {
@@ -899,6 +1072,9 @@ namespace AnikiHelper
                 }
             }
         }
+
+
+
 
         private async void DealsTimer_Tick(object sender, EventArgs e)
         {
@@ -913,63 +1089,11 @@ namespace AnikiHelper
 
 
 
-        private async Task TryScanGlobalNewsAsync(bool force, bool silent)
-        {
-            var logger = LogManager.GetLogger();
-
-            try
-            {
-                if (!Settings.NewsScanEnabled)
-                {
-                    return;
-                }
-
-                var now = DateTime.UtcNow;
-                var lastScan = Settings.LastNewsScanUtc;
-
-                if (!force && lastScan != DateTime.MinValue)
-                {
-                    var hoursSince = (now - lastScan).TotalHours;
-                    if (hoursSince < GlobalNewsRefreshIntervalHours)
-                    {
-                        return; 
-                    }
-                }
-
-                // Scan RSS 
-                var svc = new SteamGlobalNewsService(PlayniteApi, Settings);
-                var items = await svc.GetGlobalNewsAsync();
-
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    Settings.SteamGlobalNews.Clear();
-                    foreach (var it in items)
-                        Settings.SteamGlobalNews.Add(it);
-
-                    Settings.LastNewsScanUtc = now;
-
-                    SavePluginSettings(Settings);
-                });
-
-                UpdateLatestNewsFromList(items);
-
-                SavePluginSettings(Settings);
-
-                // Log 
-                if (!silent)
-                {
-                    logger.Info("[AnikiHelper] Global News refreshed.");
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Error(ex, "[AnikiHelper] TryScanGlobalNewsAsync failed.");
-            }
-        }
+      
 
 
 
-        private async Task<bool> UpdateSteamUpdateCacheOnlyForGameAsync(Playnite.SDK.Models.Game game)
+        private async Task<bool> UpdateSteamUpdateCacheOnlyForGameAsync(Playnite.SDK.Models.Game game, CancellationToken ct)
         {
             var notified = false;
 
@@ -981,7 +1105,11 @@ namespace AnikiHelper
                     return false;
                 }
 
-                var result = await steamUpdateService.GetLatestUpdateAsync(steamId);
+                // Appel réseau (annulable)
+                ct.ThrowIfCancellationRequested();
+                var result = await steamUpdateService.GetLatestUpdateAsync(steamId, ct);
+                ct.ThrowIfCancellationRequested();
+
                 if (result == null || string.IsNullOrWhiteSpace(result.Title))
                 {
                     return false;
@@ -989,47 +1117,56 @@ namespace AnikiHelper
 
                 var cleanedHtml = CleanHtml(result.HtmlBody ?? string.Empty);
 
-                var cache = LoadSteamUpdatesCache();
-                cache.TryGetValue(steamId, out var cachedEntry);
-
+                // Date
                 var published = result.Published;
                 if (published == DateTime.MinValue)
                 {
                     published = DateTime.UtcNow;
                 }
-                else
+                
+
+                // Lire l'entrée depuis le cache RAM
+                SteamUpdateCacheEntry cachedEntry;
+                lock (steamUpdatesCacheLock)
                 {
-                    published = published.ToUniversalTime();
+                    steamUpdatesCache.TryGetValue(steamId, out cachedEntry);
                 }
 
+                // Si pas d'entrée : on crée, mais pas de notification "new"
                 if (cachedEntry == null)
                 {
-                    cache[steamId] = new SteamUpdateCacheEntry
+                    lock (steamUpdatesCacheLock)
                     {
-                        Title = result.Title,
-                        GameName = Safe(game.Name),
-                        LastPublishedUtc = published,
-                        Html = cleanedHtml
-                    };
+                        steamUpdatesCache[steamId] = new SteamUpdateCacheEntry
+                        {
+                            Title = result.Title,
+                            GameName = Safe(game.Name),
+                            LastPublishedUtc = published,
+                            Html = cleanedHtml
+                        };
+                        steamUpdatesCacheDirty = true;
+                    }
 
-                    SaveSteamUpdatesCache(cache);
                     return false;
                 }
 
                 var lastPublished = cachedEntry.LastPublishedUtc;
                 var sessionKey = $"{steamId}|{result.Title}";
-
                 bool isRealNew = published > lastPublished;
 
                 if (isRealNew)
                 {
-                    // complete cache update
-                    cachedEntry.Title = result.Title;
-                    cachedEntry.GameName = Safe(game.Name);
-                    cachedEntry.LastPublishedUtc = published;
-                    cachedEntry.Html = cleanedHtml;
-                    cache[steamId] = cachedEntry;
-                    SaveSteamUpdatesCache(cache);
+                    // Update complet + NEW
+                    lock (steamUpdatesCacheLock)
+                    {
+                        cachedEntry.Title = result.Title;
+                        cachedEntry.GameName = Safe(game.Name);
+                        cachedEntry.LastPublishedUtc = published;
+                        cachedEntry.Html = cleanedHtml;
+
+                        steamUpdatesCache[steamId] = cachedEntry;
+                        steamUpdatesCacheDirty = true;
+                    }
 
                     steamUpdateNewThisSession.Add(sessionKey);
 
@@ -1047,6 +1184,7 @@ namespace AnikiHelper
                 }
                 else
                 {
+                    // Pas réellement nouveau -> on complète le cache si besoin
                     bool needsUpdate = false;
 
                     if (string.IsNullOrWhiteSpace(cachedEntry.Html) && !string.IsNullOrEmpty(cleanedHtml))
@@ -1070,10 +1208,18 @@ namespace AnikiHelper
 
                     if (needsUpdate)
                     {
-                        cache[steamId] = cachedEntry;
-                        SaveSteamUpdatesCache(cache);
+                        lock (steamUpdatesCacheLock)
+                        {
+                            steamUpdatesCache[steamId] = cachedEntry;
+                            steamUpdatesCacheDirty = true;
+                        }
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal si navigation rapide / annulation
+                return false;
             }
             catch (Exception ex)
             {
@@ -1085,9 +1231,12 @@ namespace AnikiHelper
 
 
 
+
         // On startup: check for updates (in the background)
         private async Task CheckSteamUpdatesForRecentGamesAsync(int maxGames = 20)
         {
+            CancellationTokenSource cts = null;
+
             try
             {
                 // 1) Check mode + focus
@@ -1096,17 +1245,24 @@ namespace AnikiHelper
                     return;
                 }
 
-                // 2) Frequency limit: no more than one scan every 2 hours
+                // Token local pour cette scan (utile pour Task.Delay + futur cancel si tu veux)
+                cts = new CancellationTokenSource();
+                var ct = cts.Token;
+
+                // 2) Frequency limit
                 var nowUtc = DateTime.UtcNow;
-                var last = Settings.LastSteamRecentCheckUtc;
+
+                DateTime? last = null;
+                OnUi(() => last = Settings.LastSteamRecentCheckUtc);
 
                 if (last.HasValue && (nowUtc - last.Value).TotalHours < 4)
                 {
                     return;
                 }
 
-                Settings.LastSteamRecentCheckUtc = nowUtc;
-                SavePluginSettings(Settings);
+                OnUi(() => Settings.LastSteamRecentCheckUtc = nowUtc);
+                SaveSettingsSafe();
+
 
                 var allRecent = PlayniteApi.Database.Games
                     .Where(g => g.LastActivity != null)
@@ -1127,7 +1283,7 @@ namespace AnikiHelper
                         break;
                     }
 
-                    // If we lose focus along the way, we stop.
+                    // Stop if focus/mode changes
                     if (!IsSteamRecentScanAllowed())
                     {
                         break;
@@ -1136,18 +1292,19 @@ namespace AnikiHelper
                     var steamId = GetSteamGameId(g);
                     if (string.IsNullOrWhiteSpace(steamId))
                     {
-                        continue; 
+                        continue;
                     }
 
                     scanned++;
 
-                    var notified = await UpdateSteamUpdateCacheOnlyForGameAsync(g);
+                    // ✅ ct existe maintenant
+                    var notified = await UpdateSteamUpdateCacheOnlyForGameAsync(g, ct);
 
                     // short delay to avoid spamming the API.
                     var delayMs = notified ? 10000 : 500;
 
                     int remaining = delayMs;
-                    const int step = 200; // 200 ms
+                    const int step = 200;
 
                     while (remaining > 0)
                     {
@@ -1156,22 +1313,36 @@ namespace AnikiHelper
                             return;
                         }
 
+                        ct.ThrowIfCancellationRequested();
+
                         var chunk = Math.Min(step, remaining);
-                        await Task.Delay(chunk);
+
+                        // ✅ delay annulable
+                        await Task.Delay(chunk, ct);
+
                         remaining -= chunk;
                     }
                 }
 
                 RefreshSteamRecentUpdatesFromCache();
             }
+            catch (OperationCanceledException)
+            {
+                // normal si cancel un jour
+            }
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] CheckSteamUpdatesForRecentGamesAsync failed.");
             }
+            finally
+            {
+                cts?.Dispose();
+            }
         }
 
 
-        private async Task UpdateSteamUpdateForGameAsync(Playnite.SDK.Models.Game game)
+
+        private async Task UpdateSteamUpdateForGameAsync(Playnite.SDK.Models.Game game, CancellationToken ct)
         {
             try
             {
@@ -1189,10 +1360,14 @@ namespace AnikiHelper
                     return;
                 }
 
-                // 1) First, we try the CACHE
-                var cache = LoadSteamUpdatesCache();
+                // 1) First, we try the CACHE (RAM)
+               
 
-                cache.TryGetValue(steamId, out var cachedEntry);
+                SteamUpdateCacheEntry cachedEntry;
+                lock (steamUpdatesCacheLock)
+                {
+                    steamUpdatesCache.TryGetValue(steamId, out cachedEntry);
+                }
                 bool hadUsableCache = false;
 
                 if (cachedEntry != null &&
@@ -1224,7 +1399,9 @@ namespace AnikiHelper
                 }
 
                 // 2) Then we try to call Steam to refresh
-                var result = await steamUpdateService.GetLatestUpdateAsync(steamId);
+                ct.ThrowIfCancellationRequested();
+                var result = await steamUpdateService.GetLatestUpdateAsync(steamId, ct);
+                ct.ThrowIfCancellationRequested();
                 if (result == null || string.IsNullOrWhiteSpace(result.Title))
                 {
                     // No Steam results
@@ -1246,31 +1423,37 @@ namespace AnikiHelper
                 bool isNew = false;
                 var sessionKey = $"{steamId}|{result.Title}";
 
-                cache.TryGetValue(steamId, out cachedEntry);
-                var lastTitle = cachedEntry?.Title;
+                string lastTitle;
+                lock (steamUpdatesCacheLock)
+                {
+                    steamUpdatesCache.TryGetValue(steamId, out cachedEntry);
+                    lastTitle = cachedEntry?.Title;
+                }
+
 
                 var published = result.Published;
                 if (published == DateTime.MinValue)
                 {
                     published = DateTime.UtcNow;
                 }
-                else
-                {
-                    published = published.ToUniversalTime();
-                }
+                
 
                 // No cache for this game yet
                 if (string.IsNullOrWhiteSpace(lastTitle))
                 {
-                    cache[steamId] = new SteamUpdateCacheEntry
+                    lock (steamUpdatesCacheLock)
                     {
-                        Title = result.Title,
-                        GameName = Safe(game.Name),
-                        LastPublishedUtc = published,
-                        Html = cleanedHtml
-                    };
+                        steamUpdatesCache[steamId] = new SteamUpdateCacheEntry
+                        {
+                            Title = result.Title,
+                            GameName = Safe(game.Name),
+                            LastPublishedUtc = published,
+                            Html = cleanedHtml
+                        };
 
-                    SaveSteamUpdatesCache(cache);
+                        steamUpdatesCacheDirty = true;
+                    }
+
 
                     isNew = false;
                     steamUpdateNewThisSession.Remove(sessionKey);
@@ -1290,16 +1473,20 @@ namespace AnikiHelper
                         // New update -> NEW badge + cache update
                         isNew = true;
 
-                        cache[steamId] = new SteamUpdateCacheEntry
+                        lock (steamUpdatesCacheLock)
                         {
-                            Title = result.Title,
-                            GameName = Safe(game.Name),
-                            LastPublishedUtc = published,
-                            Html = cleanedHtml
-                        };
+                            steamUpdatesCache[steamId] = new SteamUpdateCacheEntry
+                            {
+                                Title = result.Title,
+                                GameName = Safe(game.Name),
+                                LastPublishedUtc = published,
+                                Html = cleanedHtml
+                            };
 
-                        SaveSteamUpdatesCache(cache);
+                            steamUpdatesCacheDirty = true;
+                        }
                         steamUpdateNewThisSession.Add(sessionKey);
+
                     }
                     else
                     {
@@ -1308,11 +1495,16 @@ namespace AnikiHelper
                         if (string.IsNullOrWhiteSpace(cachedEntry?.Html) ||
                             !string.Equals(cachedEntry.Title, result.Title, StringComparison.Ordinal))
                         {
-                            cachedEntry.Html = cleanedHtml;
-                            cachedEntry.Title = result.Title;
-                            cachedEntry.LastPublishedUtc = published;
-                            cache[steamId] = cachedEntry;
-                            SaveSteamUpdatesCache(cache);
+                            lock (steamUpdatesCacheLock)
+                            {
+                                cachedEntry.Html = cleanedHtml;
+                                cachedEntry.Title = result.Title;
+                                cachedEntry.LastPublishedUtc = published;
+
+                                steamUpdatesCache[steamId] = cachedEntry;
+                                steamUpdatesCacheDirty = true;
+                            }
+
                         }
 
                         if (steamUpdateNewThisSession.Contains(sessionKey))
@@ -1324,8 +1516,10 @@ namespace AnikiHelper
 
 
                 // 3) Push the "fresh" version into Settings
+                ct.ThrowIfCancellationRequested();
                 System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                 {
+
                     Settings.SteamUpdateTitle = result.Title;
 
                     var dt = published;
@@ -1355,8 +1549,11 @@ namespace AnikiHelper
                         ShowGlobalToast(msg, "steamUpdate");
                     }
                 }
-
                 RefreshSteamRecentUpdatesFromCache();
+            }
+            catch (OperationCanceledException)
+            {
+                // normal si navigation rapide / annulation
             }
             catch (Exception ex)
             {
@@ -1475,11 +1672,22 @@ namespace AnikiHelper
                             }
 
 
-                            // "sync" call on the async method
+                            if (progress.CancelToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
                             var result = steamUpdateService
-                                .GetLatestUpdateAsync(entry.SteamId)
+                                .GetLatestUpdateAsync(entry.SteamId, progress.CancelToken)
                                 .GetAwaiter()
                                 .GetResult();
+
+
+                            if (progress.CancelToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
 
                             if (result == null || string.IsNullOrWhiteSpace(result.Title))
                             {
@@ -1503,7 +1711,7 @@ namespace AnikiHelper
                             updated++;
 
                             // small throttle to avoid spamming the API
-                            System.Threading.Thread.Sleep(150);
+                            Task.Delay(150, progress.CancelToken).GetAwaiter().GetResult();
                         }
 
                         SaveSteamUpdatesCache(cache);
@@ -2241,7 +2449,7 @@ namespace AnikiHelper
                 s.SuggestedGameBannerText = banner ?? string.Empty;
             });
 
-            SavePluginSettings(Settings);
+            SaveSettingsSafe();
         }
 
         // Monthly snapshot
@@ -2568,18 +2776,23 @@ namespace AnikiHelper
         {
             try
             {
-                // 1) Clear the list in memory
-                Settings.SteamGlobalNews?.Clear();
-                Settings.PlayniteNews?.Clear();
-                Settings.Deals?.Clear();
-                Settings.PlayniteNewsHasNew = false;
-                Settings.PlayniteNewsLastKey = string.Empty;
+                // 1) Clear the list in memory + reset flags (ON UI thread)
+                OnUi(() =>
+                {
+                    Settings.SteamGlobalNews?.Clear();
+                    Settings.PlayniteNews?.Clear();
+                    Settings.Deals?.Clear();
 
-                // 2) Reset des timestamps pour forcer un rescan
-                Settings.SteamGlobalNewsLastRefreshUtc = null;
-                Settings.LastNewsScanUtc = DateTime.MinValue;
-                Settings.PlayniteNewsLastRefreshUtc = null;
-                Settings.LastDealsScanUtc = null;
+                    Settings.PlayniteNewsHasNew = false;
+                    Settings.PlayniteNewsLastKey = string.Empty;
+
+                    // 2) Reset des timestamps pour forcer un rescan
+                    Settings.SteamGlobalNewsLastRefreshUtc = null;
+                    Settings.LastNewsScanUtc = DateTime.MinValue;
+                    Settings.PlayniteNewsLastRefreshUtc = null;
+                    Settings.LastDealsScanUtc = null;
+                });
+
 
                 // 3) Delete the JSON file
                 var jsonPath = Path.Combine(GetDataRoot(), "CacheNews.json");
@@ -2594,9 +2807,14 @@ namespace AnikiHelper
                 {
                     Directory.Delete(imgRoot, true);
                 }
+                var dealsImgRoot = Path.Combine(GetDataRoot(), "DealsImages");
+                if (Directory.Exists(dealsImgRoot))
+                {
+                    Directory.Delete(dealsImgRoot, true);
+                }
 
                 // 5) Save the updated settings
-                SavePluginSettings(Settings);
+                SaveSettingsSafe();
             }
             catch (Exception ex)
             {
@@ -2610,21 +2828,29 @@ namespace AnikiHelper
             try
             {
                 var file = GetMonthFilePath(monthStart);
+
+                string text;
+
                 if (File.Exists(file))
                 {
-                    var dt = File.GetLastWriteTime(file);
-                    Settings.SnapshotDateString = $"Snapshot {monthStart:MM/yyyy} : {dt:dd/MM/yyyy HH:mm}";
+                    var created = File.GetCreationTime(file);
+                    var modified = File.GetLastWriteTime(file);
+                    var dt = created < modified ? created : modified;
+                    text = $"Snapshot {monthStart:MM/yyyy} : {dt:dd/MM/yyyy HH:mm}";
                 }
                 else
                 {
-                    Settings.SnapshotDateString = $"Snapshot {monthStart:MM/yyyy} : (aucun)";
+                    text = $"Snapshot {monthStart:MM/yyyy} : (aucun)";
                 }
+
+                OnUi(() => Settings.SnapshotDateString = text);
             }
             catch
             {
-                Settings.SnapshotDateString = $"Snapshot {monthStart:MM/yyyy} : (indisponible)";
+                OnUi(() => Settings.SnapshotDateString = $"Snapshot {monthStart:MM/yyyy} : (indisponible)");
             }
         }
+
 
         private void EnsureMonthlySnapshotSafe()
         {
@@ -2679,6 +2905,26 @@ namespace AnikiHelper
                     Interval = TimeSpan.FromMilliseconds(800)
                 };
                 steamUpdateTimer.Tick += steamUpdateTimer_Tick;
+
+                // Charger le cache Steam Updates une seule fois (hors UI thread)
+                Task.Run(() =>
+                {
+                    var loaded = LoadSteamUpdatesCache();
+                    lock (steamUpdatesCacheLock)
+                    {
+                        steamUpdatesCache = loaded ?? new Dictionary<string, SteamUpdateCacheEntry>();
+                        steamUpdatesCacheDirty = false;
+                    }
+                });
+
+                // Timer: flush du cache sur disque en différé (évite write pendant hover)
+                steamUpdatesCacheFlushTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(20)
+                };
+                steamUpdatesCacheFlushTimer.Tick += (s, e) => FlushSteamUpdatesCacheIfNeeded();
+                steamUpdatesCacheFlushTimer.Start();
+
 
                 // Timer pour les deals (on check toutes les heures, mais avec cooldown 12h)
                 dealsTimer = new DispatcherTimer
@@ -2759,14 +3005,14 @@ namespace AnikiHelper
                 if (result == MessageBoxResult.Yes)
                 {
                     Settings.AskSteamUpdateCacheAtStartup = false;
-                    SavePluginSettings(Settings);
+                    SaveSettingsSafe();
 
                     _ = InitializeSteamUpdatesCacheForAllGamesAsync();
                 }
                 else
                 {
                     Settings.AskSteamUpdateCacheAtStartup = false;
-                    SavePluginSettings(Settings);
+                    SaveSettingsSafe();
                 }
             }
             catch (Exception ex)
@@ -2802,8 +3048,11 @@ namespace AnikiHelper
 
         private bool IsSteamRecentScanAllowed()
         {
-            if (!Settings.SteamUpdatesScanEnabled)
+            bool enabled = false;
+            OnUi(() => enabled = Settings.SteamUpdatesScanEnabled);
+            if (!enabled)
                 return false;
+
 
             if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
                 return false;
@@ -2843,16 +3092,20 @@ namespace AnikiHelper
 
             try
             {
-                Settings.SessionGameName = string.Empty;
-                Settings.SessionDurationString = string.Empty;
-                Settings.SessionTotalPlaytimeString = string.Empty;
-                Settings.SessionNewAchievementsString = string.Empty;
-                Settings.SessionHasNewAchievements = false;
-                Settings.SessionNewAchievementsCount = 0;
-                Settings.SessionNotificationStamp = string.Empty;
-                Settings.SessionNotificationArmed = false;
+                OnUi(() =>
+                {
+                    Settings.SessionGameName = string.Empty;
+                    Settings.SessionDurationString = string.Empty;
+                    Settings.SessionTotalPlaytimeString = string.Empty;
+                    Settings.SessionNewAchievementsString = string.Empty;
+                    Settings.SessionHasNewAchievements = false;
+                    Settings.SessionNewAchievementsCount = 0;
+                    Settings.SessionNotificationStamp = string.Empty;
+                    Settings.SessionNotificationArmed = false;
+                });
             }
             catch { }
+
 
             // --- UI Fullscreen ---
             AddonsUpdateStyler.Start();
@@ -2911,24 +3164,29 @@ namespace AnikiHelper
             // Random login screen
             try
             {
-                var rand = new Random();
-                const int max = 41;
-
-                int pick;
-                if (Settings.LastLoginRandomIndex >= 1 && Settings.LastLoginRandomIndex <= max && max > 1)
+                OnUi(() =>
                 {
-                    do { pick = rand.Next(1, max + 1); } while (pick == Settings.LastLoginRandomIndex);
-                }
-                else
-                {
-                    pick = rand.Next(1, max + 1);
-                }
+                    var rand = new Random();
+                    const int max = 41;
 
-                Settings.LoginRandomIndex = pick;
-                Settings.LastLoginRandomIndex = pick;
-                SavePluginSettings(Settings);
+                    int pick;
+                    if (Settings.LastLoginRandomIndex >= 1 && Settings.LastLoginRandomIndex <= max && max > 1)
+                    {
+                        do { pick = rand.Next(1, max + 1); } while (pick == Settings.LastLoginRandomIndex);
+                    }
+                    else
+                    {
+                        pick = rand.Next(1, max + 1);
+                    }
+
+                    Settings.LoginRandomIndex = pick;
+                    Settings.LastLoginRandomIndex = pick;
+                });
+
+                SaveSettingsSafe();
             }
             catch { }
+
 
             try
             {
@@ -2942,6 +3200,23 @@ namespace AnikiHelper
             }
             catch { }
         }
+
+        public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
+        {
+            try { steamUpdateTimer?.Stop(); } catch { }
+            try { dealsTimer?.Stop(); } catch { }
+            try { steamUpdatesCacheFlushTimer?.Stop(); } catch { }
+
+            try
+            {
+                steamUpdateCts?.Cancel();
+                steamUpdateCts?.Dispose();
+            }
+            catch { }
+
+            base.OnApplicationStopped(args);
+        }
+
 
         private async Task ScheduleSteamRecentUpdatesScanAsync(int maxGames)
         {
@@ -2974,7 +3249,7 @@ namespace AnikiHelper
                     return;
                 }
 
-                await TryScanGlobalNewsAsync(force: false, silent: true);
+                await RefreshGlobalSteamNewsAsync(force: false);
             }
             catch (Exception ex)
             {

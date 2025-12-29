@@ -1106,8 +1106,8 @@ namespace AnikiHelper
                 OverlayMid = overlayMid,
                 OverlayBot = overlayBot,
 
-                ButtonPlayMid = Darken(safeAccent, .70),
-                ButtonPlayEnd = Darken(safeAccent, .80),
+                ButtonPlayMid = Darken(safeAccent, .30),
+                ButtonPlayEnd = Darken(safeAccent, .40),
 
                 FocusStart = light ? Colors.Black : Colors.White,
                 FocusMid = Lighten(safeAccent, .20),
@@ -1321,7 +1321,7 @@ namespace AnikiHelper
             SetColor("GlowEndColor", p.GlowEndColor);
 
             UpdateOrSetLinearBrushV("OverlayMenu", p.OverlayTop, p.OverlayMid, p.OverlayBot);
-            UpdateOrSetLinearBrushV("ButtonPlayColor", p.Accent, p.ButtonPlayMid, p.ButtonPlayEnd);
+            UpdateOrSetLinearBrushV("ButtonPlayColor", p.Accent, p.ButtonPlayEnd);
             UpdateOrSetLinearBrushDiag("FocusGameBorderBrush", p.FocusStart, p.FocusMid, p.FocusEnd);
             UpdateOrSetLinearBrushH("MenuBorderBrush", p.MenuBorderStart, p.MenuBorderEnd);
             UpdateOrSetLinearBrushDiag("NoFocusBorderButtonBrush", p.NoFocusStart, p.NoFocusEnd);

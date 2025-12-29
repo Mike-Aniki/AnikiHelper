@@ -147,12 +147,12 @@ namespace AnikiHelper
         }
 
         // IMAGES CACHE PATH
-        private string GetNewsImagesRoot()
+        private string GetImagesRoot(string subFolder)
         {
             var root = Path.Combine(
                 api.Paths.ExtensionsDataPath,
                 "96a983a3-3f13-4dce-a474-4052b718bb52",
-                "NewsImages");
+                subFolder);
 
             if (!Directory.Exists(root))
             {
@@ -161,6 +161,7 @@ namespace AnikiHelper
 
             return root;
         }
+
 
         private static string ComputeHash(string input)
         {
@@ -178,7 +179,7 @@ namespace AnikiHelper
         }
 
         // Downloads an image to the cache 
-        private async Task<string> DownloadImageToCacheAsync(string imageUrl)
+        private async Task<string> DownloadImageToCacheAsync(string imageUrl, string subFolder)
         {
             try
             {
@@ -205,8 +206,7 @@ namespace AnikiHelper
                 }
 
                 var fileName = ComputeHash(imageUrl) + ext;
-                var fullPath = Path.Combine(GetNewsImagesRoot(), fileName);
-
+                var fullPath = Path.Combine(GetImagesRoot(subFolder), fileName);
                 if (File.Exists(fullPath))
                 {
                     return fullPath;
@@ -289,6 +289,89 @@ namespace AnikiHelper
             }
         }
 
+        // Purge images cache: delete files that are no longer referenced by the current cache items.
+        private void PurgeUnusedNewsImages(IList<SteamGlobalNewsItem> cacheItems)
+        {
+            try
+            {
+                var imagesRoot = GetImagesRoot("NewsImages");
+                if (string.IsNullOrWhiteSpace(imagesRoot) || !Directory.Exists(imagesRoot))
+                {
+                    return;
+                }
+
+                // Safety: if cache is null/empty, do nothing (avoid nuking everything by mistake)
+                if (cacheItems == null || cacheItems.Count == 0)
+                {
+                    return;
+                }
+
+                // Collect referenced image file paths (LocalImagePath primarily)
+                var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var it in cacheItems)
+                {
+                    AddIfValidFilePath(referenced, it?.LocalImagePath);
+                    // Optional: if you ever store other cached paths here, add them too:
+                    // AddIfValidFilePath(referenced, it?.CoverPath);
+                    // AddIfValidFilePath(referenced, it?.IconPath);
+                }
+
+                // Delete any file in NewsImages that is not referenced
+                foreach (var file in Directory.EnumerateFiles(imagesRoot))
+                {
+                    try
+                    {
+                        var full = NormalizeFullPath(file);
+
+                        if (!referenced.Contains(full))
+                        {
+                            File.Delete(full);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore (locked file / IO race / access)
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore (never break news loading because of cache purge)
+            }
+        }
+
+        private void AddIfValidFilePath(HashSet<string> set, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            try
+            {
+                var full = NormalizeFullPath(path);
+
+                // Only keep files that are inside NewsImages folder (extra safety)
+                var root = NormalizeFullPath(GetImagesRoot("NewsImages"));
+                if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(full))
+                {
+                    set.Add(full);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private static string NormalizeFullPath(string path)
+        {
+            // GetFullPath normalizes .. and slashes; TrimEnd helps folder comparisons
+            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+
         private static string AddLangToUrl(string url, string lang)
         {
             if (string.IsNullOrWhiteSpace(lang))
@@ -299,10 +382,11 @@ namespace AnikiHelper
         }
 
         // Small helper
-        public Task<List<SteamGlobalNewsItem>> GetGenericFeedAsync(string url)
+        public Task<List<SteamGlobalNewsItem>> GetGenericFeedAsync(string url, string imagesFolder = "NewsImages")
         {
-            return LoadFeedAsync(url);
+            return LoadFeedAsync(url, imagesFolder);
         }
+
 
 
         // MAIN METHOD
@@ -416,11 +500,15 @@ namespace AnikiHelper
             // 5) Saving to disk
             SaveNewsCache(merged);
 
+            // 5a) Purge unused cached images (keep only what's referenced by the cache)
+            PurgeUnusedNewsImages(merged);
+
             // 5b) Updates the last refresh timestamp
             if (settings != null)
             {
                 settings.SteamGlobalNewsLastRefreshUtc = nowUtc;
             }
+
 
             // 6) Only the last X are returned to the theme
             return merged
@@ -451,7 +539,7 @@ namespace AnikiHelper
 
 
         // Loading + parsing a single stream
-        private async Task<List<SteamGlobalNewsItem>> LoadFeedAsync(string feedUrl)
+        private async Task<List<SteamGlobalNewsItem>> LoadFeedAsync(string feedUrl, string imagesFolder = "NewsImages")
         {
             try
             {
@@ -704,7 +792,7 @@ namespace AnikiHelper
                         var localImagePath = string.Empty;
                         if (!string.IsNullOrWhiteSpace(imageUrl))
                         {
-                            localImagePath = await DownloadImageToCacheAsync(imageUrl);
+                            localImagePath = await DownloadImageToCacheAsync(imageUrl, imagesFolder);
                         }
 
 
@@ -963,6 +1051,31 @@ namespace AnikiHelper
 
             return html;
         }
+
+        public void PurgeDealsImagesByAge(int maxDays)
+        {
+            try
+            {
+                var root = GetImagesRoot("DealsImages");
+                if (!Directory.Exists(root))
+                    return;
+
+                var threshold = DateTime.Now.AddDays(-Math.Max(1, maxDays));
+
+                foreach (var file in Directory.EnumerateFiles(root))
+                {
+                    try
+                    {
+                        var dt = File.GetLastWriteTime(file);
+                        if (dt < threshold)
+                            File.Delete(file);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
 
 
         private static string MapPlayniteLanguageToSteam(string code)
