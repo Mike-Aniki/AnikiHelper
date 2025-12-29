@@ -134,3 +134,12 @@ Packages:
     Changelog:
       - Added more filtered keywords to Aniki News.
       - Added rotation to the suggested games system, the top 3 suggested games are now displayed alternately instead of a single one.
+  - Version: 1.2.3
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2025-12-29
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.2.3/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_2_3.pext
+    Changelog:
+      - Reduced UI stuttering by optimizing background tasks and cache access.
+      - Improved Steam updates handling (less frequent disk writes, smarter caching).
+      - Safer async operations to avoid freezes during fast navigation.
+      - Better synchronization between notifications and cached data.
