@@ -251,6 +251,10 @@ namespace AnikiHelper
         }
 
         // Rotation info for suggested game (top 3 / once per day)
+        public Guid RefGameLastId { get; set; } = Guid.Empty;
+        public DateTime RefGameLastChangeDate { get; set; } = DateTime.MinValue;
+
+
         private Guid suggestedGameLastId = Guid.Empty;
         public Guid SuggestedGameLastId
         {

@@ -2139,115 +2139,15 @@ namespace AnikiHelper
 
             Func<ulong, ulong> ToMinutes = raw => raw / 60UL;
 
-            const int RefDaysLimit = 45;     
-            var now = DateTime.Now;
-
-            // 1) Trouver le jeu de référence (Find the reference game)
-
-            Playnite.SDK.Models.Game refGame = null;
-
-            // 1A) recent progress 
-            try
-            {
-                var snapshots = LoadAllMonthlySnapshots();
-                var recentMinutes = ComputeRecentMinutesFromSnapshots(snapshots, games);
-
-                ulong bestMinutes = 0;
-                Guid bestId = Guid.Empty;
-
-                foreach (var kv in recentMinutes)
-                {
-                    if (kv.Value == 0)
-                        continue;
-
-                    var g = games.FirstOrDefault(x => x.Id == kv.Key);
-                    if (g == null)
-                        continue;
-
-                    // Game played within the last 45 days
-                    if (g.LastActivity == null ||
-                       (now - g.LastActivity.Value).TotalDays > RefDaysLimit)
-                    {
-                        continue;
-                    }
-
-                    if (kv.Value > bestMinutes)
-                    {
-                        bestMinutes = kv.Value;
-                        bestId = kv.Key;
-                    }
-                }
-
-                if (bestId != Guid.Empty)
-                {
-                    refGame = games.FirstOrDefault(g => g.Id == bestId);
-                }
-            }
-            catch
-            {
-                
-            }
-
-            // 1B) Fallback 
-            if (refGame == null)
-            {
-                try
-                {
-                    var monthStart = new DateTime(now.Year, now.Month, 1);
-                    var snapshot = LoadMonthSnapshot(monthStart);
-
-                    ulong topDelta = 0;
-                    Guid bestId = Guid.Empty;
-
-                    foreach (var g in games)
-                    {
-                        // Récence
-                        if (g.LastActivity == null ||
-                           (now - g.LastActivity.Value).TotalDays > RefDaysLimit)
-                        {
-                            continue;
-                        }
-
-                        var currMinutes = ToMinutes(g.Playtime);
-
-                        if (!snapshot.TryGetValue(g.Id, out var baseMinutes))
-                        {
-                            continue;
-                        }
-
-                        var delta = currMinutes > baseMinutes ? (currMinutes - baseMinutes) : 0UL;
-
-                        if (delta > topDelta)
-                        {
-                            topDelta = delta;
-                            bestId = g.Id;
-                        }
-                    }
-
-                    if (bestId != Guid.Empty)
-                    {
-                        refGame = games.FirstOrDefault(g => g.Id == bestId);
-                    }
-                }
-                catch
-                {
-                }
-            }
-
-            // 1C) Fallback : last game played in the last 45 days
-            if (refGame == null)
-            {
-                refGame = games
-                    .Where(g => g.LastActivity != null &&
-                                (now - g.LastActivity.Value).TotalDays <= RefDaysLimit)
-                    .OrderByDescending(g => g.LastActivity)
-                    .FirstOrDefault();
-            }
+            // 1) RefGame (Top 3 sur 14 jours + sticky journée)
+            List<Playnite.SDK.Models.Game> refTop3;
+            Playnite.SDK.Models.Game refGame = GetOrSelectRefGameForToday(games, out refTop3);
 
             if (refGame == null)
             {
-                return; 
+                return;
             }
+
 
             var refName = Safe(refGame.Name);
             var refGenres = GetGenreNames(refGame).ToList();
@@ -2267,6 +2167,16 @@ namespace AnikiHelper
                 // Exclude games marked as "finished"
                 if (IsGameFinished(g))
                     continue;
+
+                // Exclude "saturated" games from suggestions
+                if (g.Playtime >= 30UL * 60UL) 
+                {
+                    if (g.LastActivity.HasValue &&
+                        (DateTime.Now - g.LastActivity.Value).TotalDays > 60)
+                    {
+                        continue;
+                    }
+                }
 
                 // Candidate data
                 var genres = GetGenreNames(g).ToList();
@@ -3061,6 +2971,81 @@ namespace AnikiHelper
                 return false;
 
             return true;
+        }
+
+        private Playnite.SDK.Models.Game GetOrSelectRefGameForToday(
+    List<Playnite.SDK.Models.Game> games,
+    out List<Playnite.SDK.Models.Game> top3)
+        {
+            top3 = new List<Playnite.SDK.Models.Game>();
+
+            var s = Settings;
+            if (games == null || games.Count == 0)
+            {
+                return null;
+            }
+
+            var today = DateTime.Now.Date;
+
+            // Si on a déjà un RefGame choisi aujourd'hui, on le réutilise
+            if (s.RefGameLastId != Guid.Empty && s.RefGameLastChangeDate.Date == today)
+            {
+                var cached = games.FirstOrDefault(g => g.Id == s.RefGameLastId)
+                             ?? PlayniteApi.Database.Games.Get(s.RefGameLastId);
+
+                if (cached != null)
+                {
+                    return cached;
+                }
+
+                // si jeu supprimé / plus dans la liste filtrée
+                s.RefGameLastId = Guid.Empty;
+            }
+
+            var limit = DateTime.Now.AddDays(-14);
+
+            // Top 3 : joué dans les 14 jours, tri Playtime -> PlayCount -> LastActivity
+            var candidates = games
+                .Where(g =>
+                    g != null
+                    && g.LastActivity.HasValue
+                    && g.LastActivity.Value >= limit
+                    && (g.Playtime > 0UL || g.PlayCount > 0UL))
+                .OrderByDescending(g => g.Playtime)
+                .ThenByDescending(g => g.PlayCount)
+                .ThenByDescending(g => g.LastActivity)
+                .ToList();
+
+            top3 = candidates.Take(3).ToList();
+
+            // RefGame = le dernier lancé parmi le Top 3
+            Playnite.SDK.Models.Game refGame = null;
+
+            if (top3.Count > 0)
+            {
+                refGame = top3
+                    .OrderByDescending(g => g.LastActivity ?? DateTime.MinValue)
+                    .FirstOrDefault();
+            }
+
+            // Fallback : dernier jeu joué
+            if (refGame == null)
+            {
+                refGame = games
+                    .Where(g => g.LastActivity.HasValue)
+                    .OrderByDescending(g => g.LastActivity)
+                    .FirstOrDefault();
+            }
+
+            // Sticky journée
+            if (refGame != null)
+            {
+                s.RefGameLastId = refGame.Id;
+                s.RefGameLastChangeDate = today;
+                SaveSettingsSafe();
+            }
+
+            return refGame;
         }
 
 
