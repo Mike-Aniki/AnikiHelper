@@ -143,3 +143,9 @@ Packages:
       - Improved Steam updates handling (less frequent disk writes, smarter caching).
       - Safer async operations to avoid freezes during fast navigation.
       - Better synchronization between notifications and cached data.
+  - Version: 1.2.4
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2026-01-04
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.2.4/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_2_4.pext
+    Changelog:
+      - Improved the suggested game logic. The suggested game now updates dynamically instead of relying on a fixed reference.
