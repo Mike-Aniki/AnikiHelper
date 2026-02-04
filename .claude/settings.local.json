@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Msbuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"C:\\\\Users\\\\Justin\\\\Desktop\\\\PlayniteAchievements\\\\playnite-anikihelper-plugin\\\\Source\\\\AnikiHelper.csproj\" /t:Build /p:Configuration=Release /m)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Msbuild\\\\Current\\\\Bin\\\\MSBuild.exe\" AnikiHelper.csproj /t:Build /p:Configuration=Release /m /nologo /v:n)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Msbuild\\\\Current\\\\Bin\\\\MSBuild.exe\" AnikiHelper.csproj -t:Build -p:Configuration=Release -m -nologo -v:n)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

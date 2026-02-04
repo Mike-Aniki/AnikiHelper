@@ -14,6 +14,37 @@ namespace AnikiHelper
             InitializeComponent();
 
             LoadLocaleFromCurrentUICulture();
+            Loaded += AnikiHelperSettingsView_Loaded;
+        }
+
+        private void AnikiHelperSettingsView_Loaded(object sender, RoutedEventArgs e)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+            if (vm?.Settings != null)
+            {
+                var combo = FindName("AchievementIntegrationCombo") as ComboBox;
+                if (combo != null)
+                {
+                    combo.SelectedIndex = (int)vm.Settings.AchievementIntegrationMode;
+                    combo.SelectionChanged += AchievementIntegrationCombo_SelectionChanged;
+                }
+            }
+        }
+
+        private void AchievementIntegrationCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var combo = sender as ComboBox;
+            if (combo?.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+            {
+                if (int.TryParse(tag, out int index))
+                {
+                    var vm = DataContext as AnikiHelperSettingsViewModel;
+                    if (vm?.Settings != null)
+                    {
+                        vm.Settings.AchievementIntegrationMode = (AchievementIntegrationMode)index;
+                    }
+                }
+            }
         }
 
         private void LoadLocaleFromCurrentUICulture()
