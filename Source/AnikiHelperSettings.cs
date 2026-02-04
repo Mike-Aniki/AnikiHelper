@@ -139,10 +139,7 @@ namespace AnikiHelper
         public string ApiName { get; set; }
         public string DisplayName { get; set; }
         public string Description { get; set; }
-        public string UnlockedIconUrl { get; set; }
-        public string LockedIconUrl { get; set; }
-        public string UnlockedIconPath { get; set; }
-        public string LockedIconPath { get; set; }
+        public string IconPath { get; set; }
         public DateTime? UnlockTimeUtc { get; set; }
         public double? GlobalPercentUnlocked { get; set; }
         public bool Hidden { get; set; }
@@ -1253,7 +1250,7 @@ namespace AnikiHelper
                 var displayNameProp = typeof(AchievementDetail).GetProperty("DisplayName");
                 var nameProp = typeof(AchievementDetail).GetProperty("Name");
                 var descProp = typeof(AchievementDetail).GetProperty("Description");
-                var iconUrlProp = typeof(AchievementDetail).GetProperty("UnlockedIconUrl");
+                var iconPathProp = typeof(AchievementDetail).GetProperty("IconPath");
 
                 foreach (var file in files)
                 {
@@ -1281,7 +1278,7 @@ namespace AnikiHelper
 
                         var title = ach.DisplayName ?? ach.ApiName ?? "(Achievement)";
                         var desc = ach.Description ?? "";
-                        var icon = ach.UnlockedIconUrl ?? "";
+                        var icon = ach.IconPath ?? "";
 
                         results.Add(new RecentAchievementItem
                         {
@@ -1530,7 +1527,7 @@ namespace AnikiHelper
                         if (percent == null || percent <= 0) continue;
 
                         var title = ach.DisplayName ?? ach.ApiName ?? "(Achievement)";
-                        var icon = ach.UnlockedIconUrl ?? "";
+                        var icon = ach.IconPath ?? "";
 
                         pool.Add(new RareAchievementItem
                         {
