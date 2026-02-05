@@ -14,6 +14,7 @@
 
         <SolidColorBrush x:Key="LibraryAccentBrush" Color="DarkGoldenrod"/>
         <SolidColorBrush x:Key="MonthlyAccentBrush" Color="DarkSlateGray"/>
+        <SolidColorBrush x:Key="AchievementAccentBrush" Color="DarkViolet"/>
         <SolidColorBrush x:Key="DynamicAccentBrush" Color="DarkRed"/>
         <SolidColorBrush x:Key="SteamAccentBrush" Color="DarkBlue"/>
         <SolidColorBrush x:Key="NewsAccentBrush" Color="DarkGreen"/>
@@ -305,6 +306,52 @@
                         </StackPanel>
 
                         <TextBlock Text="{DynamicResource ResetBtntip}"
+                                   Style="{StaticResource SmallNoteText}"/>
+
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ========= ACHIEVEMENT INTEGRATION ========= -->
+            <Border Style="{StaticResource SectionCard}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Background="{StaticResource AchievementAccentBrush}"
+                            CornerRadius="10,10,0,0"
+                            Padding="12,4">
+                        <TextBlock Text="{DynamicResource GroupAchievementIntegration}"
+                                   Foreground="White"
+                                   FontWeight="SemiBold"
+                                   FontSize="16"
+                                   HorizontalAlignment="Center"/>
+                    </Border>
+
+                    <StackPanel Grid.Row="1" Margin="12,10,12,12">
+
+                        <TextBlock Text="{DynamicResource AchievementIntegration_Help}"
+                                   Foreground="White"
+                                   Margin="0,0,0,8"
+                                   TextWrapping="Wrap"/>
+
+                        <TextBlock Text="{DynamicResource AchievementIntegration_ModeLabel}"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   Margin="0,0,0,4"/>
+
+                        <ComboBox Name="AchievementIntegrationCombo"
+                                  HorizontalAlignment="Stretch"
+                                  Margin="0,4,0,8"
+                                  Padding="6,4">
+                            <ComboBoxItem Content="{DynamicResource AchievementIntegration_ModePlayniteAchievements}" Tag="0"/>
+                            <ComboBoxItem Content="{DynamicResource AchievementIntegration_ModeSuccessStory}" Tag="1"/>
+                        </ComboBox>
+
+                        <TextBlock Text="{DynamicResource AchievementIntegration_ModeDesc}"
                                    Style="{StaticResource SmallNoteText}"/>
 
                     </StackPanel>

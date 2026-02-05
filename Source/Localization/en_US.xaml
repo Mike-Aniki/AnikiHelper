@@ -19,8 +19,15 @@
   <sys:String x:Key="SnapshotTooltip">This shows when the current month’s baseline was created.</sys:String>
   <sys:String x:Key="ResetBtn">Start fresh for this month</sys:String>
     <sys:String x:Key="ResetBtnTooltip">Rebuild the monthly baseline now</sys:String>
-    <sys:String x:Key="ResetBtntip">Use this if numbers look wrong or you just want to restart the month’s tracking.</sys:String>
-    
+    <sys:String x:Key="ResetBtntip">Use this if numbers look wrong or you just want to restart the month's tracking.</sys:String>
+
+    <sys:String x:Key="GroupAchievementIntegration">Achievement Integration</sys:String>
+    <sys:String x:Key="AchievementIntegration_Help">Choose which achievement provider plugin to use.</sys:String>
+    <sys:String x:Key="AchievementIntegration_ModeLabel">Integration source</sys:String>
+    <sys:String x:Key="AchievementIntegration_ModePlayniteAchievements">PlayniteAchievements</sys:String>
+    <sys:String x:Key="AchievementIntegration_ModeSuccessStory">SuccessStory</sys:String>
+    <sys:String x:Key="AchievementIntegration_ModeDesc">PlayniteAchievements is used by default when installed.</sys:String>
+
 
 
     <sys:String x:Key="GroupDynColors">Dynamic colors</sys:String>

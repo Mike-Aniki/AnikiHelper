@@ -21,6 +21,13 @@
   <sys:String x:Key="ResetBtnTooltip">Reconstruit la base mensuelle immédiatement</sys:String>
   <sys:String x:Key="ResetBtntip">À utiliser si les chiffres semblent incorrects ou si vous souhaitez simplement recommencer le suivi du mois.</sys:String>
 
+  <sys:String x:Key="GroupAchievementIntegration">Intégration Succès</sys:String>
+  <sys:String x:Key="AchievementIntegration_Help">Choisissez quelle extension de fournisseur de succès utiliser.</sys:String>
+  <sys:String x:Key="AchievementIntegration_ModeLabel">Source d'intégration</sys:String>
+  <sys:String x:Key="AchievementIntegration_ModePlayniteAchievements">PlayniteAchievements</sys:String>
+  <sys:String x:Key="AchievementIntegration_ModeSuccessStory">SuccessStory</sys:String>
+  <sys:String x:Key="AchievementIntegration_ModeDesc">PlayniteAchievements est utilisé par défaut lorsqu'il est installé.</sys:String>
+
     <sys:String x:Key="GroupDynColors">Couleurs dynamiques</sys:String>
     <sys:String x:Key="DynColors_Help">Vide le cache si les couleurs deviennent erronées ou après de nombreux changements d’images.</sys:String>
     <sys:String x:Key="L_ClearColorCache">Reset color cache</sys:String>
