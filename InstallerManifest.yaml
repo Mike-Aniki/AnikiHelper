@@ -155,3 +155,11 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.2.5/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_2_5.pext
     Changelog:
       - Added PlayniteAchievements trophy data support (contribution by Justin Delano). Data source switches automatically between SSFH and PlayniteAchievements depending on what is installed.
+  - Version: 1.2.6
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2026-02-11
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.2.6/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_2_6.pext
+    Changelog:
+      - Improved Settings view for better clarity and organization of options.
+      - Added an option in Aniki Helper settings (contribution by Justin Delano) to choose which achievements plugin is used (SuccessStory or PlayniteAchievements).
+      - Aniki Helper displays the 3 most recent unlocked achievements and the 3 rarest achievements, but you must select the achievements source plugin in Aniki Helper settings for this work correctly.
