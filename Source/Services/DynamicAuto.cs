@@ -26,9 +26,9 @@ namespace AnikiHelper
         private static CancellationTokenSource debounceCts;
         private static CancellationTokenSource animCts;
 
-        private const int DebounceMs = 30;          // decrease = more reactive
-        private const int TransitionMs = 120;        // total fade time
-        private const int TransitionSteps = 8;      // + more steps = smoother
+        private const int DebounceMs = 40;          // decrease = more reactive
+        private const int TransitionMs = 20;        // total fade time
+        private const int TransitionSteps = 1;      // + more steps = smoother
 
         // Precache optionnel
         private const int PrecacheDelayMs = 20000;   // attendre après le boot
@@ -243,23 +243,53 @@ namespace AnikiHelper
         // ONLY these keys
         private static readonly string[] KeysToTouch = new[]
         {
-            "GlyphColor","GlowFocusColor","TextColor","TextSecondaryColor","TextDetail",
-            "TextAltDetail","TextHighlight","HltbAlt","DynamicGlowBackgroundPrimary",
-            "OverlayStart","OverlayMid","OverlayEnd",
-            "ButtonPlayMid","ButtonPlayEnd",
-            "FocusStart","FocusMid","FocusEnd",
-            "MenuBorderStart","MenuBorderEnd",
-            "NoFocusStart","NoFocusEnd",
-            "ControlBackgroundColor","SuccessStartColor",
-            "GlowMidColor","GlowEndColor",
-            "ShadeMidColor","ShadeEndColor"
+            "OverlayMenu_Top",
+            "OverlayMenu_Mid",
+            "OverlayMenu_Bottom",
+            "GameListFrameBackground",
+
+            "MenuBorderPrimaryColor",
+            "MenuBorderSecondaryColor",
+
+            "TopBar_Top",
+            "TopBar_Bottom",
+            "BottomBar_Top",
+            "BottomBar_Bottom",
+
+            "ButtonPlay_Top",
+            "ButtonPlay_Bottom",
+
+            "GameFocus_Left",
+            "GameFocus_Right",
+
+            "SecondaryViewBackground_Center",
+            "SecondaryViewBackground_Mid",
+            "SecondaryViewBackground_End",
+
+            "SeparatorListGame",
+            "SeparatorTopBar_Mid",
+
+            "HubCardBottomBorder",
+            "HubBannerBorder",
+            "HubAchievementsBorder",
+            "HubAchievementsIconBorder",
+            "TextHubPercentAchievement",
+
+            "TextHighlightStatView",
+            "AccentCardStat",
+
+            "TextHighlightNewsView",
+
+            "SuccessBannerBorder_Right",
+            "FocusSuccessCardBorder_Right",
+
         };
 
         private static readonly string[] BrushesToTouch = new[]
         {
-            "OverlayMenu","ButtonPlayColor","FocusGameBorderBrush","MenuBorderBrush",
-            "NoFocusBorderButtonBrush","SuccessMenu","DynamicGlowBackgroundSuccess","ShadeBackground"
+            "DynamicGlowBackgroundSuccess"
         };
+               
 
         private static readonly Dictionary<string, object> snapshot = new Dictionary<string, object>();
 
@@ -334,7 +364,7 @@ namespace AnikiHelper
             var userDataPath = Path.Combine(api.Paths.ExtensionsDataPath, PluginId);
             Directory.CreateDirectory(userDataPath);
 
-            cacheFilePath = Path.Combine(userDataPath, "palette_cache.json");
+            cacheFilePath = Path.Combine(userDataPath, "palette_cache_v2.json");
             LoadAccentCache();
 
 
@@ -795,7 +825,7 @@ namespace AnikiHelper
             int[] hist = new int[4096];
             int considered = 0;
             int brightCount = 0;
-            int colorful = 0; // NEW
+            int colorful = 0;
 
             for (int y = y0; y < y1; y += stepY)
             {
@@ -807,29 +837,39 @@ namespace AnikiHelper
                     byte g = pixels[i + 1];
                     byte r = pixels[i + 2];
                     byte a = pixels[i + 3];
-                    if (a < 16) continue;
+                    if (a < 16)
+                        continue;
 
                     int lum = Lum255(r, g, b);
-                    if (lum < 31) continue;
+                    if (lum < 31)
+                        continue;
 
                     considered++;
-                    if (lum > 209) brightCount++;
+                    if (lum > 209)
+                        brightCount++;
 
-                    if (IsLowSat(r, g, b)) continue;
+                    if (IsLowSat(r, g, b))
+                        continue;
 
                     if (SkinHueLikely(r, g, b))
                     {
                         byte max = Math.Max(r, Math.Max(g, b));
                         byte min = Math.Min(r, Math.Min(g, b));
                         double d = max - min;
+
                         if (d > 0)
                         {
                             double hue;
-                            if (max == r) hue = ((g - b) / d) % 6.0;
-                            else if (max == g) hue = ((b - r) / d) + 2.0;
-                            else hue = ((r - g) / d) + 4.0;
+                            if (max == r)
+                                hue = ((g - b) / d) % 6.0;
+                            else if (max == g)
+                                hue = ((b - r) / d) + 2.0;
+                            else
+                                hue = ((r - g) / d) + 4.0;
+
                             hue *= 60.0;
-                            if (hue < 0) hue += 360.0;
+                            if (hue < 0)
+                                hue += 360.0;
 
                             bool satModerate = ((max - min) * 100) < (45 * Math.Max(1, (int)max));
                             if (hue >= 15 && hue <= 45 && satModerate)
@@ -837,10 +877,11 @@ namespace AnikiHelper
                         }
                     }
 
-                    colorful++;   // <<< AJOUT
+                    colorful++;
 
-
-                    int rq = r >> 4, gq = g >> 4, bq = b >> 4;
+                    int rq = r >> 4;
+                    int gq = g >> 4;
+                    int bq = b >> 4;
                     hist[(rq << 8) | (gq << 4) | bq]++;
                 }
             }
@@ -848,71 +889,141 @@ namespace AnikiHelper
             if (considered == 0)
                 return MediaColor.FromRgb(31, 35, 45);
 
-            int maxCount = 0, maxIdx = -1;
-            for (int k = 0; k < hist.Length; k++)
-                if (hist[k] > maxCount) { maxCount = hist[k]; maxIdx = k; }
+            int peakCount = 0;
+            int peakIdx = -1;
 
-            bool tooSmallPeak = maxCount < Math.Max(50, considered / 300);
+            for (int k = 0; k < hist.Length; k++)
+            {
+                if (hist[k] > peakCount)
+                {
+                    peakCount = hist[k];
+                    peakIdx = k;
+                }
+            }
+
+            bool tooSmallPeak = peakCount < Math.Max(50, considered / 300);
             bool veryBrightBg = (brightCount / (double)considered) > 0.55;
 
-            if ((maxIdx < 0 || tooSmallPeak) && veryBrightBg)
+            if ((peakIdx < 0 || tooSmallPeak) && veryBrightBg)
             {
-                // Ratio de pixels "vraiment colorés" dans une image très claire
                 double colorfulRatio = considered > 0 ? (double)colorful / considered : 0.0;
 
-                if (colorfulRatio >= 0.04) // ≥4% de pixels colorés → chercher une vraie teinte
+                if (colorfulRatio >= 0.04)
                 {
-                    int bestIdx = -1;
-                    double bestScore = -1;
+                    int brightBestIdx = -1;
+                    double brightBestScore = -1.0;
 
                     for (int k = 0; k < hist.Length; k++)
                     {
                         int count = hist[k];
-                        if (count <= 0) continue;
+                        if (count <= 0)
+                            continue;
 
-                        int rr2 = ((k >> 8) & 0xF), gg2 = ((k >> 4) & 0xF), bb2 = (k & 0xF);
-                        byte R2 = (byte)(rr2 * 16 + 8), G2 = (byte)(gg2 * 16 + 8), B2 = (byte)(bb2 * 16 + 8);
+                        int rr2 = ((k >> 8) & 0xF);
+                        int gg2 = ((k >> 4) & 0xF);
+                        int bb2 = (k & 0xF);
 
-                        // Évite les tons peau sur fonds clairs
+                        byte R2 = (byte)(rr2 * 16 + 8);
+                        byte G2 = (byte)(gg2 * 16 + 8);
+                        byte B2 = (byte)(bb2 * 16 + 8);
+
                         if (SkinHueLikely(R2, G2, B2))
                             continue;
 
-                        // Score "chroma pondérée" : privilégie la saturation, puis la fréquence
                         int chroma = Math.Max(R2, Math.Max(G2, B2)) - Math.Min(R2, Math.Min(G2, B2));
                         double score = chroma * (1.0 + Math.Log10(1 + count));
 
-                        if (score > bestScore)
+                        if (score > brightBestScore)
                         {
-                            bestScore = score;
-                            bestIdx = k;
+                            brightBestScore = score;
+                            brightBestIdx = k;
                         }
                     }
 
-                    if (bestIdx >= 0)
+                    if (brightBestIdx >= 0)
                     {
-                        int r3 = ((bestIdx >> 8) & 0xF);
-                        int g3 = ((bestIdx >> 4) & 0xF);
-                        int b3 = (bestIdx & 0xF);
+                        int r3 = ((brightBestIdx >> 8) & 0xF);
+                        int g3 = ((brightBestIdx >> 4) & 0xF);
+                        int b3 = (brightBestIdx & 0xF);
+
                         byte R3 = (byte)(r3 * 16 + 8);
                         byte G3 = (byte)(g3 * 16 + 8);
                         byte B3 = (byte)(b3 * 16 + 8);
+
                         return MediaColor.FromRgb(R3, G3, B3);
                     }
-                    // sinon on tombera sur le fallback ci-dessous
                 }
 
-                // Cas "ultra clair ET quasi pas de couleur" (ex. Yakuza monochrome)
-                return MediaColor.FromRgb(208, 211, 216); 
+                return MediaColor.FromRgb(208, 211, 216);
             }
 
+            int finalIdx = -1;
+            double finalScore = -1.0;
 
-            int rr = ((maxIdx >> 8) & 0xF);
-            int gg = ((maxIdx >> 4) & 0xF);
-            int bb = (maxIdx & 0xF);
-            byte R = (byte)(rr * 16 + 8);
-            byte G = (byte)(gg * 16 + 8);
-            byte B = (byte)(bb * 16 + 8);
-            return MediaColor.FromRgb(R, G, B);
+            for (int k = 0; k < hist.Length; k++)
+            {
+                int count = hist[k];
+                if (count <= 0)
+                    continue;
+
+                int rq = ((k >> 8) & 0xF);
+                int gq = ((k >> 4) & 0xF);
+                int bq = (k & 0xF);
+
+                byte R = (byte)(rq * 16 + 8);
+                byte G = (byte)(gq * 16 + 8);
+                byte B = (byte)(bq * 16 + 8);
+
+                int chroma = Math.Max(R, Math.Max(G, B)) - Math.Min(R, Math.Min(G, B));
+                int lum = Lum255(R, G, B);
+                double hue = Hue360(R, G, B);
+
+                double chromaBoost = veryBrightBg ? (1.0 + chroma / 62.0) : (1.0 + chroma / 105.0);
+                double vividBonus = chroma > 110 ? 1.15 : (chroma > 80 ? 1.07 : 1.0);
+
+                double lumPenalty = lum > 230 ? 0.70 : (lum > 215 ? 0.86 : 1.0);
+                double darkPenalty = lum < 22 ? 0.55 : (lum < 38 ? 0.80 : 1.0);
+                double muddyPenalty = chroma < 38 ? 0.78 : 1.0;
+
+                // Évite les verts/jaunes ternes qui donnent du kaki sale
+                double olivePenalty = 1.0;
+                if (hue >= 50 && hue <= 105 && chroma < 95)
+                    olivePenalty = veryBrightBg ? 0.68 : 0.80;
+
+                // Bonus léger pour rouges/magenta/violets (utile pour Persona / fonds à identité forte)
+                double dramaticBonus = 1.0;
+                if ((hue <= 20 || hue >= 320) && chroma > 55)
+                    dramaticBonus = 1.12;
+
+                double score =
+                    count *
+                    chromaBoost *
+                    vividBonus *
+                    lumPenalty *
+                    darkPenalty *
+                    muddyPenalty *
+                    olivePenalty *
+                    dramaticBonus;
+
+                if (score > finalScore)
+                {
+                    finalScore = score;
+                    finalIdx = k;
+                }
+            }
+
+            if (finalIdx < 0)
+                return MediaColor.FromRgb(31, 35, 45);
+
+            int rr = ((finalIdx >> 8) & 0xF);
+            int gg = ((finalIdx >> 4) & 0xF);
+            int bb = (finalIdx & 0xF);
+
+            byte finalR = (byte)(rr * 16 + 8);
+            byte finalG = (byte)(gg * 16 + 8);
+            byte finalB = (byte)(bb * 16 + 8);
+
+            return MediaColor.FromRgb(finalR, finalG, finalB);
         }
 
         private static int Lum255(byte r, byte g, byte b) => (54 * r + 183 * g + 18 * b) / 255; // 0..255
@@ -932,51 +1043,18 @@ namespace AnikiHelper
             return lum > 64 && lum < 217;
         }
 
-        // === DTO JSON pour stocker une palette complète ===
         private sealed class PaletteDto
         {
             public string Accent { get; set; }
-            public string Glow { get; set; }
-            public string Highlight { get; set; }
-            public string Secondary { get; set; }
-
-            public string Text { get; set; }
-            public string TextSecondary { get; set; }
-            public string TextDetail { get; set; }
-
-            public string OverlayTop { get; set; }
-            public string OverlayMid { get; set; }
-            public string OverlayBot { get; set; }
-
-            public string ButtonPlayMid { get; set; }
-            public string ButtonPlayEnd { get; set; }
-
-            public string FocusStart { get; set; }
-            public string FocusMid { get; set; }
-            public string FocusEnd { get; set; }
-
-            public string MenuBorderStart { get; set; }
-            public string MenuBorderEnd { get; set; }
-
-            public string NoFocusStart { get; set; }
-            public string NoFocusEnd { get; set; }
-
-            public string ShadeMidColor { get; set; }
-            public string ShadeEndColor { get; set; }
-
-            public string ControlBackgroundColor { get; set; }
-            public string SuccessStartColor { get; set; }
-
-            public string GlowMidColor { get; set; }
-            public string GlowEndColor { get; set; }
         }
 
-        // Convertit MediaColor -> "RRGGBB"
         private static string Hex(MediaColor c) => $"{c.R:X2}{c.G:X2}{c.B:X2}";
+
         private static MediaColor FromHex(string hex)
         {
             if (string.IsNullOrWhiteSpace(hex) || hex.Length != 6)
                 return MediaColor.FromRgb(0, 0, 0);
+
             byte r = Convert.ToByte(hex.Substring(0, 2), 16);
             byte g = Convert.ToByte(hex.Substring(2, 2), 16);
             byte b = Convert.ToByte(hex.Substring(4, 2), 16);
@@ -985,148 +1063,111 @@ namespace AnikiHelper
 
         private static PaletteDto ToDto(Palette p) => new PaletteDto
         {
-            Accent = Hex(p.Accent),
-            Glow = Hex(p.Glow),
-            Highlight = Hex(p.Highlight),
-            Secondary = Hex(p.Secondary),
-
-            Text = Hex(p.Text),
-            TextSecondary = Hex(p.TextSecondary),
-            TextDetail = Hex(p.TextDetail),
-
-            OverlayTop = Hex(p.OverlayTop),
-            OverlayMid = Hex(p.OverlayMid),
-            OverlayBot = Hex(p.OverlayBot),
-
-            ButtonPlayMid = Hex(p.ButtonPlayMid),
-            ButtonPlayEnd = Hex(p.ButtonPlayEnd),
-
-            FocusStart = Hex(p.FocusStart),
-            FocusMid = Hex(p.FocusMid),
-            FocusEnd = Hex(p.FocusEnd),
-
-            MenuBorderStart = Hex(p.MenuBorderStart),
-            MenuBorderEnd = Hex(p.MenuBorderEnd),
-
-            NoFocusStart = Hex(p.NoFocusStart),
-            NoFocusEnd = Hex(p.NoFocusEnd),
-
-            ShadeMidColor = Hex(p.ShadeMidColor),
-            ShadeEndColor = Hex(p.ShadeEndColor),
-
-            ControlBackgroundColor = Hex(p.ControlBackgroundColor),
-            SuccessStartColor = Hex(p.SuccessStartColor),
-
-            GlowMidColor = Hex(p.GlowMidColor),
-            GlowEndColor = Hex(p.GlowEndColor),
+            Accent = Hex(p.Accent)
         };
 
-        private static Palette FromDto(PaletteDto d) => new Palette
-        {
-            Accent = FromHex(d.Accent),
-            Glow = FromHex(d.Glow),
-            Highlight = FromHex(d.Highlight),
-            Secondary = FromHex(d.Secondary),
+        private static Palette FromDto(PaletteDto d) => BuildPalette(FromHex(d.Accent));
 
-            Text = FromHex(d.Text),
-            TextSecondary = FromHex(d.TextSecondary),
-            TextDetail = FromHex(d.TextDetail),
 
-            OverlayTop = FromHex(d.OverlayTop),
-            OverlayMid = FromHex(d.OverlayMid),
-            OverlayBot = FromHex(d.OverlayBot),
-
-            ButtonPlayMid = FromHex(d.ButtonPlayMid),
-            ButtonPlayEnd = FromHex(d.ButtonPlayEnd),
-
-            FocusStart = FromHex(d.FocusStart),
-            FocusMid = FromHex(d.FocusMid),
-            FocusEnd = FromHex(d.FocusEnd),
-
-            MenuBorderStart = FromHex(d.MenuBorderStart),
-            MenuBorderEnd = FromHex(d.MenuBorderEnd),
-
-            NoFocusStart = FromHex(d.NoFocusStart),
-            NoFocusEnd = FromHex(d.NoFocusEnd),
-
-            ShadeMidColor = FromHex(d.ShadeMidColor),
-            ShadeEndColor = FromHex(d.ShadeEndColor),
-
-            ControlBackgroundColor = FromHex(d.ControlBackgroundColor),
-            SuccessStartColor = FromHex(d.SuccessStartColor),
-
-            GlowMidColor = FromHex(d.GlowMidColor),
-            GlowEndColor = FromHex(d.GlowEndColor),
-        };
 
 
         // ---------- Palette ----------
         private sealed class Palette
         {
-            public MediaColor Accent, Glow, Highlight, Secondary;
-            public MediaColor Text, TextSecondary, TextDetail;
+            public MediaColor Accent;
 
-            public MediaColor OverlayTop, OverlayMid, OverlayBot;
-            public MediaColor ButtonPlayMid, ButtonPlayEnd;
-            public MediaColor FocusStart, FocusMid, FocusEnd;
-            public MediaColor MenuBorderStart, MenuBorderEnd;
-            public MediaColor NoFocusStart, NoFocusEnd;
+            public MediaColor OverlayTop;
+            public MediaColor OverlayMid;
+            public MediaColor OverlayBottom;
 
-            public MediaColor ShadeMidColor, ShadeEndColor;
-            public MediaColor ControlBackgroundColor, SuccessStartColor;
-            public MediaColor GlowMidColor, GlowEndColor;
+            public MediaColor GameListFrameBackground;
+
+            public MediaColor MenuBorderPrimary;
+            public MediaColor MenuBorderSecondary;
+
+            public MediaColor TopBarTop;
+            public MediaColor TopBarBottom;
+            public MediaColor BottomBarTop;
+            public MediaColor BottomBarBottom;
+
+            public MediaColor ButtonPlayTop;
+            public MediaColor ButtonPlayBottom;
+
+            public MediaColor GameFocusLeft;
+            public MediaColor GameFocusRight;
+
+            public MediaColor SecondaryCenter;
+            public MediaColor SecondaryMid;
+            public MediaColor SecondaryEnd;
+
+            public MediaColor SeparatorAccent;
+
+            public MediaColor HubAccent;
+            public MediaColor StatAccent;
+            public MediaColor NewsAccent;
+            public MediaColor SuccessAccent;
+
+            public MediaColor DynamicGlowPrimary;
         }
 
         private static Palette BuildPalette(MediaColor accent)
         {
-            var safeAccent = MakeAccentReadable(accent);
+            var a = MakeAccentReadable(accent);
 
-            var overlayTop = safeAccent;
-            var overlayMid = Darken(safeAccent, .45);
-            var overlayBot = Darken(safeAccent, .75);
+            double hue = Hue360(a);
+            bool redFamily = (hue <= 20 || hue >= 330);
+            bool purpleFamily = (hue >= 280 && hue <= 329);
 
-            var textMain = Colors.White;
-            var textSecondary = Mix(textMain, overlayMid, .25);
-            var textDetail = Mix(textMain, overlayMid, .45);
+            var light = Saturate(Lighten(a, redFamily ? 0.24 : 0.28), redFamily ? 0.18 : 0.12);
+            var lighter = Saturate(Lighten(a, redFamily ? 0.36 : 0.42), redFamily ? 0.22 : 0.16);
 
-            bool light = Luminance(safeAccent) > 0.65;
+            if (purpleFamily)
+            {
+                light = Saturate(Lighten(a, 0.28), 0.18);
+                lighter = Saturate(Lighten(a, 0.42), 0.22);
+            }
+
+            var deep = Darken(a, 0.32);
+            var deeper = Darken(a, 0.50);
+            var darkest = Darken(a, 0.70);
 
             return new Palette
             {
-                Accent = safeAccent,
-                Glow = Lighten(safeAccent, .35),
-                Highlight = Lighten(safeAccent, .25),
-                Secondary = Mix(safeAccent, Colors.White, .50),
+                Accent = a,
 
-                Text = textMain,
-                TextSecondary = textSecondary,
-                TextDetail = textDetail,
+                OverlayTop = deep,
+                OverlayMid = deeper,
+                OverlayBottom = darkest,
 
-                OverlayTop = overlayTop,
-                OverlayMid = overlayMid,
-                OverlayBot = overlayBot,
+                GameListFrameBackground = Darken(a, 0.56),
 
-                ButtonPlayMid = Darken(safeAccent, .30),
-                ButtonPlayEnd = Darken(safeAccent, .40),
+                MenuBorderPrimary = WithAlpha(Colors.White, 0xF0),
+                MenuBorderSecondary = WithAlpha(light, 0xB8),
 
-                FocusStart = light ? Colors.Black : Colors.White,
-                FocusMid = Lighten(safeAccent, .20),
-                FocusEnd = safeAccent,
+                TopBarTop = Darken(a, 0.16),
+                TopBarBottom = Darken(a, 0.54),
 
-                MenuBorderStart = Lighten(safeAccent, .20),
-                MenuBorderEnd = safeAccent,
+                BottomBarTop = Darken(a, 0.28),
+                BottomBarBottom = Darken(a, 0.68),
 
-                NoFocusStart = Darken(safeAccent, .70),
-                NoFocusEnd = Darken(safeAccent, .50),
+                ButtonPlayTop = Darken(a, 0.06),
+                ButtonPlayBottom = Darken(a, 0.34),
 
-                ControlBackgroundColor = Darken(overlayBot, .10),
-                SuccessStartColor = Darken(overlayMid, .10),
+                GameFocusLeft = Colors.White,
+                GameFocusRight = WithAlpha(lighter, 0xD0),
 
-                GlowMidColor = Darken(overlayMid, .25),
-                GlowEndColor = Darken(overlayBot, .45),
+                SecondaryCenter = Darken(a, 0.30),
+                SecondaryMid = Darken(a, 0.48),
+                SecondaryEnd = Darken(a, 0.76),
 
-                ShadeMidColor = Darken(safeAccent, 0.55),
-                ShadeEndColor = Darken(safeAccent, 0.80),
+                SeparatorAccent = WithAlpha(light, 0x88),
+
+                HubAccent = WithAlpha(light, 0x92),
+                StatAccent = WithAlpha(light, 0xC8),
+                NewsAccent = light,
+                SuccessAccent = WithAlpha(light, 0xC8),
+
+                DynamicGlowPrimary = Darken(a, 0.20)
             };
         }
 
@@ -1147,11 +1188,10 @@ namespace AnikiHelper
             var ct = animCts.Token;
 
             var current = SnapshotCurrentPalette(target);
-            if (IsClose(current.Accent, target.Accent) &&
-                IsClose(current.OverlayMid, target.OverlayMid) &&
-                IsClose(current.MenuBorderEnd, target.MenuBorderEnd))
+            if (IsClose(current.OverlayTop, target.OverlayTop) &&
+    IsClose(current.OverlayMid, target.OverlayMid) &&
+    IsClose(current.MenuBorderSecondary, target.MenuBorderSecondary))
             {
-                ApplyPalette_NoShade(target);
                 return;
             }
 
@@ -1202,46 +1242,47 @@ namespace AnikiHelper
 
             return new Palette
             {
-                Accent = get("DynamicGlowBackgroundPrimary", fallback.Accent),
-                Glow = get("GlowFocusColor", fallback.Glow),
-                Highlight = get("TextHighlight", fallback.Highlight),
-                Secondary = get("HltbAlt", fallback.Secondary),
+                Accent = fallback.Accent,
 
-                Text = get("TextColor", fallback.Text),
-                TextSecondary = get("TextSecondaryColor", fallback.TextSecondary),
-                TextDetail = get("TextDetail", fallback.TextDetail),
+                OverlayTop = get("OverlayMenu_Top", fallback.OverlayTop),
+                OverlayMid = get("OverlayMenu_Mid", fallback.OverlayMid),
+                OverlayBottom = get("OverlayMenu_Bottom", fallback.OverlayBottom),
 
-                OverlayTop = get("OverlayStart", fallback.OverlayTop),
-                OverlayMid = get("OverlayMid", fallback.OverlayMid),
-                OverlayBot = get("OverlayEnd", fallback.OverlayBot),
+                GameListFrameBackground = get("GameListFrameBackground", fallback.GameListFrameBackground),
 
-                ButtonPlayMid = get("ButtonPlayMid", fallback.ButtonPlayMid),
-                ButtonPlayEnd = get("ButtonPlayEnd", fallback.ButtonPlayEnd),
+                MenuBorderPrimary = get("MenuBorderPrimaryColor", fallback.MenuBorderPrimary),
+                MenuBorderSecondary = get("MenuBorderSecondaryColor", fallback.MenuBorderSecondary),
 
-                FocusStart = get("FocusStart", fallback.FocusStart),
-                FocusMid = get("FocusMid", fallback.FocusMid),
-                FocusEnd = get("FocusEnd", fallback.FocusEnd),
+                TopBarTop = get("TopBar_Top", fallback.TopBarTop),
+                TopBarBottom = get("TopBar_Bottom", fallback.TopBarBottom),
+                BottomBarTop = get("BottomBar_Top", fallback.BottomBarTop),
+                BottomBarBottom = get("BottomBar_Bottom", fallback.BottomBarBottom),
 
-                MenuBorderStart = get("MenuBorderStart", fallback.MenuBorderStart),
-                MenuBorderEnd = get("MenuBorderEnd", fallback.MenuBorderEnd),
+                ButtonPlayTop = get("ButtonPlay_Top", fallback.ButtonPlayTop),
+                ButtonPlayBottom = get("ButtonPlay_Bottom", fallback.ButtonPlayBottom),
 
-                NoFocusStart = get("NoFocusStart", fallback.NoFocusStart),
-                NoFocusEnd = get("NoFocusEnd", fallback.NoFocusEnd),
+                GameFocusLeft = get("GameFocus_Left", fallback.GameFocusLeft),
+                GameFocusRight = get("GameFocus_Right", fallback.GameFocusRight),
 
-                ShadeMidColor = get("ShadeMidColor", fallback.ShadeMidColor),
-                ShadeEndColor = get("ShadeEndColor", fallback.ShadeEndColor),
+                SecondaryCenter = get("SecondaryViewBackground_Center", fallback.SecondaryCenter),
+                SecondaryMid = get("SecondaryViewBackground_Mid", fallback.SecondaryMid),
+                SecondaryEnd = get("SecondaryViewBackground_End", fallback.SecondaryEnd),
 
-                ControlBackgroundColor = get("ControlBackgroundColor", fallback.ControlBackgroundColor),
-                SuccessStartColor = get("SuccessStartColor", fallback.SuccessStartColor),
+                SeparatorAccent = get("SeparatorListGame", fallback.SeparatorAccent),
 
-                GlowMidColor = get("GlowMidColor", fallback.GlowMidColor),
-                GlowEndColor = get("GlowEndColor", fallback.GlowEndColor),
+                HubAccent = get("HubCardBottomBorder", fallback.HubAccent),
+                StatAccent = get("AccentCardStat", fallback.StatAccent),
+                NewsAccent = get("TextHighlightNewsView", fallback.NewsAccent),
+                SuccessAccent = get("FocusSuccessCardBorder_Right", fallback.SuccessAccent),
+
+                DynamicGlowPrimary = get("DynamicGlowBackgroundPrimary", fallback.DynamicGlowPrimary)
             };
         }
 
         private static Palette LerpPalette(Palette a, Palette b, double t)
         {
-            MediaColor Lerp(MediaColor x, MediaColor y, double k) => MediaColor.FromRgb(
+            MediaColor Lerp(MediaColor x, MediaColor y, double k) => MediaColor.FromArgb(
+                (byte)(x.A + (y.A - x.A) * k),
                 (byte)(x.R + (y.R - x.R) * k),
                 (byte)(x.G + (y.G - x.G) * k),
                 (byte)(x.B + (y.B - x.B) * k));
@@ -1249,119 +1290,354 @@ namespace AnikiHelper
             return new Palette
             {
                 Accent = Lerp(a.Accent, b.Accent, t),
-                Glow = Lerp(a.Glow, b.Glow, t),
-                Highlight = Lerp(a.Highlight, b.Highlight, t),
-                Secondary = Lerp(a.Secondary, b.Secondary, t),
-
-                Text = Lerp(a.Text, b.Text, t),
-                TextSecondary = Lerp(a.TextSecondary, b.TextSecondary, t),
-                TextDetail = Lerp(a.TextDetail, b.TextDetail, t),
 
                 OverlayTop = Lerp(a.OverlayTop, b.OverlayTop, t),
                 OverlayMid = Lerp(a.OverlayMid, b.OverlayMid, t),
-                OverlayBot = Lerp(a.OverlayBot, b.OverlayBot, t),
+                OverlayBottom = Lerp(a.OverlayBottom, b.OverlayBottom, t),
 
-                ButtonPlayMid = Lerp(a.ButtonPlayMid, b.ButtonPlayMid, t),
-                ButtonPlayEnd = Lerp(a.ButtonPlayEnd, b.ButtonPlayEnd, t),
+                GameListFrameBackground = Lerp(a.GameListFrameBackground, b.GameListFrameBackground, t),
 
-                FocusStart = Lerp(a.FocusStart, b.FocusStart, t),
-                FocusMid = Lerp(a.FocusMid, b.FocusMid, t),
-                FocusEnd = Lerp(a.FocusEnd, b.FocusEnd, t),
+                MenuBorderPrimary = Lerp(a.MenuBorderPrimary, b.MenuBorderPrimary, t),
+                MenuBorderSecondary = Lerp(a.MenuBorderSecondary, b.MenuBorderSecondary, t),
 
-                MenuBorderStart = Lerp(a.MenuBorderStart, b.MenuBorderStart, t),
-                MenuBorderEnd = Lerp(a.MenuBorderEnd, b.MenuBorderEnd, t),
+                TopBarTop = Lerp(a.TopBarTop, b.TopBarTop, t),
+                TopBarBottom = Lerp(a.TopBarBottom, b.TopBarBottom, t),
+                BottomBarTop = Lerp(a.BottomBarTop, b.BottomBarTop, t),
+                BottomBarBottom = Lerp(a.BottomBarBottom, b.BottomBarBottom, t),
 
-                NoFocusStart = Lerp(a.NoFocusStart, b.NoFocusStart, t),
-                NoFocusEnd = Lerp(a.NoFocusEnd, b.NoFocusEnd, t),
+                ButtonPlayTop = Lerp(a.ButtonPlayTop, b.ButtonPlayTop, t),
+                ButtonPlayBottom = Lerp(a.ButtonPlayBottom, b.ButtonPlayBottom, t),
 
-                ShadeMidColor = Lerp(a.ShadeMidColor, b.ShadeMidColor, t),
-                ShadeEndColor = Lerp(a.ShadeEndColor, b.ShadeEndColor, t),
+                GameFocusLeft = Lerp(a.GameFocusLeft, b.GameFocusLeft, t),
+                GameFocusRight = Lerp(a.GameFocusRight, b.GameFocusRight, t),
 
-                ControlBackgroundColor = Lerp(a.ControlBackgroundColor, b.ControlBackgroundColor, t),
-                SuccessStartColor = Lerp(a.SuccessStartColor, b.SuccessStartColor, t),
+                SecondaryCenter = Lerp(a.SecondaryCenter, b.SecondaryCenter, t),
+                SecondaryMid = Lerp(a.SecondaryMid, b.SecondaryMid, t),
+                SecondaryEnd = Lerp(a.SecondaryEnd, b.SecondaryEnd, t),
 
-                GlowMidColor = Lerp(a.GlowMidColor, b.GlowMidColor, t),
-                GlowEndColor = Lerp(a.GlowEndColor, b.GlowEndColor, t),
+                SeparatorAccent = Lerp(a.SeparatorAccent, b.SeparatorAccent, t),
+
+                HubAccent = Lerp(a.HubAccent, b.HubAccent, t),
+                StatAccent = Lerp(a.StatAccent, b.StatAccent, t),
+                NewsAccent = Lerp(a.NewsAccent, b.NewsAccent, t),
+                SuccessAccent = Lerp(a.SuccessAccent, b.SuccessAccent, t),
+
+                DynamicGlowPrimary = Lerp(a.DynamicGlowPrimary, b.DynamicGlowPrimary, t)
             };
         }
 
         // ---------- Apply ----------
         private static void ApplyPalette_NoShade(Palette p)
         {
-            if (!IsDynamicAutoActive()) return;
+            if (!IsDynamicAutoActive())
+                return;
 
-            SetColor("GlyphColor", p.Accent);
-            SetColor("GlowFocusColor", p.Glow);
+            // -----------------------------
+            // 1) Update COLOR resources
+            // -----------------------------
+            SetColor("OverlayMenu_Top", p.OverlayTop);
+            SetColor("OverlayMenu_Mid", p.OverlayMid);
+            SetColor("OverlayMenu_Bottom", p.OverlayBottom);
 
-            SetColor("TextHighlight", p.Highlight);
-            SetColor("HltbAlt", p.Secondary);
-            SetColor("DynamicGlowBackgroundPrimary", p.Accent);
+            SetColor("GameListFrameBackground", p.GameListFrameBackground);
 
-            SetColor("OverlayStart", p.OverlayTop);
-            SetColor("OverlayMid", p.OverlayMid);
-            SetColor("OverlayEnd", p.OverlayBot);
+            SetColor("MenuBorderPrimaryColor", p.MenuBorderPrimary);
+            SetColor("MenuBorderSecondaryColor", p.MenuBorderSecondary);
 
-            SetColor("ButtonPlayMid", p.ButtonPlayMid);
-            SetColor("ButtonPlayEnd", p.ButtonPlayEnd);
+            SetColor("TopBar_Top", p.TopBarTop);
+            SetColor("TopBar_Bottom", p.TopBarBottom);
+            SetColor("BottomBar_Top", p.BottomBarTop);
+            SetColor("BottomBar_Bottom", p.BottomBarBottom);
 
-            SetColor("FocusStart", p.FocusStart);
-            SetColor("FocusMid", p.FocusMid);
-            SetColor("FocusEnd", p.FocusEnd);
+            SetColor("ButtonPlay_Top", p.ButtonPlayTop);
+            SetColor("ButtonPlay_Bottom", p.ButtonPlayBottom);
 
-            SetColor("MenuBorderStart", p.MenuBorderStart);
-            SetColor("MenuBorderEnd", p.MenuBorderEnd);
+            SetColor("GameFocus_Left", p.GameFocusLeft);
+            SetColor("GameFocus_Right", p.GameFocusRight);
 
-            SetColor("NoFocusStart", p.NoFocusStart);
-            SetColor("NoFocusEnd", p.NoFocusEnd);
+            SetColor("SecondaryViewBackground_Center", p.SecondaryCenter);
+            SetColor("SecondaryViewBackground_Mid", p.SecondaryMid);
+            SetColor("SecondaryViewBackground_End", p.SecondaryEnd);
 
-            SetColor("ControlBackgroundColor", p.ControlBackgroundColor);
-            SetColor("SuccessStartColor", p.SuccessStartColor);
+            SetColor("SeparatorListGame", p.SeparatorAccent);
+            SetColor("SeparatorTopBar_Mid", p.SeparatorAccent);
 
-            SetColor("GlowMidColor", p.GlowMidColor);
-            SetColor("GlowEndColor", p.GlowEndColor);
+            SetColor("HubCardBottomBorder", p.HubAccent);
+            SetColor("HubBannerBorder", p.HubAccent);
+            SetColor("HubAchievementsBorder", p.HubAccent);
+            SetColor("HubAchievementsIconBorder", p.HubAccent);
+            SetColor("TextHubPercentAchievement", p.HubAccent);
 
-            UpdateOrSetLinearBrushV("OverlayMenu", p.OverlayTop, p.OverlayMid, p.OverlayBot);
-            UpdateOrSetLinearBrushV("ButtonPlayColor", p.Accent, p.ButtonPlayEnd);
-            UpdateOrSetLinearBrushDiag("FocusGameBorderBrush", p.FocusStart, p.FocusMid, p.FocusEnd);
-            UpdateOrSetLinearBrushH("MenuBorderBrush", p.MenuBorderStart, p.MenuBorderEnd);
-            UpdateOrSetLinearBrushDiag("NoFocusBorderButtonBrush", p.NoFocusStart, p.NoFocusEnd);
-            UpdateOrSetLinearBrushH("SuccessMenu", p.SuccessStartColor, p.ControlBackgroundColor);
+            SetColor("TextHighlightStatView", p.StatAccent);
+            SetColor("AccentCardStat", p.StatAccent);
 
-            var acc = p.ShadeMidColor;
-            var shadeMid = Color.FromArgb(0x99, acc.R, acc.G, acc.B); // 60%
-            var shadeEnd = Color.FromArgb(0xFF, acc.R, acc.G, acc.B); // 100%
+            SetColor("TextHighlightNewsView", p.NewsAccent);
 
-            SetColor("ShadeMidColor", shadeMid);
-            SetColor("ShadeEndColor", shadeEnd);
+            SetColor("SuccessBannerBorder_Right", p.SuccessAccent);
+            SetColor("FocusSuccessCardBorder_Right", p.SuccessAccent);
 
-            var dict = Application.Current.Resources;
-            if (dict != null && dict.Contains("ShadeBackground") && dict["ShadeBackground"] is LinearGradientBrush lb)
-            {
-                var clone = lb.Clone();
+            SetColor("DynamicGlowBackgroundPrimary", p.DynamicGlowPrimary);
 
-                foreach (var gs in clone.GradientStops)
+            // -----------------------------
+            // 2) Update BRUSH resources actually used on screen
+            // -----------------------------
+
+            // Overlay menu
+            UpdateOrSetLinearBrushV("OverlayMenu",
+                p.OverlayTop,
+                p.OverlayMid,
+                p.OverlayBottom);
+
+            // Top / Bottom bars
+            UpdateOrSetLinearBrushV("TopBar",
+                p.TopBarTop,
+                p.TopBarBottom);
+
+            UpdateOrSetLinearBrushV("BottomBar",
+                p.BottomBarTop,
+                p.BottomBarBottom);
+
+            // Game list frame
+            SetBrush("GameListFrameBackgroundBrush",
+                new SolidColorBrush(p.GameListFrameBackground));
+
+            // Menu border
+            UpdateOrSetLinearBrushH("MenuBorderBrush",
+    p.MenuBorderPrimary,
+    p.MenuBorderSecondary);
+
+            // Button play
+            UpdateOrSetLinearBrushV2("ButtonPlayColor",
+    p.ButtonPlayTop, 0.10,
+    p.ButtonPlayBottom, 0.90);
+
+            // Focus border
+            UpdateOrSetLinearBrushDiag("FocusGameBorderBrush",
+    p.GameFocusLeft,
+    p.GameFocusRight);
+
+            // Secondary background
+            SetBrush("SecondaryViewBackground",
+                new RadialGradientBrush(
+                    new GradientStopCollection
+                    {
+                new GradientStop(p.SecondaryCenter, 0.0),
+                new GradientStop(p.SecondaryMid, 0.7),
+                new GradientStop(p.SecondaryEnd, 1.0)
+                    })
                 {
-                    double o = gs.Offset;
-                    if (Math.Abs(o - 0.00) < 0.001) gs.Color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
-                    else if (Math.Abs(o - 0.20) < 0.001) gs.Color = shadeMid;
-                    else if (Math.Abs(o - 0.45) < 0.001) gs.Color = shadeEnd;
-                    else if (Math.Abs(o - 1.00) < 0.001) gs.Color = Color.FromArgb(0xFF, 0, 0, 0);
-                }
+                    Center = new Point(.5, .4),
+                    GradientOrigin = new Point(.5, .4),
+                    RadiusX = .8,
+                    RadiusY = .9
+                });
 
-                dict["ShadeBackground"] = clone;
-            }
+            // Separator top bar
+            var sepLeft = GetColorResource("SeparatorTopBar_Left", MediaColor.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
+            var sepRight = GetColorResource("SeparatorTopBar_Right", MediaColor.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
 
-            var radial = new RadialGradientBrush(
-                new GradientStopCollection {
-                    new GradientStop(p.Accent,      0.00),
-                    new GradientStop(p.GlowMidColor,0.70),
-                    new GradientStop(p.GlowEndColor,1.00)
-                })
-            { Center = new Point(.5, .4), GradientOrigin = new Point(.5, .4), RadiusX = .8, RadiusY = .9 };
-            SetBrush("DynamicGlowBackgroundSuccess", radial);
+            SetBrush("SeparatorTopBarBrush",
+                new LinearGradientBrush(
+                    new GradientStopCollection
+                    {
+                new GradientStop(sepLeft, 0.0),
+                new GradientStop(p.SeparatorAccent, 0.5),
+                new GradientStop(sepRight, 1.0)
+                    },
+                    new Point(0, 0),
+                    new Point(1, 0)));
+
+            // Simple accent solid brushes
+            SetBrush("SeparatorListGameBrush", new SolidColorBrush(p.SeparatorAccent));
+
+            UpdateOrSetSolidBrush("HubCardBottomBorderBrush", p.HubAccent);
+            SetBrush("HubBannerBorderBrush", new SolidColorBrush(p.HubAccent));
+            SetBrush("HubAchievementsBorderBrush", new SolidColorBrush(p.HubAccent));
+            SetBrush("HubAchievementsIconBorderBrush", new SolidColorBrush(p.HubAccent));
+            SetBrush("TextHubPercentAchievementBrush", new SolidColorBrush(p.HubAccent));
+
+            SetBrush("TextHighlightStatViewBrush", new SolidColorBrush(p.StatAccent));
+            SetBrush("AccentCardStatBrush", new SolidColorBrush(p.StatAccent));
+
+            SetBrush("TextHighlightNewsViewBrush", new SolidColorBrush(p.NewsAccent));
+
+            // Success borders
+            var successLeft = GetColorResource("SuccessBannerBorder_Left", MediaColor.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+            SetBrush("SuccessBannerBorder",
+                new LinearGradientBrush(
+                    new GradientStopCollection
+                    {
+                new GradientStop(successLeft, 0.0),
+                new GradientStop(p.SuccessAccent, 1.0)
+                    },
+                    new Point(0, 1),
+                    new Point(1, 0)));
+
+            var focusSuccessLeft = GetColorResource("FocusSuccessCardBorder_Left", Colors.White);
+            SetBrush("FocusSuccessCardBorder",
+                new LinearGradientBrush(
+                    new GradientStopCollection
+                    {
+                new GradientStop(focusSuccessLeft, 0.0),
+                new GradientStop(p.SuccessAccent, 1.0)
+                    },
+                    new Point(0, 1),
+                    new Point(1, 0)));
+
+            // Radial glow success
+            SetBrush("DynamicGlowBackgroundSuccess",
+                new RadialGradientBrush(
+                    new GradientStopCollection
+                    {
+                new GradientStop(p.DynamicGlowPrimary, 0.00),
+                new GradientStop(Darken(p.OverlayTop, .20), 0.65),
+                new GradientStop(Colors.Black, 1.00)
+                    })
+                {
+                    Center = new Point(.5, .4),
+                    GradientOrigin = new Point(.5, .4),
+                    RadiusX = .8,
+                    RadiusY = .9
+                });
         }
 
         // ---------- Helpers ----------
+
+        private static void UpdateOrSetLinearBrushV2(string key,
+    MediaColor c0, double o0,
+    MediaColor c1, double o1)
+        {
+            var dict = Application.Current?.Resources;
+            if (dict == null) return;
+
+            var existing = dict.Contains(key) ? dict[key] : null;
+            if (existing is LinearGradientBrush lb && !lb.IsFrozen && lb.GradientStops.Count == 2)
+            {
+                lb.StartPoint = new Point(0, 0);
+                lb.EndPoint = new Point(0, 1);
+
+                lb.GradientStops[0].Offset = o0;
+                lb.GradientStops[0].Color = c0;
+
+                lb.GradientStops[1].Offset = o1;
+                lb.GradientStops[1].Color = c1;
+            }
+            else
+            {
+                dict[key] = new LinearGradientBrush(
+                    new GradientStopCollection
+                    {
+                new GradientStop(c0, o0),
+                new GradientStop(c1, o1)
+                    },
+                    new Point(0, 0),
+                    new Point(0, 1));
+            }
+        }
+
+        private static void UpdateOrSetSolidBrush(string key, MediaColor color)
+        {
+            var dict = Application.Current?.Resources;
+            if (dict == null) return;
+
+            var existing = dict.Contains(key) ? dict[key] : null;
+            if (existing is SolidColorBrush sb && !sb.IsFrozen)
+            {
+                if (sb.Color != color)
+                    sb.Color = color;
+            }
+            else
+            {
+                dict[key] = new SolidColorBrush(color);
+            }
+        }
+
+        private static double Hue360(byte r, byte g, byte b)
+        {
+            byte max = Math.Max(r, Math.Max(g, b));
+            byte min = Math.Min(r, Math.Min(g, b));
+            double d = max - min;
+
+            if (d <= 0.0)
+                return 0.0;
+
+            double hue;
+            if (max == r)
+                hue = ((g - b) / d) % 6.0;
+            else if (max == g)
+                hue = ((b - r) / d) + 2.0;
+            else
+                hue = ((r - g) / d) + 4.0;
+
+            hue *= 60.0;
+            if (hue < 0)
+                hue += 360.0;
+
+            return hue;
+        }
+
+        private static double Hue360(MediaColor c) => Hue360(c.R, c.G, c.B);
+
+        private static MediaColor BiasFromMuddyYellowGreen(MediaColor c)
+        {
+            double hue = Hue360(c);
+            int chroma = Chroma(c);
+            double lum = Luminance(c);
+
+            // Cas typique Mario / Dispatch : jaune-vert terne -> on pousse vers un or plus propre
+            if (hue >= 50 && hue <= 105 && chroma < 95 && lum > 0.35)
+            {
+                var gold = MediaColor.FromRgb(214, 184, 82);
+                var mixed = Mix(c, gold, lum > 0.55 ? 0.30 : 0.18);
+                return Saturate(mixed, lum > 0.55 ? 0.32 : 0.18);
+            }
+
+            return c;
+        }
+
+        private static byte ClampToByte(double v)
+        {
+            if (v < 0) return 0;
+            if (v > 255) return 255;
+            return (byte)Math.Round(v);
+        }
+
+        private static int Chroma(MediaColor c)
+        {
+            return Math.Max(c.R, Math.Max(c.G, c.B)) - Math.Min(c.R, Math.Min(c.G, c.B));
+        }
+
+        private static MediaColor Saturate(MediaColor c, double f)
+        {
+            // f = 0.30 => +30% d'éloignement du gris
+            double y = 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B;
+
+            return MediaColor.FromRgb(
+                ClampToByte(y + (c.R - y) * (1.0 + f)),
+                ClampToByte(y + (c.G - y) * (1.0 + f)),
+                ClampToByte(y + (c.B - y) * (1.0 + f))
+            );
+        }
+
+        private static MediaColor GetColorResource(string key, MediaColor fallback)
+        {
+            var dict = Application.Current?.Resources;
+            if (dict == null)
+                return fallback;
+
+            if (!dict.Contains(key))
+                return fallback;
+
+            var value = dict[key];
+            if (value is MediaColor c)
+                return c;
+
+            if (value is SolidColorBrush sb)
+                return sb.Color;
+
+            return fallback;
+        }
+
         private static void SetColor(string key, MediaColor c)
         {
             if (Application.Current?.Resources == null) return;
@@ -1535,26 +1811,64 @@ namespace AnikiHelper
             var g = GrayOf(c);
             return Mix(c, g, f);
         }
+
         private static MediaColor MakeAccentReadable(MediaColor accent)
         {
-            var c1 = Desaturate(accent, 0.20);
-            double L = Luminance(c1);
-            const double Lmax = 0.75;
-            if (L > Lmax)
+            var c = accent;
+            int chroma = Chroma(c);
+            double lum = Luminance(c);
+            double hue = Hue360(c);
+
+            c = BiasFromMuddyYellowGreen(c);
+
+            chroma = Chroma(c);
+            lum = Luminance(c);
+            hue = Hue360(c);
+
+            // Si trop terne, on redonne de la vie
+            if (chroma < 48)
             {
-                double f = (L - Lmax) + 0.10;
-                f = (f < 0) ? 0 : (f > 0.85 ? 0.85 : f);
-                c1 = Darken(c1, f);
+                if (lum > 0.55)
+                    c = Saturate(c, 0.60);
+                else if (lum > 0.32)
+                    c = Saturate(c, 0.38);
+                else
+                    c = Saturate(c, 0.20);
             }
-            return c1;
+            // Rouge / magenta / violet : on garde plus de personnalité
+            else if ((hue <= 20 || hue >= 320) && chroma >= 70)
+            {
+                c = Saturate(c, 0.10);
+            }
+            // Si trop néon, on calme juste un peu
+            else if (chroma > 160 && lum > 0.40)
+            {
+                c = Desaturate(c, 0.06);
+            }
+
+            // Contrôle lumière
+            lum = Luminance(c);
+            if (lum > 0.80)
+                c = Darken(c, 0.30);
+            else if (lum > 0.70)
+                c = Darken(c, 0.18);
+
+            return c;
         }
 
+        private static MediaColor WithAlpha(MediaColor c, byte a)
+        {
+            return MediaColor.FromArgb(a, c.R, c.G, c.B);
+        }
         private static MediaColor Darken(MediaColor c, double f) => MediaColor.FromRgb(
             (byte)(c.R * (1 - f)), (byte)(c.G * (1 - f)), (byte)(c.B * (1 - f)));
+
         private static MediaColor Lighten(MediaColor c, double f) => MediaColor.FromRgb(
             (byte)(c.R + (255 - c.R) * f), (byte)(c.G + (255 - c.G) * f), (byte)(c.B + (255 - c.B) * f));
+
         private static MediaColor Mix(MediaColor a, MediaColor b, double t) => MediaColor.FromRgb(
             (byte)(a.R * (1 - t) + b.R * t), (byte)(a.G * (1 - t) + b.G * t), (byte)(a.B * (1 - t) + b.B * t));
+
         private static double Luminance(MediaColor c) => (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
 
         private static async Task RunPrecacheTrickleAsync()

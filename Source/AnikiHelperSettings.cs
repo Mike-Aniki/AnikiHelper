@@ -101,50 +101,6 @@ namespace AnikiHelper
         public string IconPath { get; set; }
     }
 
-    // DTOs PlayniteAchievements
-
-    internal class PaGame
-    {
-        public string Name { get; set; }
-    }
-
-    // Achievement integration mode
-
-    public enum AchievementIntegrationMode
-    {
-        PlayniteAchievements = 0,
-        SuccessStory = 1
-    }
-
-    internal static class AchievementPluginIds
-    {
-        public static readonly Guid PlayniteAchievements = Guid.Parse("e6aad2c9-6e06-4d8d-ac55-ac3b252b5f7b");
-        public static readonly Guid SuccessStory = Guid.Parse("cebe6d32-8c46-4459-b993-5a5189d60788");
-    }
-
-    // DTOs PlayniteAchievements cache
-
-    internal class GameAchievementData
-    {
-        public DateTime LastUpdatedUtc { get; set; }
-        public string ProviderName { get; set; }
-        public string GameName { get; set; }
-        public int AppId { get; set; }
-        public Guid? PlayniteGameId { get; set; }
-        public List<AchievementDetail> Achievements { get; set; }
-    }
-
-    internal class AchievementDetail
-    {
-        public string ApiName { get; set; }
-        public string DisplayName { get; set; }
-        public string Description { get; set; }
-        public string IconPath { get; set; }
-        public DateTime? UnlockTimeUtc { get; set; }
-        public double? GlobalPercentUnlocked { get; set; }
-        public bool Hidden { get; set; }
-    }
-
     public class DiskUsageItem
     {
         public string Label { get; set; }
@@ -221,9 +177,6 @@ namespace AnikiHelper
         [DontSerialize]
         public RelayCommand RefreshSuccessStoryCommand { get; }
 
-        [DontSerialize]
-        public RelayCommand RefreshPlayniteAchievementsCommand { get; }
-
         // Info snapshot 
         private string snapshotDateString;
         public string SnapshotDateString { get => snapshotDateString; set => SetValue(ref snapshotDateString, value); }
@@ -273,6 +226,27 @@ namespace AnikiHelper
             set => SetValue(ref suggestedGameBackgroundPath, value);
         }
 
+        private string suggestedGameBackgroundPathA;
+        public string SuggestedGameBackgroundPathA
+        {
+            get => suggestedGameBackgroundPathA;
+            set => SetValue(ref suggestedGameBackgroundPathA, value);
+        }
+
+        private string suggestedGameBackgroundPathB;
+        public string SuggestedGameBackgroundPathB
+        {
+            get => suggestedGameBackgroundPathB;
+            set => SetValue(ref suggestedGameBackgroundPathB, value);
+        }
+
+        private bool suggestedGameShowLayerB;
+        public bool SuggestedGameShowLayerB
+        {
+            get => suggestedGameShowLayerB;
+            set => SetValue(ref suggestedGameShowLayerB, value);
+        }
+
         // Reference games for the suggestion
         private string suggestedGameSourceName;
         public string SuggestedGameSourceName
@@ -297,6 +271,8 @@ namespace AnikiHelper
             set => SetValue(ref suggestedGameBannerText, value);
         }
 
+        
+
         // Rotation info for suggested game (top 3 / once per day)
         public Guid RefGameLastId { get; set; } = Guid.Empty;
         public DateTime RefGameLastChangeDate { get; set; } = DateTime.MinValue;
@@ -317,7 +293,6 @@ namespace AnikiHelper
         }
 
 
-        // JEU LE PLUS JOUE DU MOIS 
         // MOST PLAYED GAME OF THE MONTH
 
         private string thisMonthTopGameName;
@@ -340,7 +315,50 @@ namespace AnikiHelper
             get => thisMonthPlayedTotalMinutes;
             set { SetValue(ref thisMonthPlayedTotalMinutes, value); OnPropertyChanged(nameof(ThisMonthPlayedTotalString)); }
         }
-        public string ThisMonthPlayedTotalString => PlaytimeToString(ThisMonthPlayedTotalMinutes, PlaytimeUseDaysFormat);
+        public string ThisMonthPlayedTotalString => PlaytimeToString(ThisMonthPlayedTotalMinutes, false);
+
+        // MOST PLAYED GAME OF THE YEAR
+
+        private string thisYearTopGameName;
+        private string thisYearTopGamePlaytime;
+        private string thisYearTopGameCoverPath;
+        private string thisYearTopGameBackgroundPath;
+
+        public string ThisYearTopGameName { get => thisYearTopGameName; set => SetValue(ref thisYearTopGameName, value); }
+        public string ThisYearTopGamePlaytime { get => thisYearTopGamePlaytime; set => SetValue(ref thisYearTopGamePlaytime, value); }
+        public string ThisYearTopGameCoverPath { get => thisYearTopGameCoverPath; set => SetValue(ref thisYearTopGameCoverPath, value); }
+        public string ThisYearTopGameBackgroundPath { get => thisYearTopGameBackgroundPath; set => SetValue(ref thisYearTopGameBackgroundPath, value); }
+
+        // This year's stats
+        private int thisYearPlayedCount;
+        private ulong thisYearPlayedTotalMinutes;
+
+        public int ThisYearPlayedCount { get => thisYearPlayedCount; set => SetValue(ref thisYearPlayedCount, value); }
+        public ulong ThisYearPlayedTotalMinutes
+        {
+            get => thisYearPlayedTotalMinutes;
+            set
+            {
+                SetValue(ref thisYearPlayedTotalMinutes, value);
+                OnPropertyChanged(nameof(ThisYearPlayedTotalString));
+            }
+        }
+        public string ThisYearPlayedTotalString => PlaytimeToString(ThisYearPlayedTotalMinutes, false);
+
+        // Genre Profil
+        private string profileGenreKey;
+        public string ProfileGenreKey
+        {
+            get => profileGenreKey;
+            set => SetValue(ref profileGenreKey, value);
+        }
+
+        private string profileGenreLabel;
+        public string ProfileGenreLabel
+        {
+            get => profileGenreLabel;
+            set => SetValue(ref profileGenreLabel, value);
+        }
 
         // Session summary
         private string sessionGameName;
@@ -354,6 +372,61 @@ namespace AnikiHelper
 
         private string sessionTotalPlaytimeString;
         public string SessionTotalPlaytimeString { get => sessionTotalPlaytimeString; set => SetValue(ref sessionTotalPlaytimeString, value); }
+        private string sessionGameBackgroundPath;
+        public string SessionGameBackgroundPath
+        {
+            get => sessionGameBackgroundPath;
+            set => SetValue(ref sessionGameBackgroundPath, value);
+        }
+
+        private string recentPlayedBackgroundPath;
+        public string RecentPlayedBackgroundPath
+        {
+            get => recentPlayedBackgroundPath;
+            set => SetValue(ref recentPlayedBackgroundPath, value);
+        }
+
+        private string hubRecentAddedName;
+        public string HubRecentAddedName
+        {
+            get => hubRecentAddedName;
+            set => SetValue(ref hubRecentAddedName, value);
+        }
+
+        private string hubRecentAddedDate;
+        public string HubRecentAddedDate
+        {
+            get => hubRecentAddedDate;
+            set => SetValue(ref hubRecentAddedDate, value);
+        }
+
+        private string hubRecentAddedBackgroundPath;
+        public string HubRecentAddedBackgroundPath
+        {
+            get => hubRecentAddedBackgroundPath;
+            set => SetValue(ref hubRecentAddedBackgroundPath, value);
+        }
+
+        private string hubNeverPlayedName;
+        public string HubNeverPlayedName
+        {
+            get => hubNeverPlayedName;
+            set => SetValue(ref hubNeverPlayedName, value);
+        }
+
+        private string hubNeverPlayedDate;
+        public string HubNeverPlayedDate
+        {
+            get => hubNeverPlayedDate;
+            set => SetValue(ref hubNeverPlayedDate, value);
+        }
+
+        private string hubNeverPlayedBackgroundPath;
+        public string HubNeverPlayedBackgroundPath
+        {
+            get => hubNeverPlayedBackgroundPath;
+            set => SetValue(ref hubNeverPlayedBackgroundPath, value);
+        }
 
         // Unique stamp for each notification
         private string sessionNotificationStamp;
@@ -502,9 +575,28 @@ namespace AnikiHelper
         {
             get => latestNewsLocalImagePath;
             set => SetValue(ref latestNewsLocalImagePath, value);
+        }        
+
+        private string latestNewsLocalImagePathA;
+        public string LatestNewsLocalImagePathA
+        {
+            get => latestNewsLocalImagePathA;
+            set => SetValue(ref latestNewsLocalImagePathA, value);
         }
 
+        private string latestNewsLocalImagePathB;
+        public string LatestNewsLocalImagePathB
+        {
+            get => latestNewsLocalImagePathB;
+            set => SetValue(ref latestNewsLocalImagePathB, value);
+        }
 
+        private bool latestNewsShowLayerB;
+        public bool LatestNewsShowLayerB
+        {
+            get => latestNewsShowLayerB;
+            set => SetValue(ref latestNewsShowLayerB, value);
+        }
 
         // URL RSS 
         private string steamNewsCustomFeedUrl;
@@ -653,7 +745,6 @@ namespace AnikiHelper
 
         // Watcher SuccessStory
         private FileSystemWatcher achievementsWatcher;
-        private FileSystemWatcher playniteAchievementsWatcher;
         private Timer debounceTimer;
 
         // Cache SuccessStory root (évite de rescanner le disque trop souvent)
@@ -662,14 +753,6 @@ namespace AnikiHelper
 
         [DontSerialize]
         private DateTime cachedSsRootCheckedUtc = DateTime.MinValue;
-
-        // Achievement integration mode
-        private AchievementIntegrationMode achievementIntegrationMode;
-        public AchievementIntegrationMode AchievementIntegrationMode
-        {
-            get => achievementIntegrationMode;
-            set => SetValue(ref achievementIntegrationMode, value);
-        }
 
 
         #region Options (bindables)
@@ -721,6 +804,20 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdatesScanEnabled, value);
         }
 
+        // Enables or disables video
+        private bool startupIntroVideoEnabled = true;
+        public bool StartupIntroVideoEnabled
+        {
+            get => startupIntroVideoEnabled;
+            set => SetValue(ref startupIntroVideoEnabled, value);
+        }
+
+        private bool shutdownVideoEnabled = true;
+        public bool ShutdownVideoEnabled
+        {
+            get => shutdownVideoEnabled;
+            set => SetValue(ref shutdownVideoEnabled, value);
+        }
 
         // Enables the Steam cache creation prompt at startup
         private bool askSteamUpdateCacheAtStartup = true;
@@ -799,8 +896,29 @@ namespace AnikiHelper
         public string HiddenPercentString => PercentString(HiddenCount, TotalCount);
         public string FavoritePercentString => PercentString(FavoriteCount, TotalCount);
 
-        public string TotalPlaytimeString => PlaytimeToString(TotalPlaytimeMinutes, PlaytimeUseDaysFormat);
-        public string AveragePlaytimeString => PlaytimeToString(AveragePlaytimeMinutes, PlaytimeUseDaysFormat);
+        public string TotalPlaytimeString => PlaytimeToString(TotalPlaytimeMinutes, true);
+        public string AveragePlaytimeString => PlaytimeToString(AveragePlaytimeMinutes, false);
+
+        private string profileTopPlatformName;
+        public string ProfileTopPlatformName
+        {
+            get => profileTopPlatformName;
+            set => SetValue(ref profileTopPlatformName, value);
+        }
+
+        private string profileTopFranchiseName;
+        public string ProfileTopFranchiseName
+        {
+            get => profileTopFranchiseName;
+            set => SetValue(ref profileTopFranchiseName, value);
+        }
+
+        private string profileTopTagName;
+        public string ProfileTopTagName
+        {
+            get => profileTopTagName;
+            set => SetValue(ref profileTopTagName, value);
+        }
 
         #endregion
 
@@ -835,9 +953,9 @@ namespace AnikiHelper
 
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
+                StartupIntroVideoEnabled = saved.StartupIntroVideoEnabled;
+                ShutdownVideoEnabled = saved.ShutdownVideoEnabled;
                 LastSteamRecentCheckUtc = saved.LastSteamRecentCheckUtc;
-
-                AchievementIntegrationMode = saved.AchievementIntegrationMode;
 
                 NewsScanEnabled = saved.NewsScanEnabled;
                 LastNewsScanUtc = saved.LastNewsScanUtc;
@@ -862,25 +980,26 @@ namespace AnikiHelper
                         PlayniteNews.Add(it);
                     }
                 }
+
+                SessionGameName = saved.SessionGameName ?? string.Empty;
+                SessionDurationString = saved.SessionDurationString ?? string.Empty;
+                SessionTotalPlaytimeString = saved.SessionTotalPlaytimeString ?? string.Empty;
+                SessionGameBackgroundPath = saved.SessionGameBackgroundPath ?? string.Empty;
+                RecentPlayedBackgroundPath = saved.RecentPlayedBackgroundPath ?? string.Empty;
+                HubRecentAddedName = saved.HubRecentAddedName ?? string.Empty;
+                HubRecentAddedDate = saved.HubRecentAddedDate ?? string.Empty;
+                HubRecentAddedBackgroundPath = saved.HubRecentAddedBackgroundPath ?? string.Empty;
+
+                HubNeverPlayedName = saved.HubNeverPlayedName ?? string.Empty;
+                HubNeverPlayedDate = saved.HubNeverPlayedDate ?? string.Empty;
+                HubNeverPlayedBackgroundPath = saved.HubNeverPlayedBackgroundPath ?? string.Empty;
             }
 
-            // Smart detection for achievement integration mode
-            DetectAndSetAchievementIntegrationMode(saved);
-
-            // Bouton "Refresh SuccessStory" - routes based on integration mode
+            // Bouton "Refresh SuccessStory"
             RefreshSuccessStoryCommand = new RelayCommand(
-                async () =>
-                {
-                    if (AchievementIntegrationMode == AchievementIntegrationMode.SuccessStory)
-                        await SuccessStoryBridge.RefreshSelectedGameAsync(plugin.PlayniteApi);
-                    else
-                        await PlayniteAchievementsBridge.RefreshSelectedGameAsync(plugin.PlayniteApi);
-                },
+                async () => await SuccessStoryBridge.RefreshSelectedGameAsync(plugin.PlayniteApi),
                 () => plugin?.PlayniteApi?.MainView?.SelectedGames?.Any() == true
             );
-
-            // Alias for PlayniteAchievements refresh
-            RefreshPlayniteAchievementsCommand = RefreshSuccessStoryCommand;
 
             // Recent Trophy + watcher
             LoadRecentAchievements(3);
@@ -1025,51 +1144,6 @@ namespace AnikiHelper
             return null;
         }
 
-        // ===== Smart detection for achievement integration =====
-
-        private void DetectAndSetAchievementIntegrationMode(AnikiHelperSettings saved)
-        {
-            try
-            {
-                var api = plugin?.PlayniteApi;
-                if (api == null) return;
-
-                // If we have saved settings with a mode, use it (already loaded in constructor)
-                if (saved != null)
-                {
-                    // Value already set from saved.AchievementIntegrationMode in constructor
-                    return;
-                }
-
-                // New setup - do smart detection
-                bool paInstalled = api.Addons?.Plugins?.Any(p => p.Id == AchievementPluginIds.PlayniteAchievements) == true;
-                bool ssInstalled = api.Addons?.Plugins?.Any(p => p.Id == AchievementPluginIds.SuccessStory) == true;
-
-                // Smart detection: PlayniteAchievements default when both installed
-                if (paInstalled)
-                {
-                    AchievementIntegrationMode = AchievementIntegrationMode.PlayniteAchievements;
-                }
-                else if (ssInstalled)
-                {
-                    AchievementIntegrationMode = AchievementIntegrationMode.SuccessStory;
-                }
-                else
-                {
-                    // Neither installed - default to SuccessStory as fallback
-                    AchievementIntegrationMode = AchievementIntegrationMode.SuccessStory;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger?.Debug(ex, "[AnikiHelper] Failed to detect achievement integration mode.");
-                // Default to SuccessStory on error
-                AchievementIntegrationMode = AchievementIntegrationMode.SuccessStory;
-            }
-        }
-
-        // ===== PlayniteAchievements helpers =====
-
         private void LoadRecentAchievements(int take = 3)
         {
             List<RecentAchievementItem> computed;
@@ -1078,54 +1152,13 @@ namespace AnikiHelper
             {
                 if (plugin?.PlayniteApi == null) return;
 
-                // Route to appropriate loader based on integration mode
-                if (AchievementIntegrationMode == AchievementIntegrationMode.SuccessStory)
-                {
-                    computed = LoadRecentAchievementsFromSuccessStory(take);
-                }
-                else
-                {
-                    computed = LoadRecentAchievementsFromPlayniteAchievements(take);
-                }
-            }
-            catch
-            {
-                return;
-            }
-
-            var dispatcher = Application.Current?.Dispatcher;
-            if (dispatcher == null) return;
-
-            void Apply()
-            {
-                RecentAchievements.Clear();
-                foreach (var it in computed)
-                    RecentAchievements.Add(it);
-            }
-
-            if (dispatcher.CheckAccess())
-            {
-                Apply();
-            }
-            else
-            {
-                dispatcher.BeginInvoke((Action)Apply);
-            }
-        }
-
-        private List<RecentAchievementItem> LoadRecentAchievementsFromSuccessStory(int take)
-        {
-            var results = new List<RecentAchievementItem>();
-
-            try
-            {
                 var ssRoot = GetSuccessStoryRootCached();
-                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return results;
+                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
 
                 string[] files;
                 try { files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray(); }
-                catch { return results; }
-                if (files.Length == 0) return results;
+                catch { return; }
+                if (files.Length == 0) return;
 
                 DateTime? ParseWhen(SsItem it)
                 {
@@ -1145,6 +1178,8 @@ namespace AnikiHelper
                     if (string.Equals(it.Unlocked, "true", StringComparison.OrdinalIgnoreCase)) return true;
                     return false;
                 }
+
+                var results = new List<RecentAchievementItem>();
 
                 foreach (var file in files)
                 {
@@ -1210,97 +1245,35 @@ namespace AnikiHelper
                     }
                 }
 
-                return results
+                computed = results
                     .OrderByDescending(r => r.Unlocked)
                     .Take(take)
                     .ToList();
             }
             catch
             {
-                return results;
+                return;
             }
-        }
 
-        private List<RecentAchievementItem> LoadRecentAchievementsFromPlayniteAchievements(int take)
-        {
-            var results = new List<RecentAchievementItem>();
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
 
-            try
+            void Apply()
             {
-                var root = plugin?.PlayniteApi?.Paths?.ExtensionsDataPath;
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return results;
-
-                var paCacheDir = Path.Combine(root, "e6aad2c9-6e06-4d8d-ac55-ac3b252b5f7b", "achievement_cache");
-                if (!Directory.Exists(paCacheDir)) return results;
-
-                string[] files;
-                try { files = Directory.EnumerateFiles(paCacheDir, "*.json", SearchOption.TopDirectoryOnly).ToArray(); }
-                catch { return results; }
-                if (files.Length == 0) return results;
-
-                var cutoff = DateTime.UtcNow.AddDays(-365);
-
-                // Cache PropertyInfo for performance
-                var gameDataProps = typeof(GameAchievementData).GetProperties();
-                var gameNameProp = typeof(GameAchievementData).GetProperty("GameName");
-                var achievementsProp = typeof(GameAchievementData).GetProperty("Achievements");
-
-                var achProps = typeof(AchievementDetail).GetProperties();
-                var unlockedTimeProp = typeof(AchievementDetail).GetProperty("UnlockTimeUtc");
-                var displayNameProp = typeof(AchievementDetail).GetProperty("DisplayName");
-                var nameProp = typeof(AchievementDetail).GetProperty("Name");
-                var descProp = typeof(AchievementDetail).GetProperty("Description");
-                var iconPathProp = typeof(AchievementDetail).GetProperty("IconPath");
-
-                foreach (var file in files)
-                {
-                    GameAchievementData gameData = null;
-                    try
-                    {
-                        var text = File.ReadAllText(file);
-                        gameData = Serialization.FromJson<GameAchievementData>(text);
-                    }
-                    catch { continue; }
-
-                    if (gameData == null || gameData.Achievements == null) continue;
-
-                    var gameName = gameData.GameName ?? Path.GetFileNameWithoutExtension(file);
-
-                    foreach (var ach in gameData.Achievements)
-                    {
-                        if (ach == null) continue;
-
-                        var unlockedTime = ach.UnlockTimeUtc;
-                        if (unlockedTime == null) continue;
-
-                        // Filter to last 365 days
-                        if (unlockedTime.Value < cutoff) continue;
-
-                        var title = ach.DisplayName ?? ach.ApiName ?? "(Achievement)";
-                        var desc = ach.Description ?? "";
-                        var icon = ach.IconPath ?? "";
-
-                        results.Add(new RecentAchievementItem
-                        {
-                            Game = gameName,
-                            Title = title,
-                            Desc = desc,
-                            Unlocked = unlockedTime.Value,
-                            IconPath = icon
-                        });
-                    }
-                }
-
-                // Sort by unlock time descending and take top N
-                return results
-                    .OrderByDescending(r => r.Unlocked)
-                    .Take(take)
-                    .ToList();
+                RecentAchievements.Clear();
+                foreach (var it in computed)
+                    RecentAchievements.Add(it);
             }
-            catch
+
+            if (dispatcher.CheckAccess())
             {
-                return results;
+                Apply();
             }
+            else
+            {
+                dispatcher.BeginInvoke((Action)Apply);
+            }
+
         }
 
         public void RefreshRareAchievements() => LoadRareTop(3);
@@ -1313,54 +1286,13 @@ namespace AnikiHelper
             {
                 if (plugin?.PlayniteApi == null) return;
 
-                // Route to appropriate loader based on integration mode
-                if (AchievementIntegrationMode == AchievementIntegrationMode.SuccessStory)
-                {
-                    computed = LoadRareTopFromSuccessStory(take);
-                }
-                else
-                {
-                    computed = LoadRareTopFromPlayniteAchievements(take);
-                }
-            }
-            catch
-            {
-                return;
-            }
-
-            var dispatcher = Application.Current?.Dispatcher;
-            if (dispatcher == null) return;
-
-            void Apply()
-            {
-                RareTop.Clear();
-                foreach (var it in computed)
-                    RareTop.Add(it);
-            }
-
-            if (dispatcher.CheckAccess())
-            {
-                Apply();
-            }
-            else
-            {
-                dispatcher.BeginInvoke((Action)Apply);
-            }
-        }
-
-        private List<RareAchievementItem> LoadRareTopFromSuccessStory(int take)
-        {
-            var pool = new List<RareAchievementItem>();
-
-            try
-            {
                 var ssRoot = GetSuccessStoryRootCached();
-                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return pool;
+                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
 
                 string[] files;
                 try { files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray(); }
-                catch { return pool; }
-                if (files.Length == 0) return pool;
+                catch { return; }
+                if (files.Length == 0) return;
 
                 DateTime? ParseWhen(SsItem it)
                 {
@@ -1401,6 +1333,8 @@ namespace AnikiHelper
                     }
                     return null;
                 }
+
+                var pool = new List<RareAchievementItem>();
 
                 foreach (var file in files)
                 {
@@ -1467,7 +1401,7 @@ namespace AnikiHelper
                 }
 
                 var cutoff = DateTime.Now.AddYears(-1);
-                return pool
+                computed = pool
                     .Where(x => x.Unlocked > cutoff)
                     .OrderBy(x => x.Percent)
                     .ThenByDescending(x => x.Unlocked)
@@ -1476,81 +1410,28 @@ namespace AnikiHelper
             }
             catch
             {
-                return pool;
+                return;
             }
-        }
 
-        private List<RareAchievementItem> LoadRareTopFromPlayniteAchievements(int take)
-        {
-            var pool = new List<RareAchievementItem>();
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
 
-            try
+            void Apply()
             {
-                var root = plugin?.PlayniteApi?.Paths?.ExtensionsDataPath;
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return pool;
-
-                var paCacheDir = Path.Combine(root, "e6aad2c9-6e06-4d8d-ac55-ac3b252b5f7b", "achievement_cache");
-                if (!Directory.Exists(paCacheDir)) return pool;
-
-                string[] files;
-                try { files = Directory.EnumerateFiles(paCacheDir, "*.json", SearchOption.TopDirectoryOnly).ToArray(); }
-                catch { return pool; }
-                if (files.Length == 0) return pool;
-
-                var cutoff = DateTime.UtcNow.AddDays(-365);
-
-                foreach (var file in files)
-                {
-                    GameAchievementData gameData = null;
-                    try
-                    {
-                        var text = File.ReadAllText(file);
-                        gameData = Serialization.FromJson<GameAchievementData>(text);
-                    }
-                    catch { continue; }
-
-                    if (gameData == null || gameData.Achievements == null) continue;
-
-                    var gameName = gameData.GameName ?? Path.GetFileNameWithoutExtension(file);
-
-                    foreach (var ach in gameData.Achievements)
-                    {
-                        if (ach == null) continue;
-
-                        var unlockedTime = ach.UnlockTimeUtc;
-                        if (unlockedTime == null) continue;
-
-                        // Filter to last 365 days
-                        if (unlockedTime.Value < cutoff) continue;
-
-                        var percent = ach.GlobalPercentUnlocked;
-                        if (percent == null || percent <= 0) continue;
-
-                        var title = ach.DisplayName ?? ach.ApiName ?? "(Achievement)";
-                        var icon = ach.IconPath ?? "";
-
-                        pool.Add(new RareAchievementItem
-                        {
-                            Game = gameName,
-                            Title = title,
-                            Percent = percent.Value,
-                            IconPath = icon,
-                            Unlocked = unlockedTime.Value
-                        });
-                    }
-                }
-
-                // Sort by GlobalPercent ascending (smallest = rarest), then by unlock time descending
-                return pool
-                    .OrderBy(x => x.Percent)
-                    .ThenByDescending(x => x.Unlocked)
-                    .Take(take)
-                    .ToList();
+                RareTop.Clear();
+                foreach (var it in computed)
+                    RareTop.Add(it);
             }
-            catch
+
+            if (dispatcher.CheckAccess())
             {
-                return pool;
+                Apply();
             }
+            else
+            {
+                dispatcher.BeginInvoke((Action)Apply);
+            }
+
         }
 
         private void TryStartAchievementsWatcher()
@@ -1559,7 +1440,18 @@ namespace AnikiHelper
             {
                 if (plugin?.PlayniteApi == null) return;
 
-                // Always start the debounce timer
+                var ssRoot = GetSuccessStoryRootCached();
+                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
+
+                achievementsWatcher?.Dispose();
+                achievementsWatcher = new FileSystemWatcher(ssRoot, "*.json")
+                {
+                    IncludeSubdirectories = true,
+                    EnableRaisingEvents = true,
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime,
+                    InternalBufferSize = 64 * 1024
+                };
+
                 debounceTimer?.Dispose();
                 debounceTimer = new Timer(1500) { AutoReset = false };
                 debounceTimer.Elapsed += async (_, __) =>
@@ -1581,59 +1473,14 @@ namespace AnikiHelper
                 };
 
                 FileSystemEventHandler pulse = (_, __) => { debounceTimer.Stop(); debounceTimer.Start(); };
-                RenamedEventHandler pulseRename = (_, __) => { debounceTimer.Stop(); debounceTimer.Start(); };
-
-                // SuccessStory watcher
-                if (AchievementIntegrationMode == AchievementIntegrationMode.SuccessStory)
-                {
-                    var watchRoot = GetSuccessStoryRootCached();
-                    if (!string.IsNullOrEmpty(watchRoot) && Directory.Exists(watchRoot))
-                    {
-                        achievementsWatcher?.Dispose();
-                        achievementsWatcher = new FileSystemWatcher(watchRoot, "*.json")
-                        {
-                            IncludeSubdirectories = true,
-                            EnableRaisingEvents = true,
-                            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime,
-                            InternalBufferSize = 64 * 1024
-                        };
-
-                        achievementsWatcher.Created += pulse;
-                        achievementsWatcher.Changed += pulse;
-                        achievementsWatcher.Deleted += pulse;
-                        achievementsWatcher.Renamed += pulseRename;
-                    }
-                }
-
-                // PlayniteAchievements watcher
-                if (AchievementIntegrationMode == AchievementIntegrationMode.PlayniteAchievements)
-                {
-                    var root = plugin?.PlayniteApi?.Paths?.ExtensionsDataPath;
-                    if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
-                    {
-                        var paCacheDir = Path.Combine(root, "e6aad2c9-6e06-4d8d-ac55-ac3b252b5f7b", "achievement_cache");
-                        if (Directory.Exists(paCacheDir))
-                        {
-                            playniteAchievementsWatcher?.Dispose();
-                            playniteAchievementsWatcher = new FileSystemWatcher(paCacheDir, "*.json")
-                            {
-                                IncludeSubdirectories = false,
-                                EnableRaisingEvents = true,
-                                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime,
-                                InternalBufferSize = 64 * 1024
-                            };
-
-                            playniteAchievementsWatcher.Created += pulse;
-                            playniteAchievementsWatcher.Changed += pulse;
-                            playniteAchievementsWatcher.Deleted += pulse;
-                            playniteAchievementsWatcher.Renamed += pulseRename;
-                        }
-                    }
-                }
+                achievementsWatcher.Created += pulse;
+                achievementsWatcher.Changed += pulse;
+                achievementsWatcher.Deleted += pulse;
+                achievementsWatcher.Renamed += (_, __) => { debounceTimer.Stop(); debounceTimer.Start(); };
             }
             catch (Exception ex)
             {
-                logger?.Warn(ex, "[AnikiHelper] Failed to start achievements watcher.");
+                logger?.Warn(ex, "[AnikiHelper] Failed to start SuccessStory watcher.");
             }
         }
 
@@ -1665,29 +1512,21 @@ namespace AnikiHelper
 
         public static string PlaytimeToString(ulong minutes, bool useDays)
         {
-            if (useDays)
+            if (useDays && minutes >= 60 * 24)
             {
-                if (minutes >= 60 * 24)
-                {
-                    var days = minutes / (60u * 24u);
-                    var hours = (minutes % (60u * 24u)) / 60u;
-                    return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
-                }
-                if (minutes >= 60)
-                {
-                    var hours = minutes / 60u;
-                    var mins = minutes % 60u;
-                    return mins > 0 ? $"{hours}h {mins}m" : $"{hours}h";
-                }
-                return $"{minutes}m";
+                var days = minutes / (60u * 24u);
+                var hours = (minutes % (60u * 24u)) / 60u;
+                return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
             }
-            else
+
+            if (minutes >= 60)
             {
                 var hours = minutes / 60u;
                 var mins = minutes % 60u;
-                if (hours == 0) return $"{mins}m";
                 return mins > 0 ? $"{hours}h {mins}m" : $"{hours}h";
             }
+
+            return $"{minutes}m";
         }
 
         private static string FormatBytesToReadable(ulong bytes)

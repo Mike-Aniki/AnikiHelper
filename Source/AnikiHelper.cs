@@ -30,6 +30,20 @@ namespace AnikiHelper
 
         private readonly bool isFullscreenMode;
 
+        // Video 
+        private bool startupVideoSequenceRunning;
+        private static readonly TimeSpan StartupVideoDuration = TimeSpan.FromSeconds(7);
+        private static readonly TimeSpan StartupVideoFailSafeTimeout = TimeSpan.FromSeconds(30);
+        private const string StartupVideoFileName = "Startup.mp4";
+
+        private bool shutdownVideoSequenceRunning;
+        private static readonly TimeSpan ShutdownVideoDuration = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan ShutdownVideoFailSafeTimeout = TimeSpan.FromSeconds(30);
+
+        private const string ShutdownThemeFolderName = "Aniki_ReMake_bb8728bd-ac83-4324-88b1-ee5c586527d1";
+        private const string ShutdownVideoFolderName = "Startup Video";
+        private const string ShutdownVideoFileName = "Shutdown.mp4";
+
         public static AnikiHelper Instance { get; private set; }
 
         private const int GlobalNewsRefreshIntervalHours = 3;
@@ -63,40 +77,118 @@ namespace AnikiHelper
         private const string DealsFeedUrl =
             "https://game-deals.app/rss/discounts/steam";
 
+        private readonly Random hubRandom = new Random();
+        private bool hubPage3CardsInitialized = false;
 
         // === Diagnostics and paths ===
         private string GetDataRoot() => Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
 
         // News update for Welcome Hub
-        private void UpdateLatestNewsFromList(IList<SteamGlobalNewsItem> items)
+        private void UpdateLatestNewsRotationFromList(IList<SteamGlobalNewsItem> items)
+        {
+            try
+            {
+                latestNewsRotation.Clear();
+                latestNewsRotationIndex = 0;
+
+                if (items != null)
+                {
+                    foreach (var item in items
+                        .OrderByDescending(x => x.PublishedUtc)
+                        .Take(5))
+                    {
+                        latestNewsRotation.Add(item);
+                    }
+                }
+
+                ApplyLatestNewsSnapshot(latestNewsRotation.Count > 0 ? latestNewsRotation[0] : null);
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to update LatestNews rotation.");
+            }
+        }
+
+        private void ApplyLatestNewsSnapshot(SteamGlobalNewsItem item)
         {
             try
             {
                 OnUi(() =>
                 {
-                    if (items == null || items.Count == 0)
+                    if (item == null)
                     {
                         Settings.LatestNewsTitle = string.Empty;
                         Settings.LatestNewsDateString = string.Empty;
                         Settings.LatestNewsSummary = string.Empty;
                         Settings.LatestNewsGameName = string.Empty;
                         Settings.LatestNewsLocalImagePath = string.Empty;
+                        
+                        Settings.LatestNewsLocalImagePathA = string.Empty;
+                        Settings.LatestNewsLocalImagePathB = string.Empty;
+                        Settings.LatestNewsShowLayerB = false;
+
+                        latestNewsCrossfadeInitialized = false;
                         return;
                     }
 
-                    var latest = items[0];
+                    // Compat / anciens bindings si jamais tu les utilises ailleurs
+                    Settings.LatestNewsTitle = item.Title ?? string.Empty;
+                    Settings.LatestNewsDateString = item.DateString ?? string.Empty;
+                    Settings.LatestNewsSummary = item.Summary ?? string.Empty;
+                    Settings.LatestNewsGameName = item.GameName ?? string.Empty;
+                    Settings.LatestNewsLocalImagePath = item.LocalImagePath ?? string.Empty;
 
-                    Settings.LatestNewsTitle = latest.Title ?? string.Empty;
-                    Settings.LatestNewsDateString = latest.DateString ?? string.Empty;
-                    Settings.LatestNewsSummary = latest.Summary ?? string.Empty;
-                    Settings.LatestNewsGameName = latest.GameName ?? string.Empty;
-                    Settings.LatestNewsLocalImagePath = latest.LocalImagePath ?? string.Empty;
+                    var title = item.Title ?? string.Empty;
+                    var imagePath = item.LocalImagePath ?? string.Empty;
+
+                    // Premier affichage : on remplit seulement A
+                    if (!latestNewsCrossfadeInitialized)
+                    {
+                        Settings.LatestNewsLocalImagePathA = imagePath;
+
+                        Settings.LatestNewsLocalImagePathB = imagePath;
+
+                        Settings.LatestNewsShowLayerB = false;
+                        latestNewsCrossfadeInitialized = true;
+                        return;
+                    }
+
+                    // Si B est visible, on prépare A puis on fade-out B
+                    if (Settings.LatestNewsShowLayerB)
+                    {
+                        Settings.LatestNewsLocalImagePathA = imagePath;
+
+                        Settings.LatestNewsShowLayerB = false;
+                    }
+                    else
+                    {
+                        // Si A est visible, on prépare B puis on fade-in B
+                        Settings.LatestNewsLocalImagePathB = imagePath;
+
+                        Settings.LatestNewsShowLayerB = true;
+                    }
                 });
             }
             catch (Exception ex)
             {
-                logger.Error(ex, "[AnikiHelper] Failed to update LatestNews snapshot.");
+                logger.Error(ex, "[AnikiHelper] Failed to apply LatestNews snapshot.");
             }
+        }
+
+        private void RotateLatestNewsIfNeeded()
+        {
+            if (latestNewsRotation.Count <= 1)
+            {
+                return;
+            }
+
+            latestNewsRotationIndex++;
+            if (latestNewsRotationIndex >= latestNewsRotation.Count)
+            {
+                latestNewsRotationIndex = 0;
+            }
+
+            ApplyLatestNewsSnapshot(latestNewsRotation[latestNewsRotationIndex]);
         }
 
 
@@ -109,7 +201,7 @@ namespace AnikiHelper
             {
                 if (Settings.SteamGlobalNews != null && Settings.SteamGlobalNews.Count > 0)
                 {
-                    UpdateLatestNewsFromList(Settings.SteamGlobalNews.ToList());
+                    UpdateLatestNewsRotationFromList(Settings.SteamGlobalNews.ToList());
                     return;
                 }
 
@@ -148,7 +240,7 @@ namespace AnikiHelper
                     }
                 });
 
-                UpdateLatestNewsFromList(ordered);
+                UpdateLatestNewsRotationFromList(ordered);
                 SaveSettingsSafe();
             }
             catch (Exception ex)
@@ -576,6 +668,16 @@ namespace AnikiHelper
         private readonly DispatcherTimer steamUpdateTimer;
         private Playnite.SDK.Models.Game pendingUpdateGame;
         private readonly DispatcherTimer dealsTimer;
+        private readonly DispatcherTimer newsRotationTimer;
+        private readonly DispatcherTimer suggestedRotationTimer;
+
+        private readonly List<SteamGlobalNewsItem> latestNewsRotation = new List<SteamGlobalNewsItem>();
+        private int latestNewsRotationIndex = 0;
+        private bool latestNewsCrossfadeInitialized = false;
+
+        private readonly List<SuggestedGameSnapshot> suggestedGameRotation = new List<SuggestedGameSnapshot>();
+        private int suggestedGameRotationIndex = 0;
+        private bool suggestedGameCrossfadeInitialized = false;
 
         // Steam updates cache (RAM + flush différé)
         private readonly object steamUpdatesCacheLock = new object();
@@ -828,7 +930,7 @@ namespace AnikiHelper
                 // ✅ sauvegarde hors UI
                 SaveSettingsSafe();
 
-                UpdateLatestNewsFromList(items);
+                UpdateLatestNewsRotationFromList(items);
             }
             catch (Exception ex)
             {
@@ -1856,6 +1958,50 @@ namespace AnikiHelper
             return result;
         }
 
+        private IEnumerable<string> GetSeriesNames(Playnite.SDK.Models.Game g)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (g == null)
+            {
+                return result;
+            }
+
+            try
+            {
+                if (g.Series != null)
+                {
+                    foreach (var meta in g.Series)
+                    {
+                        var name = meta?.Name;
+                        if (!string.IsNullOrWhiteSpace(name))
+                        {
+                            result.Add(name);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (g.SeriesIds != null)
+                {
+                    foreach (var id in g.SeriesIds)
+                    {
+                        var meta = PlayniteApi.Database.Series.Get(id);
+                        var name = meta?.Name;
+                        if (!string.IsNullOrWhiteSpace(name))
+                        {
+                            result.Add(name);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return result;
+        }
+
         private IEnumerable<string> GetDeveloperNames(Playnite.SDK.Models.Game g)
         {
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2031,6 +2177,365 @@ namespace AnikiHelper
 
                 yield return trimmed;
             }
+        }
+
+        private string NormalizeProfileGenreKey(string genre)
+        {
+            if (string.IsNullOrWhiteSpace(genre))
+            {
+                return null;
+            }
+
+            var g = genre.Trim().ToLowerInvariant();
+
+            if (g.Contains("souls")) return "SOULSLIKE";
+            if (g.Contains("metroidvania")) return "METROIDVANIA";
+
+            if (g.Contains("action rpg") || g.Contains("action-rpg") || g.Contains("arpg"))
+                return "ACTION_RPG";
+
+            if (g.Contains("jrpg") || g.Contains("j-rpg") || g.Contains("rpg japonais"))
+                return "JRPG";
+
+            if (g == "rpg" || g.Contains("role-playing") || g.Contains("jeu de rôle"))
+                return "RPG";
+
+            if (g.Contains("survival horror"))
+                return "SURVIVAL_HORROR";
+
+            if (g.Contains("horror") || g.Contains("horreur"))
+                return "HORROR";
+
+            if (g.Contains("fps") || g.Contains("first-person shooter"))
+                return "FPS";
+
+            if (g.Contains("third-person shooter") || g.Contains("tps") || g.Contains("shooter"))
+                return "SHOOTER";
+
+            if (g.Contains("plateforme") || g.Contains("platformer"))
+                return "PLATFORMER";
+
+            if (g.Contains("course") || g.Contains("racing") || g.Contains("driving"))
+                return "RACING";
+
+            if (g.Contains("combat") || g.Contains("fighting"))
+                return "FIGHTING";
+
+            if (g.Contains("stratégie") || g.Contains("strategy") || g.Contains("tactical"))
+                return "STRATEGY";
+
+            if (g.Contains("simulation") || g.Contains("simulator"))
+                return "SIMULATION";
+
+            if (g.Contains("infiltration") || g.Contains("stealth"))
+                return "STEALTH";
+
+            if (g.Contains("aventure") || g.Contains("adventure"))
+                return "ADVENTURE";
+
+            return null;
+        }
+
+        private string BuildProfileGenreKey(IEnumerable<Game> games)
+        {
+            if (games == null)
+            {
+                return "VARIETY";
+            }
+
+            var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var g in games)
+            {
+                if (g == null)
+                {
+                    continue;
+                }
+
+                var rawGenres = GetGenreNames(g).ToList();
+                if (rawGenres.Count == 0)
+                {
+                    continue;
+                }
+
+                var filteredGenres = GetSpecificKeywords(rawGenres).ToList();
+                var genresToUse = filteredGenres.Count > 0 ? filteredGenres : rawGenres;
+
+                var gameMinutes = g.Playtime / 60.0;
+                if (gameMinutes <= 0)
+                {
+                    continue;
+                }
+
+                foreach (var genre in genresToUse.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var key = NormalizeProfileGenreKey(genre);
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        continue;
+                    }
+
+                    if (!scores.ContainsKey(key))
+                    {
+                        scores[key] = 0;
+                    }
+
+                    scores[key] += gameMinutes;
+                }
+            }
+
+            if (scores.Count == 0)
+            {
+                return "VARIETY";
+            }
+
+            var ordered = scores
+                .OrderByDescending(x => x.Value)
+                .ToList();
+
+            var top = ordered[0];
+            var secondValue = ordered.Count > 1 ? ordered[1].Value : 0;
+
+            // Pas assez de matière : on évite un faux "genre dominant"
+            if (top.Value < 300) // 5h cumulées
+            {
+                return "VARIETY";
+            }
+
+            // Si les 2 premiers genres sont trop proches, on reste générique
+            if (secondValue > 0 && top.Value < secondValue * 1.15)
+            {
+                return "VARIETY";
+            }
+
+            return top.Key;
+        }
+
+        private string GetLocalizedProfileGenreLabel(string key)
+        {
+            switch (key)
+            {
+                case "SOULSLIKE":
+                    return Loc("ProfileGenre_Soulslike", "Souls-like fan");
+
+                case "METROIDVANIA":
+                    return Loc("ProfileGenre_Metroidvania", "Metroidvania fan");
+
+                case "ACTION_RPG":
+                    return Loc("ProfileGenre_ActionRpg", "Action RPG fan");
+
+                case "JRPG":
+                    return Loc("ProfileGenre_Jrpg", "JRPG fan");
+
+                case "RPG":
+                    return Loc("ProfileGenre_Rpg", "RPG fan");
+
+                case "SURVIVAL_HORROR":
+                    return Loc("ProfileGenre_SurvivalHorror", "Survival horror fan");
+
+                case "HORROR":
+                    return Loc("ProfileGenre_Horror", "Horror fan");
+
+                case "FPS":
+                    return Loc("ProfileGenre_Fps", "FPS fan");
+
+                case "SHOOTER":
+                    return Loc("ProfileGenre_Shooter", "Shooter fan");
+
+                case "PLATFORMER":
+                    return Loc("ProfileGenre_Platformer", "Platformer fan");
+
+                case "RACING":
+                    return Loc("ProfileGenre_Racing", "Racing fan");
+
+                case "FIGHTING":
+                    return Loc("ProfileGenre_Fighting", "Fighting fan");
+
+                case "STRATEGY":
+                    return Loc("ProfileGenre_Strategy", "Strategy fan");
+
+                case "SIMULATION":
+                    return Loc("ProfileGenre_Simulation", "Simulation fan");
+
+                case "STEALTH":
+                    return Loc("ProfileGenre_Stealth", "Stealth fan");
+
+                case "ADVENTURE":
+                    return Loc("ProfileGenre_Adventure", "Adventure fan");
+
+                case "VARIETY":
+                default:
+                    return Loc("ProfileGenre_Variety", "Variety gamer");
+            }
+        }
+
+        private static readonly HashSet<string> IgnoredProfileTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Singleplayer",
+            "Single-player",
+            "Multiplayer",
+            "Multi-player",
+            "Co-op",
+            "Cooperative",
+            "Online Co-Op",
+            "Local Co-Op",
+            "Local Multiplayer",
+            "Online Multiplayer",
+            "Full Controller Support",
+            "Partial Controller Support",
+            "Controller",
+            "Steam Achievements",
+            "Cloud Saves",
+            "Family Sharing",
+            "Remote Play on Phone",
+            "Remote Play on Tablet",
+            "Remote Play on TV",
+            "Remote Play Together"
+        };
+
+        private static bool IsUsefulProfileTag(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            var trimmed = name.Trim();
+
+            if (trimmed.StartsWith("[", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return !IgnoredProfileTags.Contains(trimmed);
+        }
+
+        private string BuildWeightedTopValue(IEnumerable<Game> games, Func<Game, IEnumerable<string>> selector, Func<string, bool> validator = null)
+        {
+            var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            if (games == null)
+            {
+                return string.Empty;
+            }
+
+            foreach (var g in games)
+            {
+                if (g == null || g.Playtime == 0UL)
+                {
+                    continue;
+                }
+
+                var weight = Math.Max(1.0, g.Playtime / 60.0);
+
+                IEnumerable<string> values;
+                try
+                {
+                    values = selector(g) ?? Enumerable.Empty<string>();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var value in values
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    if (validator != null && !validator(value))
+                    {
+                        continue;
+                    }
+
+                    if (!scores.ContainsKey(value))
+                    {
+                        scores[value] = 0;
+                    }
+
+                    scores[value] += weight;
+                }
+            }
+
+            if (scores.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return scores
+                .OrderByDescending(x => x.Value)
+                .ThenBy(x => x.Key)
+                .First()
+                .Key;
+        }
+
+        private string BuildTopPlatformName(IEnumerable<Game> games)
+        {
+            return BuildWeightedTopValue(
+                games,
+                g =>
+                {
+                    var src = g.Source?.Name;
+                    return string.IsNullOrWhiteSpace(src)
+                        ? Enumerable.Empty<string>()
+                        : new[] { src.Trim() };
+                });
+        }
+
+        private string BuildTopFranchiseName(IEnumerable<Game> games)
+        {
+            var playtimeScores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            var gameCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            if (games == null)
+            {
+                return string.Empty;
+            }
+
+            foreach (var g in games)
+            {
+                if (g == null || g.Playtime == 0UL)
+                {
+                    continue;
+                }
+
+                var weight = Math.Max(1.0, g.Playtime / 60.0);
+
+                var seriesNames = GetSeriesNames(g)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var series in seriesNames)
+                {
+                    if (!playtimeScores.ContainsKey(series))
+                    {
+                        playtimeScores[series] = 0;
+                        gameCounts[series] = 0;
+                    }
+
+                    playtimeScores[series] += weight;
+                    gameCounts[series]++;
+                }
+            }
+
+            var eligible = playtimeScores
+                .Where(x => gameCounts.ContainsKey(x.Key) && gameCounts[x.Key] >= 2)
+                .OrderByDescending(x => x.Value)
+                .ThenBy(x => x.Key)
+                .ToList();
+
+            if (eligible.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return eligible.First().Key;
+        }
+
+        private string BuildTopTagName(IEnumerable<Game> games)
+        {
+            return BuildWeightedTopValue(games, g => GetTagNames(g), IsUsefulProfileTag);
         }
 
         // Essaie de ranger un jeu dans une "famille" grossière
@@ -2261,30 +2766,30 @@ namespace AnikiHelper
             // Date du jour (locale)
             var today = DateTime.Now.Date;
 
+            var ordered = candidates
+                .OrderByDescending(c => c.Score)
+                .ThenBy(c => c.Game.Name ?? string.Empty)
+                .ToList();
+
+            // On garde un top 3 (ou moins si pas assez de jeux)
+            var topCandidates = ordered.Take(3).ToList();
+            if (topCandidates.Count == 0)
+            {
+                return;
+            }
+
             SuggestedGameCandidate selected = null;
 
-            // 2bis-A : si on a déjà un jeu pour aujourd'hui ET qu'il est encore candidat, on le garde
+            // Si on a déjà un jeu pour aujourd'hui ET qu'il est encore candidat, on le garde
             if (s.SuggestedGameLastId != Guid.Empty &&
                 s.SuggestedGameLastChangeDate.Date == today)
             {
                 selected = candidates.FirstOrDefault(c => c.Game.Id == s.SuggestedGameLastId);
             }
 
-            // 2bis-B : sinon, on recalcule un top 3 et on choisit dedans
+            // Sinon on choisit un jeu de départ dans le top 3
             if (selected == null)
             {
-                var ordered = candidates
-                    .OrderByDescending(c => c.Score)
-                    .ThenBy(c => c.Game.Name ?? string.Empty)
-                    .ToList();
-
-                // On garde un top 3 (ou moins si pas assez de jeux)
-                var topCandidates = ordered.Take(3).ToList();
-                if (topCandidates.Count == 0)
-                {
-                    return;
-                }
-
                 var rand = new Random();
                 selected = topCandidates[rand.Next(topCandidates.Count)];
 
@@ -2292,73 +2797,7 @@ namespace AnikiHelper
                 s.SuggestedGameLastChangeDate = today;
             }
 
-            var bestGame = selected.Game;
-            var bestReason = selected.Reason ?? string.Empty;
-
-            if (bestGame == null)
-            {
-                return;
-            }
-
-
-            // 3) Construction of the banner text
-
-            string banner = string.Empty;
-
-            if (!string.IsNullOrEmpty(bestReason) && !string.IsNullOrEmpty(refName))
-            {
-                switch (bestReason)
-                {
-                    case "SameGenre":
-                        banner = string.Format(
-                            Loc("SuggestBanner_SameGenre", "Same genre as {0}"),
-                            refName);
-                        break;
-
-                    case "SimilarTags":
-                        banner = string.Format(
-                            Loc("SuggestBanner_SimilarTags", "Similar tags to {0}"),
-                            refName);
-                        break;
-
-                    case "SameDeveloper":
-                        banner = string.Format(
-                            Loc("SuggestBanner_SameDeveloper", "Same developer as {0}"),
-                            refName);
-                        break;
-
-                    case "SamePublisher":
-                        banner = string.Format(
-                            Loc("SuggestBanner_SamePublisher", "Same publisher as {0}"),
-                            refName);
-                        break;
-                }
-            }
-
-            // 4) Construction des chemins (Road construction)
-
-            string coverPath = GetGameCoverPath(bestGame);
-
-            string bgPath = null;
-            if (!string.IsNullOrEmpty(bestGame.BackgroundImage))
-                bgPath = PlayniteApi.Database.GetFullFilePath(bestGame.BackgroundImage);
-            if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(bestGame.CoverImage))
-                bgPath = PlayniteApi.Database.GetFullFilePath(bestGame.CoverImage);
-            if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(bestGame.Icon))
-                bgPath = PlayniteApi.Database.GetFullFilePath(bestGame.Icon);
-
-            // 5) Push vers Settings
-
-            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
-            {
-                s.SuggestedGameSourceName = refName;
-                s.SuggestedGameName = Safe(bestGame.Name);
-                s.SuggestedGameCoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath;
-                s.SuggestedGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
-                s.SuggestedGameReasonKey = bestReason ?? string.Empty;
-                s.SuggestedGameBannerText = banner ?? string.Empty;
-            });
-
+            UpdateSuggestedGamesRotation(topCandidates, selected, refName);
             SaveSettingsSafe();
         }
 
@@ -2395,6 +2834,196 @@ namespace AnikiHelper
                 logger.Warn(ex, "[AnikiHelper] LoadMonthSnapshot failed");
                 return new Dictionary<Guid, ulong>();
             }
+        }
+
+        private void UpdateSuggestedGamesRotation(IList<SuggestedGameCandidate> topCandidates, SuggestedGameCandidate selected, string refName)
+        {
+            suggestedGameRotation.Clear();
+            suggestedGameRotationIndex = 0;
+
+            if (topCandidates == null || topCandidates.Count == 0)
+            {
+                ApplySuggestedGameSnapshot(null);
+                return;
+            }
+
+            var ordered = new List<SuggestedGameCandidate>();
+
+            if (selected != null)
+            {
+                ordered.Add(selected);
+            }
+
+            foreach (var candidate in topCandidates)
+            {
+                if (candidate?.Game == null)
+                {
+                    continue;
+                }
+
+                if (selected != null && candidate.Game.Id == selected.Game.Id)
+                {
+                    continue;
+                }
+
+                ordered.Add(candidate);
+            }
+
+            foreach (var candidate in ordered.Take(3))
+            {
+                var snapshot = BuildSuggestedGameSnapshot(candidate, refName);
+                if (snapshot != null)
+                {
+                    suggestedGameRotation.Add(snapshot);
+                }
+            }
+
+            ApplySuggestedGameSnapshot(suggestedGameRotation.Count > 0 ? suggestedGameRotation[0] : null);
+        }
+
+        private SuggestedGameSnapshot BuildSuggestedGameSnapshot(SuggestedGameCandidate candidate, string refName)
+        {
+            var game = candidate?.Game;
+            if (game == null)
+            {
+                return null;
+            }
+
+            var reason = candidate.Reason ?? string.Empty;
+            string banner = string.Empty;
+
+            if (!string.IsNullOrEmpty(reason) && !string.IsNullOrEmpty(refName))
+            {
+                switch (reason)
+                {
+                    case "SameGenre":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SameGenre", "Same genre as {0}"),
+                            refName);
+                        break;
+
+                    case "SimilarTags":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SimilarTags", "Similar tags to {0}"),
+                            refName);
+                        break;
+
+                    case "SameDeveloper":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SameDeveloper", "Same developer as {0}"),
+                            refName);
+                        break;
+
+                    case "SamePublisher":
+                        banner = string.Format(
+                            Loc("SuggestBanner_SamePublisher", "Same publisher as {0}"),
+                            refName);
+                        break;
+                }
+            }
+
+            string coverPath = GetGameCoverPath(game);
+
+            string bgPath = null;
+            if (!string.IsNullOrEmpty(game.BackgroundImage))
+                bgPath = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
+            if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(game.CoverImage))
+                bgPath = PlayniteApi.Database.GetFullFilePath(game.CoverImage);
+            if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(game.Icon))
+                bgPath = PlayniteApi.Database.GetFullFilePath(game.Icon);
+
+            return new SuggestedGameSnapshot
+            {
+                SourceName = refName ?? string.Empty,
+                Name = Safe(game.Name),
+                CoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath,
+                BackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath,
+                ReasonKey = reason,
+                BannerText = banner ?? string.Empty
+            };
+        }
+
+        private void ApplySuggestedGameSnapshot(SuggestedGameSnapshot item)
+        {
+            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                if (item == null)
+                {
+                    Settings.SuggestedGameName = string.Empty;
+                    Settings.SuggestedGameCoverPath = string.Empty;
+                    Settings.SuggestedGameBackgroundPath = string.Empty;
+                    Settings.SuggestedGameSourceName = string.Empty;
+                    Settings.SuggestedGameReasonKey = string.Empty;
+                    Settings.SuggestedGameBannerText = string.Empty;
+
+                    Settings.SuggestedGameBackgroundPathA = string.Empty;
+                    Settings.SuggestedGameBackgroundPathB = string.Empty;
+                    Settings.SuggestedGameShowLayerB = false;
+
+                    suggestedGameCrossfadeInitialized = false;
+                    return;
+                }
+
+                // Texte / infos fixes
+                Settings.SuggestedGameSourceName = item.SourceName ?? string.Empty;
+                Settings.SuggestedGameName = item.Name ?? string.Empty;
+                Settings.SuggestedGameCoverPath = item.CoverPath ?? string.Empty;
+                Settings.SuggestedGameBackgroundPath = item.BackgroundPath ?? string.Empty;
+                Settings.SuggestedGameReasonKey = item.ReasonKey ?? string.Empty;
+                Settings.SuggestedGameBannerText = item.BannerText ?? string.Empty;
+
+                var bgPath = item.BackgroundPath ?? string.Empty;
+
+                // Premier affichage : on remplit A et B avec la même image
+                if (!suggestedGameCrossfadeInitialized)
+                {
+                    Settings.SuggestedGameBackgroundPathA = bgPath;
+                    Settings.SuggestedGameBackgroundPathB = bgPath;
+                    Settings.SuggestedGameShowLayerB = false;
+
+                    suggestedGameCrossfadeInitialized = true;
+                    return;
+                }
+
+                // Si B est visible, on prépare A puis on révèle A en faisant disparaître B
+                if (Settings.SuggestedGameShowLayerB)
+                {
+                    Settings.SuggestedGameBackgroundPathA = bgPath;
+                    Settings.SuggestedGameShowLayerB = false;
+                }
+                else
+                {
+                    // Si A est visible, on prépare B puis on fade-in B
+                    Settings.SuggestedGameBackgroundPathB = bgPath;
+                    Settings.SuggestedGameShowLayerB = true;
+                }
+            });
+        }
+
+        private void RotateSuggestedGamesIfNeeded()
+        {
+            if (suggestedGameRotation.Count <= 1)
+            {
+                return;
+            }
+
+            suggestedGameRotationIndex++;
+            if (suggestedGameRotationIndex >= suggestedGameRotation.Count)
+            {
+                suggestedGameRotationIndex = 0;
+            }
+
+            ApplySuggestedGameSnapshot(suggestedGameRotation[suggestedGameRotationIndex]);
+        }
+
+        private class SuggestedGameSnapshot
+        {
+            public string Name { get; set; }
+            public string CoverPath { get; set; }
+            public string BackgroundPath { get; set; }
+            public string SourceName { get; set; }
+            public string ReasonKey { get; set; }
+            public string BannerText { get; set; }
         }
 
         private class SuggestedGameCandidate
@@ -2842,6 +3471,18 @@ namespace AnikiHelper
                     Interval = TimeSpan.FromHours(1)
                 };
                 dealsTimer.Tick += DealsTimer_Tick;
+
+                newsRotationTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(15)
+                };
+                newsRotationTimer.Tick += NewsRotationTimer_Tick;
+
+                suggestedRotationTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(15)
+                };
+                suggestedRotationTimer.Tick += SuggestedRotationTimer_Tick;
             }
         }
 
@@ -2931,6 +3572,18 @@ namespace AnikiHelper
             }
         }
 
+        private bool IsAnikiThemeActive()
+        {
+            try
+            {
+                return System.Windows.Application.Current?.TryFindResource("Aniki_ThemeMarker") is bool enabled && enabled;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         // --- Helpers focus / autorisation scan Steam ---
         private bool IsMainWindowActive()
         {
@@ -2953,6 +3606,131 @@ namespace AnikiHelper
             catch
             {
                 return true;
+            }
+        }
+
+        private bool IsNamedElementVisible(string elementName)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(elementName))
+                {
+                    return false;
+                }
+
+                var win = System.Windows.Application.Current?.MainWindow;
+                if (win == null || !win.IsVisible)
+                {
+                    return false;
+                }
+
+                if (win.WindowState == System.Windows.WindowState.Minimized)
+                {
+                    return false;
+                }
+
+                var element = win
+                    .FindVisualChildren<FrameworkElement>()
+                    .FirstOrDefault(x => x.Name == elementName);
+
+                if (element == null)
+                {
+                    return false;
+                }
+
+                return element.IsVisible && element.ActualWidth > 0 && element.ActualHeight > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void NewsRotationTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                if (!IsMainWindowActive())
+                {
+                    return;
+                }
+
+                if (!IsNamedElementVisible("WelcomeHubNewsPanel"))
+                {
+                    return;
+                }
+
+                RotateLatestNewsIfNeeded();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] NewsRotationTimer_Tick failed.");
+            }
+        }
+
+        private void SuggestedRotationTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                if (!IsMainWindowActive())
+                {
+                    return;
+                }
+
+                if (!IsNamedElementVisible("WelcomeHubSuggestedPanel"))
+                {
+                    return;
+                }
+
+                RotateSuggestedGamesIfNeeded();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] SuggestedRotationTimer_Tick failed.");
+            }
+        }
+
+        private async Task StartSuggestedRotationWithDelayAsync(int delayMs)
+        {
+            try
+            {
+                await Task.Delay(delayMs);
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                suggestedRotationTimer?.Start();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] StartSuggestedRotationWithDelayAsync failed.");
             }
         }
 
@@ -3048,6 +3826,323 @@ namespace AnikiHelper
             return refGame;
         }
 
+        private string GetStartupVideoPath()
+        {
+            try
+            {
+                var configRoot = PlayniteApi?.Paths?.ConfigurationPath;
+                if (!string.IsNullOrEmpty(configRoot))
+                {
+                    var themeVideo = Path.Combine(
+                        configRoot,
+                        "Themes",
+                        "Fullscreen",
+                        ShutdownThemeFolderName,
+                        ShutdownVideoFolderName,
+                        StartupVideoFileName);
+
+                    if (File.Exists(themeVideo))
+                    {
+                        return themeVideo;
+                    }
+                }
+
+                var appRoot = PlayniteApi?.Paths?.ApplicationPath;
+                if (!string.IsNullOrEmpty(appRoot))
+                {
+                    var themeVideo = Path.Combine(
+                        appRoot,
+                        "Themes",
+                        "Fullscreen",
+                        ShutdownThemeFolderName,
+                        ShutdownVideoFolderName,
+                        StartupVideoFileName);
+
+                    if (File.Exists(themeVideo))
+                    {
+                        return themeVideo;
+                    }
+                }
+
+                return Path.Combine(GetDataRoot(), "ShutdownVideo", StartupVideoFileName);
+            }
+            catch
+            {
+                return Path.Combine(GetDataRoot(), "ShutdownVideo", StartupVideoFileName);
+            }
+        }
+
+        private string GetShutdownVideoPath()
+        {
+            try
+            {
+                var configRoot = PlayniteApi?.Paths?.ConfigurationPath;
+                if (!string.IsNullOrEmpty(configRoot))
+                {
+                    var themeVideo = Path.Combine(
+                        configRoot,
+                        "Themes",
+                        "Fullscreen",
+                        ShutdownThemeFolderName,
+                        ShutdownVideoFolderName,
+                        ShutdownVideoFileName);
+
+                    if (File.Exists(themeVideo))
+                    {
+                        return themeVideo;
+                    }
+                }
+
+                var appRoot = PlayniteApi?.Paths?.ApplicationPath;
+                if (!string.IsNullOrEmpty(appRoot))
+                {
+                    var themeVideo = Path.Combine(
+                        appRoot,
+                        "Themes",
+                        "Fullscreen",
+                        ShutdownThemeFolderName,
+                        ShutdownVideoFolderName,
+                        ShutdownVideoFileName);
+
+                    if (File.Exists(themeVideo))
+                    {
+                        return themeVideo;
+                    }
+                }
+
+                return Path.Combine(GetDataRoot(), "ShutdownVideo", ShutdownVideoFileName);
+            }
+            catch
+            {
+                return Path.Combine(GetDataRoot(), "ShutdownVideo", ShutdownVideoFileName);
+            }
+        }
+
+        internal async Task ShowStartupVideoAsync()
+        {
+            if (startupVideoSequenceRunning)
+            {
+                return;
+            }
+
+            if (!(Settings?.StartupIntroVideoEnabled ?? true))
+            {
+                return;
+            }
+
+            startupVideoSequenceRunning = true;
+
+            AnikiVideoOverlayWindow overlay = null;
+
+            try
+            {
+                var videoPath = GetStartupVideoPath();
+
+                if (!File.Exists(videoPath))
+                {
+                    return;
+                }
+
+                overlay = new AnikiVideoOverlayWindow(videoPath, StartupVideoFailSafeTimeout);
+                overlay.Show();
+                overlay.Activate();
+
+                await Application.Current.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+                HidePlayniteWindowsForStartup(overlay);
+
+                await Task.Delay(StartupVideoDuration);
+
+                await RestorePlayniteWindowsAfterStartupAsync();
+
+                await Application.Current.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+                overlay.Close();
+                overlay = null;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] ShowStartupVideoAsync failed.");
+            }
+            finally
+            {
+                try
+                {
+                    overlay?.Close();
+                }
+                catch { }
+
+                startupVideoSequenceRunning = false;
+            }
+        }
+
+        internal async Task ShowShutdownVideoAndExitAsync()
+        {
+            if (shutdownVideoSequenceRunning)
+            {
+                return;
+            }
+
+            if (!(Settings?.ShutdownVideoEnabled ?? true))
+            {
+                Application.Current?.Shutdown();
+                return;
+            }
+
+            shutdownVideoSequenceRunning = true;
+
+            AnikiVideoOverlayWindow overlay = null;
+            bool shutdownRequested = false;
+
+            try
+            {
+                var videoPath = GetShutdownVideoPath();
+
+                if (!File.Exists(videoPath))
+                {
+                    Application.Current?.Shutdown();
+                    return;
+                }
+
+                overlay = new AnikiVideoOverlayWindow(videoPath, ShutdownVideoFailSafeTimeout);
+                overlay.Show();
+                overlay.Activate();
+
+                await Task.Delay(ShutdownVideoDuration);
+
+                HidePlayniteWindowsExcept(overlay);
+
+                shutdownRequested = true;
+                Application.Current?.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] ShowShutdownVideoAndExitAsync failed.");
+            }
+            finally
+            {
+                if (!shutdownRequested)
+                {
+                    try
+                    {
+                        overlay?.Close();
+                    }
+                    catch { }
+                }
+
+                shutdownVideoSequenceRunning = false;
+            }
+        }
+
+        private void HidePlayniteWindowsForStartup(Window overlay)
+        {
+            try
+            {
+                var app = Application.Current;
+                if (app == null)
+                {
+                    return;
+                }
+
+                foreach (Window win in app.Windows)
+                {
+                    if (ReferenceEquals(win, overlay))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        win.Opacity = 0;
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] HidePlayniteWindowsForStartup failed.");
+            }
+        }
+
+        private async Task RestorePlayniteWindowsAfterStartupAsync()
+        {
+            try
+            {
+                var app = Application.Current;
+                if (app == null)
+                {
+                    return;
+                }
+
+                Window main = app.MainWindow;
+
+                foreach (Window win in app.Windows)
+                {
+                    if (win is AnikiVideoOverlayWindow)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        win.Opacity = 1;
+                    }
+                    catch { }
+                }
+
+                await app.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+
+                try
+                {
+                    if (main != null)
+                    {
+                        main.Activate();
+                        main.Focus();
+
+                        bool oldTopmost = main.Topmost;
+                        main.Topmost = true;
+                        main.Topmost = oldTopmost;
+                    }
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] RestorePlayniteWindowsAfterStartupAsync failed.");
+            }
+        }
+
+        private void HidePlayniteWindowsExcept(Window overlay)
+        {
+            try
+            {
+                var app = Application.Current;
+                if (app == null)
+                {
+                    return;
+                }
+
+                foreach (Window win in app.Windows)
+                {
+                    if (ReferenceEquals(win, overlay))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        win.Opacity = 0;
+                        win.Visibility = Visibility.Hidden;
+                        win.ShowInTaskbar = false;
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] HidePlayniteWindowsExcept failed.");
+            }
+        }
 
         #region Lifecycle
 
@@ -3061,11 +4156,15 @@ namespace AnikiHelper
                 return;
             }
 
+            var isAnikiThemeActive = IsAnikiThemeActive();
+
+            hubPage3CardsInitialized = false;
             EnsureMonthlySnapshotSafe();
             RecalcStatsSafe();
 
             PlayniteApi.Database.DatabaseOpened += (_, __) =>
             {
+                hubPage3CardsInitialized = false;
                 EnsureMonthlySnapshotSafe();
                 RecalcStatsSafe();
             };
@@ -3079,12 +4178,6 @@ namespace AnikiHelper
             {
                 OnUi(() =>
                 {
-                    Settings.SessionGameName = string.Empty;
-                    Settings.SessionDurationString = string.Empty;
-                    Settings.SessionTotalPlaytimeString = string.Empty;
-                    Settings.SessionNewAchievementsString = string.Empty;
-                    Settings.SessionHasNewAchievements = false;
-                    Settings.SessionNewAchievementsCount = 0;
                     Settings.SessionNotificationStamp = string.Empty;
                     Settings.SessionNotificationArmed = false;
                 });
@@ -3093,17 +4186,60 @@ namespace AnikiHelper
 
 
             // --- UI Fullscreen ---
-            AddonsUpdateStyler.Start();
+            if (isAnikiThemeActive)
+            {
+                AddonsUpdateStyler.Start();
+            }
 
             System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
                 () => DynamicAuto.Init(PlayniteApi),
                 System.Windows.Threading.DispatcherPriority.Loaded
             );
 
-            System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                () => SettingsWindowStyler.Start(),
-                System.Windows.Threading.DispatcherPriority.Loaded
-            );
+            if (isAnikiThemeActive)
+            {
+                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                    () => SettingsWindowStyler.Start(),
+                    System.Windows.Threading.DispatcherPriority.Loaded
+                );
+            }
+
+            if (isAnikiThemeActive)
+            {
+                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                    () => VisualPackBackgroundComposer.Start(),
+                    System.Windows.Threading.DispatcherPriority.Loaded
+                );
+            }
+
+            if (isAnikiThemeActive && Settings.ShutdownVideoEnabled)
+            {
+                FullscreenShutdownVideoHook.Start(this);
+            }
+
+            if (isAnikiThemeActive && Settings.StartupIntroVideoEnabled)
+            {
+                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                    async () =>
+                    {
+                        try
+                        {
+                            await ShowStartupVideoAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.Warn(ex, "[AnikiHelper] Startup video launch failed.");
+                        }
+                    },
+                    System.Windows.Threading.DispatcherPriority.Send
+                );
+            }
+
+            if (isAnikiThemeActive)
+            {
+                newsRotationTimer?.Start();
+                _ = StartSuggestedRotationWithDelayAsync(3000);
+            }
 
             // --- News globales Steam ---
             try
@@ -3175,7 +4311,10 @@ namespace AnikiHelper
 
             try
             {
-                TryAskForSteamUpdateCacheOnStartup();
+                if (isAnikiThemeActive)
+                {
+                    TryAskForSteamUpdateCacheOnStartup();
+                }
             }
             catch { }
 
@@ -3191,6 +4330,8 @@ namespace AnikiHelper
             try { steamUpdateTimer?.Stop(); } catch { }
             try { dealsTimer?.Stop(); } catch { }
             try { steamUpdatesCacheFlushTimer?.Stop(); } catch { }
+            try { newsRotationTimer?.Stop(); } catch { }
+            try { suggestedRotationTimer?.Stop(); } catch { }
 
             try
             {
@@ -3198,6 +4339,8 @@ namespace AnikiHelper
                 steamUpdateCts?.Dispose();
             }
             catch { }
+
+            try { FullscreenShutdownVideoHook.Stop(); } catch { }
 
             base.OnApplicationStopped(args);
         }
@@ -3316,8 +4459,8 @@ namespace AnikiHelper
                 totalMinutes = (int)sessionStartPlaytimeMinutes[g.Id] + sessionMinutes;
             }
 
-            // 3) Push vers Settings
-            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            // 3) Push vers Settings 
+            System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
             {
                 var s = Settings;
 
@@ -3325,14 +4468,36 @@ namespace AnikiHelper
                 s.SessionDurationString = FormatHhMmFromMinutes(sessionMinutes);
                 s.SessionTotalPlaytimeString = FormatHhMmFromMinutes(Math.Max(0, totalMinutes));
 
-                s.SessionNewAchievementsString = string.Empty;
-                s.SessionNewAchievementsCount = 0;
-                s.SessionHasNewAchievements = false;
+                string bgPath = null;
+
+                if (!string.IsNullOrEmpty(g.BackgroundImage) &&
+                    !g.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    bgPath = PlayniteApi.Database.GetFullFilePath(g.BackgroundImage);
+                }
+
+                if (string.IsNullOrEmpty(bgPath) &&
+                    !string.IsNullOrEmpty(g.CoverImage) &&
+                    !g.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    bgPath = PlayniteApi.Database.GetFullFilePath(g.CoverImage);
+                }
+
+                if (string.IsNullOrEmpty(bgPath) &&
+                    !string.IsNullOrEmpty(g.Icon) &&
+                    !g.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    bgPath = PlayniteApi.Database.GetFullFilePath(g.Icon);
+                }
+
+                s.SessionGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
 
                 s.SessionNotificationStamp = Guid.NewGuid().ToString();
                 s.SessionNotificationFlip = !s.SessionNotificationFlip;
                 s.SessionNotificationArmed = true;
-            });
+
+                SaveSettingsSafe();
+            }));
 
             EnsureGameInCurrentMonthSnapshot(g, sessionMinutes);
 
@@ -3340,16 +4505,16 @@ namespace AnikiHelper
             sessionStartAt.Remove(g.Id);
             sessionStartPlaytimeMinutes.Remove(g.Id);
 
-            // 5) Recalcul stats + snapshot 
+            // 5) Recalcul stats + snapshot
             EnsureMonthlySnapshotSafe();
-            RecalcStatsSafe();
+            RecalcStatsSafe(true);
         }
 
         #endregion
 
-        private void RecalcStatsSafe()
+        private void RecalcStatsSafe(bool runtimeOnly = false)
         {
-            try { RecalcStats(); }
+            try { RecalcStats(runtimeOnly); }
             catch (Exception ex) { logger.Error(ex, "[AnikiHelper] RecalcStats failed"); }
         }
 
@@ -3365,12 +4530,43 @@ namespace AnikiHelper
             }
         }
 
+        private string GetBestHubCardBackgroundPath(Game game)
+        {
+            if (game == null)
+            {
+                return string.Empty;
+            }
+
+            string bgPath = null;
+
+            if (!string.IsNullOrEmpty(game.BackgroundImage) &&
+                !game.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                bgPath = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
+            }
+
+            if (string.IsNullOrEmpty(bgPath) &&
+                !string.IsNullOrEmpty(game.CoverImage) &&
+                !game.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                bgPath = PlayniteApi.Database.GetFullFilePath(game.CoverImage);
+            }
+
+            if (string.IsNullOrEmpty(bgPath) &&
+                !string.IsNullOrEmpty(game.Icon) &&
+                !game.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                bgPath = PlayniteApi.Database.GetFullFilePath(game.Icon);
+            }
+
+            return string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
+        }
 
         private static string PercentStringLocal(int part, int total) =>
             total <= 0 ? "0%" : $"{Math.Round(part * 100.0 / total)}%";
 
-        /// <summary>Calcule et expose: Totaux, TopPlayed, CompletionStates, GameProviders</summary>
-        private void RecalcStats()
+        /// <summary>Recalcule les statistiques du plugin (mode complet ou allégé selon runtimeOnly).</summary>
+        private void RecalcStats(bool runtimeOnly = false)
         {
             var s = Settings;
 
@@ -3382,19 +4578,51 @@ namespace AnikiHelper
                 games = games.Where(g => g.Hidden != true).ToList();
             }
 
-            // === Totaux
-            s.TotalCount = games.Count;
-            s.InstalledCount = games.Count(g => g.IsInstalled == true);
-            s.NotInstalledCount = games.Count(g => g.IsInstalled != true);
-            s.HiddenCount = games.Count(g => g.Hidden == true);
-            s.FavoriteCount = games.Count(g => g.Favorite == true);
+            if (!runtimeOnly)
+            {
+                // === Totaux
+                s.TotalCount = games.Count;
+                s.InstalledCount = games.Count(g => g.IsInstalled == true);
+                s.NotInstalledCount = games.Count(g => g.IsInstalled != true);
+                s.HiddenCount = games.Count(g => g.Hidden == true);
+                s.FavoriteCount = games.Count(g => g.Favorite == true);
+            }
 
             // === Playtime total/moyen (minutes)
             ulong totalMinutes = (ulong)games.Sum(g => (long)ToMinutes(g.Playtime));
             s.TotalPlaytimeMinutes = totalMinutes;
 
             var played = games.Where(g => ToMinutes(g.Playtime) > 0UL).ToList();
+
+            var recentPlayedForProfile = played
+                .Where(g => g.LastActivity != null && g.LastActivity >= DateTime.Now.AddYears(-2))
+                .ToList();
+
+            var topPlatform = BuildTopPlatformName(recentPlayedForProfile);
+            if (string.IsNullOrWhiteSpace(topPlatform))
+            {
+                topPlatform = BuildTopPlatformName(played);
+            }
+
+            var topFranchise = BuildTopFranchiseName(recentPlayedForProfile);
+            if (string.IsNullOrWhiteSpace(topFranchise))
+            {
+                topFranchise = BuildTopFranchiseName(played);
+            }
+
+            var topTag = BuildTopTagName(recentPlayedForProfile);
+            if (string.IsNullOrWhiteSpace(topTag))
+            {
+                topTag = BuildTopTagName(played);
+            }
+
             s.AveragePlaytimeMinutes = (ulong)(played.Count == 0 ? 0 : played.Sum(g => (long)ToMinutes(g.Playtime)) / played.Count);
+
+            s.ProfileGenreKey = BuildProfileGenreKey(played);
+            s.ProfileGenreLabel = GetLocalizedProfileGenreLabel(s.ProfileGenreKey);
+            s.ProfileTopPlatformName = topPlatform;
+            s.ProfileTopFranchiseName = topFranchise;
+            s.ProfileTopTagName = topTag;
 
             // === TOP PLAYED
             s.TopPlayed.Clear();
@@ -3410,7 +4638,7 @@ namespace AnikiHelper
                     s.TopPlayed.Add(new TopPlayedItem
                     {
                         Name = Safe(g.Name),
-                        PlaytimeString = AnikiHelperSettings.PlaytimeToString(gMin, s.PlaytimeUseDaysFormat),
+                        PlaytimeString = AnikiHelperSettings.PlaytimeToString(gMin, false),
                         PercentageString = $"{pct}%"
                     });
                 }
@@ -3431,7 +4659,6 @@ namespace AnikiHelper
 
                 foreach (var g in games)
                 {
-                    // Ignore les jeux qui n'ont pas été joués ce mois-ci (Ignore games that have not been played this month)
                     if (g.LastActivity == null || g.LastActivity < monthStart)
                     {
                         continue;
@@ -3439,7 +4666,6 @@ namespace AnikiHelper
 
                     var currMinutes = ToMinutes(g.Playtime);
 
-                    // si le jeu n'est PAS dans le snapshot, on l'IGNORE pour ce mois (if the game is NOT in the snapshot, IGNORE it for this month)
                     if (!snapshot.TryGetValue(g.Id, out var baseMinutes))
                     {
                         continue;
@@ -3466,7 +4692,7 @@ namespace AnikiHelper
                 {
                     var topGame = PlayniteApi.Database.Games[topGameId];
                     s.ThisMonthTopGameName = Safe(topGame?.Name);
-                    s.ThisMonthTopGamePlaytime = AnikiHelperSettings.PlaytimeToString(topMinutes, s.PlaytimeUseDaysFormat);
+                    s.ThisMonthTopGamePlaytime = AnikiHelperSettings.PlaytimeToString(topMinutes, false);
 
                     string coverPath = null;
                     if (!string.IsNullOrEmpty(topGame?.CoverImage))
@@ -3501,14 +4727,13 @@ namespace AnikiHelper
                     }
 
                     s.ThisMonthTopGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
-
                 }
-
                 else
                 {
-                    s.ThisMonthTopGameName = "—";
-                    s.ThisMonthTopGamePlaytime = "";
+                    s.ThisMonthTopGameName = string.Empty;
+                    s.ThisMonthTopGamePlaytime = string.Empty;
                     s.ThisMonthTopGameCoverPath = string.Empty;
+                    s.ThisMonthTopGameBackgroundPath = string.Empty;
                 }
             }
             catch (Exception ex)
@@ -3516,100 +4741,320 @@ namespace AnikiHelper
                 logger.Warn(ex, "[AnikiHelper] Month snapshot calc failed; continuing with other sections.");
                 s.ThisMonthPlayedCount = 0;
                 s.ThisMonthPlayedTotalMinutes = 0;
-                s.ThisMonthTopGameName = "—";
-                s.ThisMonthTopGamePlaytime = "";
+                s.ThisMonthTopGameName = string.Empty;
+                s.ThisMonthTopGamePlaytime = string.Empty;
                 s.ThisMonthTopGameCoverPath = string.Empty;
+                s.ThisMonthTopGameBackgroundPath = string.Empty;
             }
 
-            // === COMPLETION STATES
-            var compDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var g in games)
+            // THIS YEAR
+            try
             {
-                string name = null;
-                try { name = g.CompletionStatus?.Name; } catch { }
+                var now = DateTime.Now;
+                var yearStart = new DateTime(now.Year, 1, 1);
 
-                if (string.IsNullOrWhiteSpace(name))
+                var snapshots = LoadAllMonthlySnapshots()
+                    .Where(x => x.MonthStart >= yearStart)
+                    .OrderBy(x => x.MonthStart)
+                    .ToList();
+
+                var yearMinutesByGame = new Dictionary<Guid, ulong>();
+
+                if (snapshots.Count > 0)
                 {
-                    try
+                    // Mois terminés
+                    for (int i = 0; i < snapshots.Count - 1; i++)
                     {
-                        if (g.CompletionStatusId != Guid.Empty)
+                        var a = snapshots[i];
+                        var b = snapshots[i + 1];
+
+                        var ids = new HashSet<Guid>(a.Minutes.Keys);
+                        foreach (var id in b.Minutes.Keys)
                         {
-                            var meta = PlayniteApi.Database.CompletionStatuses.Get(g.CompletionStatusId);
-                            name = meta?.Name;
+                            ids.Add(id);
+                        }
+
+                        foreach (var id in ids)
+                        {
+                            ulong m0 = 0;
+                            ulong m1 = 0;
+
+                            a.Minutes.TryGetValue(id, out m0);
+                            b.Minutes.TryGetValue(id, out m1);
+
+                            if (m1 > m0)
+                            {
+                                ulong acc = 0;
+                                yearMinutesByGame.TryGetValue(id, out acc);
+                                yearMinutesByGame[id] = acc + (m1 - m0);
+                            }
                         }
                     }
-                    catch { }
+
+                    // Dernier snapshot -> playtime actuel
+                    var last = snapshots[snapshots.Count - 1];
+
+                    foreach (var g in games)
+                    {
+                        ulong baseMinutes = 0;
+                        last.Minutes.TryGetValue(g.Id, out baseMinutes);
+
+                        var currMinutes = ToMinutes(g.Playtime);
+
+                        if (currMinutes > baseMinutes)
+                        {
+                            ulong acc = 0;
+                            yearMinutesByGame.TryGetValue(g.Id, out acc);
+                            yearMinutesByGame[g.Id] = acc + (currMinutes - baseMinutes);
+                        }
+                    }
                 }
 
-                if (string.IsNullOrWhiteSpace(name)) name = "—";
-                if (!compDict.ContainsKey(name)) compDict[name] = 0;
-                compDict[name]++;
+                s.ThisYearPlayedCount = yearMinutesByGame.Count(x => x.Value > 0);
+                s.ThisYearPlayedTotalMinutes = yearMinutesByGame.Values.Aggregate(0UL, (a, b) => a + b);
+
+                var topYearEntry = yearMinutesByGame
+                    .OrderByDescending(x => x.Value)
+                    .FirstOrDefault();
+
+                if (topYearEntry.Key != Guid.Empty)
+                {
+                    var topGame = PlayniteApi.Database.Games[topYearEntry.Key];
+                    var topMinutes = topYearEntry.Value;
+
+                    s.ThisYearTopGameName = Safe(topGame?.Name);
+                    s.ThisYearTopGamePlaytime = AnikiHelperSettings.PlaytimeToString(topMinutes, false);
+
+                    string coverPath = null;
+                    if (!string.IsNullOrEmpty(topGame?.CoverImage))
+                        coverPath = PlayniteApi.Database.GetFullFilePath(topGame.CoverImage);
+                    if (string.IsNullOrEmpty(coverPath) && !string.IsNullOrEmpty(topGame?.BackgroundImage))
+                        coverPath = PlayniteApi.Database.GetFullFilePath(topGame.BackgroundImage);
+                    if (string.IsNullOrEmpty(coverPath) && !string.IsNullOrEmpty(topGame?.Icon))
+                        coverPath = PlayniteApi.Database.GetFullFilePath(topGame.Icon);
+
+                    s.ThisYearTopGameCoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath;
+
+                    string bgPath = null;
+
+                    if (!string.IsNullOrEmpty(topGame?.BackgroundImage) &&
+                        !topGame.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.BackgroundImage);
+                    }
+
+                    if (string.IsNullOrEmpty(bgPath) &&
+                        !string.IsNullOrEmpty(topGame?.CoverImage) &&
+                        !topGame.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.CoverImage);
+                    }
+
+                    if (string.IsNullOrEmpty(bgPath) &&
+                        !string.IsNullOrEmpty(topGame?.Icon) &&
+                        !topGame.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.Icon);
+                    }
+
+                    s.ThisYearTopGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
+                }
+                else
+                {
+                    s.ThisYearTopGameName = string.Empty;
+                    s.ThisYearTopGamePlaytime = string.Empty;
+                    s.ThisYearTopGameCoverPath = string.Empty;
+                    s.ThisYearTopGameBackgroundPath = string.Empty;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Year snapshot calc failed; continuing with other sections.");
+                s.ThisYearPlayedCount = 0;
+                s.ThisYearPlayedTotalMinutes = 0;
+                s.ThisYearTopGameName = string.Empty;
+                s.ThisYearTopGamePlaytime = string.Empty;
+                s.ThisYearTopGameCoverPath = string.Empty;
+                s.ThisYearTopGameBackgroundPath = string.Empty;
             }
 
-            s.CompletionStates.Clear();
-            foreach (var kv in compDict.OrderByDescending(k => k.Value).ThenBy(k => k.Key))
+            if (!runtimeOnly)
             {
-                s.CompletionStates.Add(new CompletionStatItem
+                // === COMPLETION STATES
+                var compDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var g in games)
                 {
-                    Name = kv.Key,
-                    Value = kv.Value,
-                    PercentageString = PercentStringLocal(kv.Value, s.TotalCount)
-                });
+                    string name = null;
+                    try { name = g.CompletionStatus?.Name; } catch { }
+
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        try
+                        {
+                            if (g.CompletionStatusId != Guid.Empty)
+                            {
+                                var meta = PlayniteApi.Database.CompletionStatuses.Get(g.CompletionStatusId);
+                                name = meta?.Name;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (string.IsNullOrWhiteSpace(name)) name = "—";
+                    if (!compDict.ContainsKey(name)) compDict[name] = 0;
+                    compDict[name]++;
+                }
+
+                s.CompletionStates.Clear();
+                foreach (var kv in compDict.OrderByDescending(k => k.Value).ThenBy(k => k.Key))
+                {
+                    s.CompletionStates.Add(new CompletionStatItem
+                    {
+                        Name = kv.Key,
+                        Value = kv.Value,
+                        PercentageString = PercentStringLocal(kv.Value, s.TotalCount)
+                    });
+                }
             }
 
             // === Listes rapides
             string SafeName(string name) => string.IsNullOrWhiteSpace(name) ? "(Unnamed Game)" : name;
 
             s.RecentPlayed.Clear();
-            foreach (var g in games.Where(x => x.LastActivity != null).OrderByDescending(x => x.LastActivity).Take(5))
+
+            var recentPlayedList = games
+                .Where(x => x.LastActivity != null)
+                .OrderByDescending(x => x.LastActivity)
+                .ToList();
+
+            foreach (var g in recentPlayedList.Take(5))
             {
                 var dt = g.LastActivity?.ToLocalTime().ToString("dd/MM/yyyy");
-                s.RecentPlayed.Add(new QuickItem { Name = SafeName(g.Name), Value = dt });
+                s.RecentPlayed.Add(new QuickItem
+                {
+                    Name = SafeName(g.Name),
+                    Value = dt
+                });
             }
 
-            s.RecentAdded.Clear();
-            foreach (var g in games.Where(x => x.Added != null).OrderByDescending(x => x.Added).Take(5))
+            var recentPlayedPool = recentPlayedList.Take(5).ToList();
+
+            s.RecentPlayedBackgroundPath = recentPlayedPool.Count > 0
+                ? GetBestHubCardBackgroundPath(recentPlayedPool[hubRandom.Next(recentPlayedPool.Count)])
+                : string.Empty;
+
+            if (!runtimeOnly)
             {
-                var dt = g.Added?.ToLocalTime().ToString("dd/MM/yyyy");
-                s.RecentAdded.Add(new QuickItem { Name = SafeName(g.Name), Value = dt });
+                s.RecentAdded.Clear();
+
+                var recentAddedList = games
+                    .Where(x => x.Added != null)
+                    .OrderByDescending(x => x.Added)
+                    .ToList();
+
+                foreach (var g in recentAddedList.Take(5))
+                {
+                    var dt = g.Added?.ToLocalTime().ToString("dd/MM/yyyy");
+                    s.RecentAdded.Add(new QuickItem
+                    {
+                        Name = SafeName(g.Name),
+                        Value = dt
+                    });
+                }
             }
+
 
             s.NeverPlayed.Clear();
 
-            var neverPlayed = games
+            var neverPlayedPool = games
                 .Where(g => g.Playtime == 0UL && g.PlayCount == 0UL && g.LastActivity == null)
-                .OrderBy(g => g.Added.HasValue ? g.Added.Value : DateTime.MinValue) // force tri du plus ancien
-                .ThenBy(g => g.Name)
-                .Take(5);
+                .ToList();
 
-            foreach (var g in neverPlayed)
+            foreach (var g in neverPlayedPool
+                .OrderBy(g => g.Added.HasValue ? g.Added.Value : DateTime.MinValue)
+                .ThenBy(g => g.Name)
+                .Take(5))
             {
                 var addedStr = g.Added.HasValue
                     ? g.Added.Value.ToLocalTime().ToString("dd/MM/yyyy")
-                    : "";
-                s.NeverPlayed.Add(new QuickItem { Name = Safe(g.Name), Value = addedStr });
-            }
+                    : string.Empty;
 
-            // === GAME PROVIDERS
-            var provDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var g in games)
-            {
-                string src = null;
-                try { src = g.Source?.Name; } catch { }
-                if (string.IsNullOrWhiteSpace(src)) src = "—";
-                if (!provDict.ContainsKey(src)) provDict[src] = 0;
-                provDict[src]++;
-            }
-
-            s.GameProviders.Clear();
-            foreach (var kv in provDict.OrderByDescending(k => k.Value).ThenBy(k => k.Key))
-            {
-                s.GameProviders.Add(new ProviderStatItem
+                s.NeverPlayed.Add(new QuickItem
                 {
-                    Name = kv.Key,
-                    Value = kv.Value,
-                    PercentageString = PercentStringLocal(kv.Value, s.TotalCount)
+                    Name = Safe(g.Name),
+                    Value = addedStr
                 });
+            }
+
+            if (!runtimeOnly && !hubPage3CardsInitialized)
+            {
+                var recentAddedPool = games
+                    .Where(g => g.Added != null)
+                    .OrderByDescending(g => g.Added)
+                    .Take(3)
+                    .ToList();
+
+                if (recentAddedPool.Count > 0)
+                {
+                    var selectedRecent = recentAddedPool[hubRandom.Next(recentAddedPool.Count)];
+
+                    s.HubRecentAddedName = SafeName(selectedRecent.Name);
+                    s.HubRecentAddedDate = selectedRecent.Added.HasValue
+                        ? selectedRecent.Added.Value.ToLocalTime().ToString("dd/MM/yyyy")
+                        : string.Empty;
+                    s.HubRecentAddedBackgroundPath = GetBestHubCardBackgroundPath(selectedRecent);
+                }
+                else
+                {
+                    s.HubRecentAddedName = string.Empty;
+                    s.HubRecentAddedDate = string.Empty;
+                    s.HubRecentAddedBackgroundPath = string.Empty;
+                }
+
+                if (neverPlayedPool.Count > 0)
+                {
+                    var selectedNeverPlayed = neverPlayedPool[hubRandom.Next(neverPlayedPool.Count)];
+
+                    s.HubNeverPlayedName = SafeName(selectedNeverPlayed.Name);
+                    s.HubNeverPlayedDate = selectedNeverPlayed.Added.HasValue
+                        ? selectedNeverPlayed.Added.Value.ToLocalTime().ToString("dd/MM/yyyy")
+                        : string.Empty;
+                    s.HubNeverPlayedBackgroundPath = GetBestHubCardBackgroundPath(selectedNeverPlayed);
+                }
+                else
+                {
+                    s.HubNeverPlayedName = string.Empty;
+                    s.HubNeverPlayedDate = string.Empty;
+                    s.HubNeverPlayedBackgroundPath = string.Empty;
+                }
+
+                hubPage3CardsInitialized = true;
+            }
+        
+
+            if (!runtimeOnly)
+            {
+                // === GAME PROVIDERS
+                var provDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var g in games)
+                {
+                    string src = null;
+                    try { src = g.Source?.Name; } catch { }
+                    if (string.IsNullOrWhiteSpace(src)) src = "—";
+                    if (!provDict.ContainsKey(src)) provDict[src] = 0;
+                    provDict[src]++;
+                }
+
+                s.GameProviders.Clear();
+                foreach (var kv in provDict.OrderByDescending(k => k.Value).ThenBy(k => k.Key))
+                {
+                    s.GameProviders.Add(new ProviderStatItem
+                    {
+                        Name = kv.Key,
+                        Value = kv.Value,
+                        PercentageString = PercentStringLocal(kv.Value, s.TotalCount)
+                    });
+                }
             }
 
             // Calcul du jeu suggéré à partir des stats + snapshot

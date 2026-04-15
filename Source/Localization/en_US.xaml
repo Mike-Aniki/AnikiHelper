@@ -19,16 +19,17 @@
   <sys:String x:Key="SnapshotTooltip">This shows when the current month’s baseline was created.</sys:String>
   <sys:String x:Key="ResetBtn">Start fresh for this month</sys:String>
     <sys:String x:Key="ResetBtnTooltip">Rebuild the monthly baseline now</sys:String>
-    <sys:String x:Key="ResetBtntip">Use this if numbers look wrong or you just want to restart the month's tracking.</sys:String>
+    <sys:String x:Key="ResetBtntip">Use this if numbers look wrong or you just want to restart the month’s tracking.</sys:String>
 
-    <sys:String x:Key="GroupAchievementIntegration">Achievement Integration</sys:String>
-    <sys:String x:Key="AchievementIntegration_Help">Choose which achievement provider plugin to use.</sys:String>
-    <sys:String x:Key="AchievementIntegration_ModeLabel">Integration source</sys:String>
-    <sys:String x:Key="AchievementIntegration_ModePlayniteAchievements">PlayniteAchievements</sys:String>
-    <sys:String x:Key="AchievementIntegration_ModeSuccessStory">SuccessStory</sys:String>
-    <sys:String x:Key="AchievementIntegration_ModeDesc">PlayniteAchievements is used by default when installed.</sys:String>
-
-
+    <sys:String x:Key="Video">Video</sys:String>
+    <sys:String x:Key="StartupIntro_Title">Startup intro video</sys:String>
+    <sys:String x:Key="StartupIntro_Desc">Play a fullscreen intro video before showing Playnite.</sys:String>
+    <sys:String x:Key="StartupIntro_Enable">Enable startup intro video</sys:String>
+    <sys:String x:Key="IntroVideo_Help">If disabled, Playnite will start normally without playing the intro video.</sys:String>
+    <sys:String x:Key="ShutdownVideo_Title">Shutdown video</sys:String>
+    <sys:String x:Key="ShutdownVideo_Desc">Play a fullscreen shutdown video before closing Playnite.</sys:String>
+    <sys:String x:Key="ShutdownVideo_Enable">Enable shutdown video</sys:String>
+    <sys:String x:Key="ShutdownVideo_Help">When disabled, Exit Playnite will close normally without the shutdown video.</sys:String>
 
     <sys:String x:Key="GroupDynColors">Dynamic colors</sys:String>
     <sys:String x:Key="DynColors_Help">Clear the cache if colors look wrong or after many image changes.</sys:String>

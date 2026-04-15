@@ -21,13 +21,18 @@
   <sys:String x:Key="ResetBtnTooltip">Reconstruit la base mensuelle immédiatement</sys:String>
   <sys:String x:Key="ResetBtntip">À utiliser si les chiffres semblent incorrects ou si vous souhaitez simplement recommencer le suivi du mois.</sys:String>
 
-  <sys:String x:Key="GroupAchievementIntegration">Intégration Succès</sys:String>
-  <sys:String x:Key="AchievementIntegration_Help">Choisissez quelle extension de fournisseur de succès utiliser.</sys:String>
-  <sys:String x:Key="AchievementIntegration_ModeLabel">Source d'intégration</sys:String>
-  <sys:String x:Key="AchievementIntegration_ModePlayniteAchievements">PlayniteAchievements</sys:String>
-  <sys:String x:Key="AchievementIntegration_ModeSuccessStory">SuccessStory</sys:String>
-  <sys:String x:Key="AchievementIntegration_ModeDesc">PlayniteAchievements est utilisé par défaut lorsqu'il est installé.</sys:String>
+    <sys:String x:Key="Video">Video</sys:String>
 
+    <sys:String x:Key="StartupIntro_Title">Vidéo d’intro au démarrage</sys:String>
+    <sys:String x:Key="StartupIntro_Desc">Joue une vidéo d’intro en plein écran avant d’afficher Playnite.</sys:String>
+    <sys:String x:Key="StartupIntro_Enable">Activer la vidéo d’intro au démarrage</sys:String>
+    <sys:String x:Key="IntroVideo_Help">Si désactivé, le lancement de Playnite se fera normalement sans lancer la vidéo d’introduction.</sys:String>
+    <sys:String x:Key="ShutdownVideo_Title">Vidéo de fermeture</sys:String>
+    <sys:String x:Key="ShutdownVideo_Desc">Joue une vidéo de fermeture en plein écran avant de quitter Playnite.</sys:String>
+    <sys:String x:Key="ShutdownVideo_Enable">Activer la vidéo de fermeture</sys:String>
+    <sys:String x:Key="ShutdownVideo_Help">Si désactivé, Quitter Playnite fermera normalement sans lancer la vidéo de fermeture.</sys:String>
+    
+    
     <sys:String x:Key="GroupDynColors">Couleurs dynamiques</sys:String>
     <sys:String x:Key="DynColors_Help">Vide le cache si les couleurs deviennent erronées ou après de nombreux changements d’images.</sys:String>
     <sys:String x:Key="L_ClearColorCache">Reset color cache</sys:String>
