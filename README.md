@@ -20,7 +20,7 @@ It adds extra features that regular fullscreen themes cannot provide on their ow
 - fullscreen startup / shutdown video support in compatible themes
 
 Aniki Helper is mainly designed to **enhance supported fullscreen themes**.  
-If your current theme supports it, the plugin can add extra cards, dynamic content, richer profile information, and other visual improvements directly inside Playnite Fullscreen mode.
+If your current theme supports it, the plugin can add dynamic content, profile information, and other visual improvements directly inside Playnite Fullscreen mode.
 
 Some features are visible immediately in supported themes, while others can be enabled or adjusted in the plugin settings.
 
