@@ -163,3 +163,18 @@ Packages:
       - Improved Settings view for better clarity and organization of options.
       - Added an option in Aniki Helper settings (contribution by Justin Delano) to choose which achievements plugin is used (SuccessStory or PlayniteAchievements).
       - Aniki Helper displays the 3 most recent unlocked achievements and the 3 rarest achievements, but you must select the achievements source plugin in Aniki Helper settings for this work correctly.
+  - Version: 1.3
+    RequiredApiVersion: 6.12.0
+    ReleaseDate: 2026-04-11
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.3/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_3.pext
+    Changelog:
+      - Added fullscreen startup intro video support
+      - Added fullscreen shutdown video support
+      - Added a splash screen feature
+      - Added a feature to play interface sounds directly from the theme folder
+      - Added Visual Pack background composition for menus and message windows
+      - Added an Aniki_ThemeMarker system so certain advanced features only run when the marker is detected, preventing Aniki-specific features from being triggered in unsupported themes
+      - Added a startup prompt for Steam update cache initialization
+      - Added new bindings for profile cards and home views, including extra library highlights such as top game of the year, last played game, and other dynamic stats
+      - Adjusted the dynamic color system to produce less washed-out results when bright colors are detected
+      - Added rotating Suggested Games and Latest News support for compatible themes
