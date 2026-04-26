@@ -178,3 +178,17 @@ Packages:
       - Added new bindings for profile cards and home views, including extra library highlights such as top game of the year, last played game, and other dynamic stats
       - Adjusted the dynamic color system to produce less washed-out results when bright colors are detected
       - Added rotating Suggested Games and Latest News support for compatible themes
+  - Version: 1.3.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-04-26
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.3.1/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_3_1.pext
+    Changelog:
+      - Updated plugin SDK, make sure youre using an up-to-date version of Playnite (v10.52).
+      - Added an export/import system for monthly and yearly data, allowing it to be preserved across new installations.
+      - Added the ability to bind game IDs to suggested games, game of the month, etc., for open the game’s details directly from these sections.
+      - Added a feature to retrieve data from the Steam Store.
+      - Added support for custom splash screen images.
+      - Added a second customizable news source.
+      - Revised settings text for better clarity and usability.
+      - Added a Spanish localization.
+      - Added a parent-child window system.
