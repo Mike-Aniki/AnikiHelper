@@ -26,9 +26,9 @@ namespace AnikiHelper
         private static CancellationTokenSource debounceCts;
         private static CancellationTokenSource animCts;
 
-        private const int DebounceMs = 40;          // decrease = more reactive
-        private const int TransitionMs = 20;        // total fade time
-        private const int TransitionSteps = 1;      // + more steps = smoother
+        private const int DebounceMs = 180;          // decrease = more reactive
+        private const int TransitionMs = 140;        // total fade time
+        private const int TransitionSteps = 3;      // + more steps = smoother
 
         // Precache optionnel
         private const int PrecacheDelayMs = 20000;   // attendre après le boot
@@ -247,6 +247,7 @@ namespace AnikiHelper
             "OverlayMenu_Mid",
             "OverlayMenu_Bottom",
             "GameListFrameBackground",
+            "BackgroundItemEndPoint",
 
             "MenuBorderPrimaryColor",
             "MenuBorderSecondaryColor",
@@ -1081,6 +1082,7 @@ namespace AnikiHelper
             public MediaColor OverlayBottom;
 
             public MediaColor GameListFrameBackground;
+            public MediaColor BackgroundItemEndPoint;
 
             public MediaColor MenuBorderPrimary;
             public MediaColor MenuBorderSecondary;
@@ -1140,6 +1142,7 @@ namespace AnikiHelper
                 OverlayBottom = darkest,
 
                 GameListFrameBackground = Darken(a, 0.56),
+                BackgroundItemEndPoint = WithAlpha(Darken(a, 0.78), 0x44),
 
                 MenuBorderPrimary = WithAlpha(Colors.White, 0xF0),
                 MenuBorderSecondary = WithAlpha(light, 0xB8),
@@ -1189,9 +1192,10 @@ namespace AnikiHelper
 
             var current = SnapshotCurrentPalette(target);
             if (IsClose(current.OverlayTop, target.OverlayTop) &&
-    IsClose(current.OverlayMid, target.OverlayMid) &&
-    IsClose(current.MenuBorderSecondary, target.MenuBorderSecondary))
+                IsClose(current.OverlayMid, target.OverlayMid) &&
+                IsClose(current.MenuBorderSecondary, target.MenuBorderSecondary))
             {
+                ApplyPalette_NoShade(target, includeHeavyBrushes: true);
                 return;
             }
 
@@ -1200,7 +1204,7 @@ namespace AnikiHelper
             _ = Task.Run(async () =>
             {
                 // await Task.Delay(2200).ConfigureAwait(false);
-                int steps = Math.Max(2, TransitionSteps);
+                int steps = Math.Max(1, TransitionSteps);
                 int stepDelay = Math.Max(10, TransitionMs / steps);
 
                 for (int i = 1; i <= steps; i++)
@@ -1216,7 +1220,7 @@ namespace AnikiHelper
                         () =>
                         {
                             if (!ct.IsCancellationRequested && IsDynamicAutoActive())
-                                ApplyPalette_NoShade(frame);
+                                ApplyPalette_NoShade(frame, includeHeavyBrushes: i == steps);
                         },
                         DispatcherPriority.Render
                     );
@@ -1249,6 +1253,7 @@ namespace AnikiHelper
                 OverlayBottom = get("OverlayMenu_Bottom", fallback.OverlayBottom),
 
                 GameListFrameBackground = get("GameListFrameBackground", fallback.GameListFrameBackground),
+                BackgroundItemEndPoint = get("BackgroundItemEndPoint", fallback.BackgroundItemEndPoint),
 
                 MenuBorderPrimary = get("MenuBorderPrimaryColor", fallback.MenuBorderPrimary),
                 MenuBorderSecondary = get("MenuBorderSecondaryColor", fallback.MenuBorderSecondary),
@@ -1296,6 +1301,7 @@ namespace AnikiHelper
                 OverlayBottom = Lerp(a.OverlayBottom, b.OverlayBottom, t),
 
                 GameListFrameBackground = Lerp(a.GameListFrameBackground, b.GameListFrameBackground, t),
+                BackgroundItemEndPoint = Lerp(a.BackgroundItemEndPoint, b.BackgroundItemEndPoint, t),
 
                 MenuBorderPrimary = Lerp(a.MenuBorderPrimary, b.MenuBorderPrimary, t),
                 MenuBorderSecondary = Lerp(a.MenuBorderSecondary, b.MenuBorderSecondary, t),
@@ -1327,7 +1333,7 @@ namespace AnikiHelper
         }
 
         // ---------- Apply ----------
-        private static void ApplyPalette_NoShade(Palette p)
+        private static void ApplyPalette_NoShade(Palette p, bool includeHeavyBrushes = true)
         {
             if (!IsDynamicAutoActive())
                 return;
@@ -1340,6 +1346,7 @@ namespace AnikiHelper
             SetColor("OverlayMenu_Bottom", p.OverlayBottom);
 
             SetColor("GameListFrameBackground", p.GameListFrameBackground);
+            SetColor("BackgroundItemEndPoint", p.BackgroundItemEndPoint);
 
             SetColor("MenuBorderPrimaryColor", p.MenuBorderPrimary);
             SetColor("MenuBorderSecondaryColor", p.MenuBorderSecondary);
@@ -1379,16 +1386,15 @@ namespace AnikiHelper
             SetColor("DynamicGlowBackgroundPrimary", p.DynamicGlowPrimary);
 
             // -----------------------------
-            // 2) Update BRUSH resources actually used on screen
+            // 2) Light BRUSH resources
+            // Updated during transition
             // -----------------------------
 
-            // Overlay menu
             UpdateOrSetLinearBrushV("OverlayMenu",
                 p.OverlayTop,
                 p.OverlayMid,
                 p.OverlayBottom);
 
-            // Top / Bottom bars
             UpdateOrSetLinearBrushV("TopBar",
                 p.TopBarTop,
                 p.TopBarBottom);
@@ -1397,26 +1403,46 @@ namespace AnikiHelper
                 p.BottomBarTop,
                 p.BottomBarBottom);
 
-            // Game list frame
             SetBrush("GameListFrameBackgroundBrush",
                 new SolidColorBrush(p.GameListFrameBackground));
 
-            // Menu border
+            UpdateOrSetLinearBrushDiag("BackgroundItem",
+                p.OverlayTop,
+                p.OverlayMid,
+                p.BackgroundItemEndPoint);
+
             UpdateOrSetLinearBrushH("MenuBorderBrush",
-    p.MenuBorderPrimary,
-    p.MenuBorderSecondary);
+                p.MenuBorderPrimary,
+                p.MenuBorderSecondary);
 
-            // Button play
             UpdateOrSetLinearBrushV2("ButtonPlayColor",
-    p.ButtonPlayTop, 0.10,
-    p.ButtonPlayBottom, 0.90);
+                p.ButtonPlayTop, 0.10,
+                p.ButtonPlayBottom, 0.90);
 
-            // Focus border
             UpdateOrSetLinearBrushDiag("FocusGameBorderBrush",
-    p.GameFocusLeft,
-    p.GameFocusRight);
+                p.GameFocusLeft,
+                p.GameFocusRight);
 
-            // Secondary background
+            SetBrush("SeparatorListGameBrush", new SolidColorBrush(p.SeparatorAccent));
+
+            UpdateOrSetSolidBrush("HubCardBottomBorderBrush", p.HubAccent);
+            SetBrush("HubBannerBorderBrush", new SolidColorBrush(p.HubAccent));
+            SetBrush("HubAchievementsBorderBrush", new SolidColorBrush(p.HubAccent));
+            SetBrush("HubAchievementsIconBorderBrush", new SolidColorBrush(p.HubAccent));
+            SetBrush("TextHubPercentAchievementBrush", new SolidColorBrush(p.HubAccent));
+
+            SetBrush("TextHighlightStatViewBrush", new SolidColorBrush(p.StatAccent));
+            SetBrush("AccentCardStatBrush", new SolidColorBrush(p.StatAccent));
+
+            SetBrush("TextHighlightNewsViewBrush", new SolidColorBrush(p.NewsAccent));
+
+            // -----------------------------
+            // 3) Heavy BRUSH resources
+            // Only updated at the end of transition
+            // -----------------------------
+            if (!includeHeavyBrushes)
+                return;
+
             SetBrush("SecondaryViewBackground",
                 new RadialGradientBrush(
                     new GradientStopCollection
@@ -1432,7 +1458,6 @@ namespace AnikiHelper
                     RadiusY = .9
                 });
 
-            // Separator top bar
             var sepLeft = GetColorResource("SeparatorTopBar_Left", MediaColor.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
             var sepRight = GetColorResource("SeparatorTopBar_Right", MediaColor.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
 
@@ -1447,22 +1472,8 @@ namespace AnikiHelper
                     new Point(0, 0),
                     new Point(1, 0)));
 
-            // Simple accent solid brushes
-            SetBrush("SeparatorListGameBrush", new SolidColorBrush(p.SeparatorAccent));
-
-            UpdateOrSetSolidBrush("HubCardBottomBorderBrush", p.HubAccent);
-            SetBrush("HubBannerBorderBrush", new SolidColorBrush(p.HubAccent));
-            SetBrush("HubAchievementsBorderBrush", new SolidColorBrush(p.HubAccent));
-            SetBrush("HubAchievementsIconBorderBrush", new SolidColorBrush(p.HubAccent));
-            SetBrush("TextHubPercentAchievementBrush", new SolidColorBrush(p.HubAccent));
-
-            SetBrush("TextHighlightStatViewBrush", new SolidColorBrush(p.StatAccent));
-            SetBrush("AccentCardStatBrush", new SolidColorBrush(p.StatAccent));
-
-            SetBrush("TextHighlightNewsViewBrush", new SolidColorBrush(p.NewsAccent));
-
-            // Success borders
             var successLeft = GetColorResource("SuccessBannerBorder_Left", MediaColor.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+
             SetBrush("SuccessBannerBorder",
                 new LinearGradientBrush(
                     new GradientStopCollection
@@ -1474,6 +1485,7 @@ namespace AnikiHelper
                     new Point(1, 0)));
 
             var focusSuccessLeft = GetColorResource("FocusSuccessCardBorder_Left", Colors.White);
+
             SetBrush("FocusSuccessCardBorder",
                 new LinearGradientBrush(
                     new GradientStopCollection
@@ -1484,7 +1496,6 @@ namespace AnikiHelper
                     new Point(0, 1),
                     new Point(1, 0)));
 
-            // Radial glow success
             SetBrush("DynamicGlowBackgroundSuccess",
                 new RadialGradientBrush(
                     new GradientStopCollection
@@ -1640,13 +1651,30 @@ namespace AnikiHelper
 
         private static void SetColor(string key, MediaColor c)
         {
-            if (Application.Current?.Resources == null) return;
-            Application.Current.Resources[key] = c;
+            var dict = Application.Current?.Resources;
+            if (dict == null) return;
+
+            if (dict.Contains(key) && dict[key] is MediaColor existing && existing == c)
+                return;
+
+            dict[key] = c;
         }
+
         private static void SetBrush(string key, MediaBrush b)
         {
-            if (Application.Current?.Resources == null) return;
-            Application.Current.Resources[key] = b;
+            var dict = Application.Current?.Resources;
+            if (dict == null) return;
+
+            if (dict.Contains(key))
+            {
+                if (dict[key] is SolidColorBrush oldSolid && b is SolidColorBrush newSolid)
+                {
+                    if (oldSolid.Color == newSolid.Color)
+                        return;
+                }
+            }
+
+            dict[key] = b;
         }
 
         private static LinearGradientBrush MakeLinearV(params MediaColor[] stops)

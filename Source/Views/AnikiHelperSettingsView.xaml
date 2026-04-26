@@ -97,15 +97,15 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="10"
-                            SnapsToDevicePixels="True">
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
-                                          Margin="8,2"
-                                          RecognizesAccessKey="True"/>
+                                              VerticalAlignment="Center"
+                                              Margin="8,2"
+                                              RecognizesAccessKey="True"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -139,38 +139,45 @@
             <!-- ========== GENERAL ========== -->
             <TabItem Header="General" ToolTip="General">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled">
+                              HorizontalScrollBarVisibility="Disabled">
 
                     <StackPanel Margin="0,0,0,16">
 
                         <!-- Header -->
                         <Border CornerRadius="14"
-                            BorderBrush="Transparent"
-                            BorderThickness="1"
-                            Background="Transparent"
-                            Padding="14"
-                            Margin="0,0,0,10">
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                Background="Transparent"
+                                Padding="14"
+                                Margin="0,0,0,5">
                             <StackPanel HorizontalAlignment="Center">
                                 <TextBlock Text="{DynamicResource AppTitle}"
-                                       FontWeight="Bold"
-                                       FontSize="24"
-                                       Foreground="{StaticResource TextPrimaryBrush}"
-                                       HorizontalAlignment="Center"/>
+                                           FontWeight="Bold"
+                                           FontSize="24"
+                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           HorizontalAlignment="Center"/>
+                                <Border Background="#2200AEEF"
+                                        CornerRadius="6"
+                                        Padding="10"
+                                        Margin="0,6,0,10"
+                                        MaxWidth="650"
+                                        HorizontalAlignment="Center">
 
-                                <TextBlock Text="{DynamicResource AppSubtitle}"
-                                       FontSize="14"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       HorizontalAlignment="Center"
-                                       Margin="0,2,0,6"
-                                       TextWrapping="Wrap"/>
+                                    <TextBlock Text="{DynamicResource AppInfo}"
+                                               Foreground="White"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"/>
+                                </Border>
+
 
 
                             </StackPanel>
                         </Border>
 
                         <Border Height="1"
-        Background="{StaticResource SeparatorBrush}"
-        Margin="0,6,0,10"/>
+                                Background="{StaticResource SeparatorBrush}"
+                                Margin="0,6,0,10"/>
 
                         <!-- ========= LIBRARY STATS ========= -->
                         <Border Style="{StaticResource SectionCard}">
@@ -184,49 +191,49 @@
                                         </Grid.ColumnDefinitions>
 
                                         <Border Grid.Column="0"
-                                            Background="{StaticResource AccentBrush}"
-                                            CornerRadius="2"
-                                            Margin="0,2,8,2"/>
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
 
-                                        <TextBlock Grid.Column="1" 
-                                               Style="{StaticResource SectionHeaderTitle}"
-                                               Text="{DynamicResource GroupLibraryStats}"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource GroupLibraryStats}"/>
                                     </Grid>
                                 </Border>
 
                                 <StackPanel Margin="12,10,12,12">
 
                                     <TextBlock Text="{DynamicResource StatsHelp}"
-                                           Foreground="White"
-                                           Margin="0,0,0,8"
-                                           TextWrapping="Wrap"/>
+                                               Foreground="White"
+                                               Margin="0,0,0,8"
+                                               TextWrapping="Wrap"/>
 
                                     <CheckBox Content="{DynamicResource IncludeHidden}"
-                                          IsChecked="{Binding Settings.IncludeHidden}"
-                                          Margin="0,0,0,6"/>
+                                              IsChecked="{Binding Settings.IncludeHidden}"
+                                              Margin="0,0,0,6"/>
 
                                     <TextBlock Text="{DynamicResource AutoUpdate}"
-                                           Style="{StaticResource SmallNoteText}"/>
+                                               Style="{StaticResource SmallNoteText}"/>
 
                                     <Border Style="{StaticResource SectionSeparator}"/>
 
                                     <WrapPanel>
                                         <TextBlock Text="{DynamicResource PreviewTotal}"/>
                                         <TextBlock Text="{Binding Settings.TotalCount}"
-                                               FontWeight="Bold"
-                                               Margin="6,0,0,0"/>
+                                                   FontWeight="Bold"
+                                                   Margin="6,0,0,0"/>
 
                                         <TextBlock Margin="16,0,0,0"
-                                               Text="{DynamicResource Installed}"/>
+                                                   Text="{DynamicResource Installed}"/>
                                         <TextBlock Text="{Binding Settings.InstalledCount}"
-                                               FontWeight="Bold"
-                                               Margin="6,0,0,0"/>
+                                                   FontWeight="Bold"
+                                                   Margin="6,0,0,0"/>
 
                                         <TextBlock Margin="16,0,0,0"
-                                               Text="{DynamicResource NotInstalled}"/>
+                                                   Text="{DynamicResource NotInstalled}"/>
                                         <TextBlock Text="{Binding Settings.NotInstalledCount}"
-                                               FontWeight="Bold"
-                                               Margin="6,0,0,0"/>
+                                                   FontWeight="Bold"
+                                                   Margin="6,0,0,0"/>
                                     </WrapPanel>
 
                                 </StackPanel>
@@ -245,43 +252,95 @@
                                         </Grid.ColumnDefinitions>
 
                                         <Border Grid.Column="0"
-                                            Background="{StaticResource AccentBrush}"
-                                            CornerRadius="2"
-                                            Margin="0,2,8,2"/>
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
 
                                         <TextBlock Grid.Column="1"
-                                               Style="{StaticResource SectionHeaderTitle}"
-                                               Text="{DynamicResource GroupMonthly}"/>
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource GroupMonthly}"/>
                                     </Grid>
                                 </Border>
 
                                 <StackPanel Margin="12,10,12,12">
 
+                                    <!-- ===== GLOBAL EXPLANATION ===== -->
                                     <TextBlock Text="{DynamicResource MonthlyHelp}"
-                                           Foreground="White"
-                                           Margin="0,0,0,8"
-                                           TextWrapping="Wrap"/>
+                                               Style="{StaticResource SmallNoteText}"
+                                               Foreground="White"
+                                               Margin="0,0,0,10"
+                                               TextWrapping="Wrap"/>
 
-                                    <TextBlock Text="{DynamicResource CurrentMonthData}"
-                                           FontWeight="SemiBold"
-                                           Foreground="White"
-                                           Margin="0,0,0,8"/>
+                                    <Border Height="1"
+                                            Background="{StaticResource SeparatorBrush}"
+                                            Margin="0,4,0,10"/>
 
-                                    <StackPanel Orientation="Horizontal">
+
+                                    <!-- ===================================== -->
+                                    <!-- RESET SECTION -->
+                                    <!-- ===================================== -->
+
+                                    <TextBlock Text="{DynamicResource ResetSectionTitle}"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               Margin="0,4,0,6"/>
+
+                                    <StackPanel>
+                                        <TextBlock Text="{DynamicResource ResetWarningText}"
+                                                   Foreground="OrangeRed"
+                                                   FontSize="14"
+                                                   Margin="0,0,0,4"/>
+
                                         <Button Content="{DynamicResource ResetBtn}"
-                                            Style="{StaticResource PrimaryButton}"
-                                            Click="ResetSnapshot_Click"
-                                            ToolTip="{DynamicResource ResetBtnTooltip}"/>
+                                                Style="{StaticResource PrimaryButton}"
+                                                Click="ResetSnapshot_Click"
+                                                ToolTip="{DynamicResource ResetBtnTooltip}"
+                                                Width="220"
+                                                Margin="0,0,0,6"/>
 
-                                        <TextBlock Text="{Binding Settings.SnapshotDateString}"
-                                               VerticalAlignment="Center"
-                                               Margin="10,0,0,0"
-                                               FontWeight="Light"
-                                               ToolTip="{DynamicResource SnapshotTooltip}"/>
                                     </StackPanel>
 
                                     <TextBlock Text="{DynamicResource ResetBtntip}"
-                                           Style="{StaticResource SmallNoteText}"/>
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,0,0,16"
+                                               TextWrapping="Wrap"/>
+
+                                    <Border Height="1"
+                                            Background="{StaticResource SeparatorBrush}"
+                                            Margin="0,6,0,10"/>
+
+
+                                    <!-- ===================================== -->
+                                    <!-- BACKUP SECTION -->
+                                    <!-- ===================================== -->
+
+                                    <TextBlock Text="{DynamicResource BackupSectionTitle}"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               Margin="0,0,0,6"/>
+
+                                    <TextBlock Text="{DynamicResource MonthlyBackupHelp}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,0,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <StackPanel Orientation="Horizontal">
+
+                                        <Button Content="{DynamicResource ExportMonthlyBackupBtn}"
+                                                Style="{StaticResource PrimaryButton}"
+                                                Click="ExportMonthlyBackup_Click"
+                                                ToolTip="{DynamicResource ExportMonthlyBackupTooltip}"
+                                                Width="220"
+                                                Margin="0,0,0,6"/>
+
+                                        <Button Content="{DynamicResource ImportMonthlyBackupBtn}"
+                                                Style="{StaticResource PrimaryButton}"
+                                                Click="ImportMonthlyBackup_Click"
+                                                ToolTip="{DynamicResource ImportMonthlyBackupTooltip}"
+                                                Width="220"
+                                                Margin="10,0,0,6"/>
+
+                                    </StackPanel>
 
                                 </StackPanel>
                             </StackPanel>
@@ -299,63 +358,64 @@
                                         </Grid.ColumnDefinitions>
 
                                         <Border Grid.Column="0"
-                                            Background="{StaticResource AccentBrush}"
-                                            CornerRadius="2"
-                                            Margin="0,2,8,2"/>
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
 
                                         <TextBlock Grid.Column="1"
-                                               Style="{StaticResource SectionHeaderTitle}"
-                                               Text="{DynamicResource GroupDynColors}"/>
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource GroupDynColors}"/>
                                     </Grid>
                                 </Border>
 
                                 <StackPanel Margin="12,10,12,12">
 
                                     <TextBlock Text="{DynamicResource L_DynAutoPrecache_Title}"
-                                           FontWeight="SemiBold"
-                                           Foreground="White"
-                                           Margin="0,4,0,4"
-                                           TextWrapping="Wrap"/>
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               Margin="0,4,0,4"
+                                               TextWrapping="Wrap"/>
 
                                     <TextBlock Text="{DynamicResource L_EnableDynamicAutoPrecache_Desc}"
-                                           Style="{StaticResource SectionDescription}"
-                                           Margin="0,4,0,4"
-                                           TextWrapping="Wrap"/>
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,4"
+                                               TextWrapping="Wrap"/>
 
                                     <CheckBox Content="{DynamicResource L_EnableDynamicAutoPrecache}"
-                                          IsChecked="{Binding Settings.DynamicAutoPrecacheUserEnabled}"
-                                          ToolTip="{DynamicResource L_EnableDynamicAutoPrecache_Tooltip}"
-                                          Margin="0,4,0,4"/>
+                                              IsChecked="{Binding Settings.DynamicAutoPrecacheUserEnabled}"
+                                              ToolTip="{DynamicResource L_EnableDynamicAutoPrecache_Tooltip}"
+                                              Margin="0,4,0,4"/>
 
                                     <TextBlock Text="{DynamicResource L_EnableDynamicAutoPrecache_Note}"
-                                           Style="{StaticResource SmallNoteText}"/>
+                                               Style="{StaticResource SmallNoteText}"/>
 
                                     <Border Style="{StaticResource SectionSeparator}"/>
 
                                     <TextBlock Text="{DynamicResource L_CacheManagement_Title}"
-                                           FontWeight="SemiBold"
-                                           Foreground="White"
-                                           Margin="0,0,0,4"
-                                           TextWrapping="Wrap"/>
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               Margin="0,0,0,4"
+                                               TextWrapping="Wrap"/>
 
                                     <TextBlock Text="{DynamicResource L_ClearColorCache_Desc}"
-                                           Style="{StaticResource SectionDescription}"
-                                           Margin="0,4,0,4"
-                                           TextWrapping="Wrap"/>
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,4"
+                                               TextWrapping="Wrap"/>
 
                                     <Button Content="{DynamicResource L_ClearColorCache}"
-                                        Margin="0,4,0,4"
-                                        Style="{StaticResource PrimaryButton}"
-                                        Click="ClearColorCache_Click"
-                                        ToolTip="{DynamicResource L_ClearColorCache_Tooltip}"/>
+                                            Margin="0,4,0,4"
+                                            Style="{StaticResource PrimaryButton}"
+                                            Click="ClearColorCache_Click"
+                                            ToolTip="{DynamicResource L_ClearColorCache_Tooltip}"/>
 
                                     <TextBlock Text="{DynamicResource DynColors_Help}"
-                                           Style="{StaticResource SmallNoteText}"/>
+                                               Style="{StaticResource SmallNoteText}"/>
 
                                 </StackPanel>
                             </StackPanel>
                         </Border>
 
+                        <!-- ========= VIDEO ========= -->
                         <Border Style="{StaticResource SectionCard}">
                             <StackPanel>
 
@@ -367,13 +427,13 @@
                                         </Grid.ColumnDefinitions>
 
                                         <Border Grid.Column="0"
-                    Background="{StaticResource AccentBrush}"
-                    CornerRadius="2"
-                    Margin="0,2,8,2"/>
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
 
                                         <TextBlock Grid.Column="1"
-                       Style="{StaticResource SectionHeaderTitle}"
-                       Text="{DynamicResource Video}"/>
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource Video}"/>
                                     </Grid>
                                 </Border>
 
@@ -381,41 +441,172 @@
 
 
                                     <!-- ========= Video ========= -->
-                        <TextBlock Text="{DynamicResource StartupIntro_Title}"
-           FontWeight="SemiBold"
-           Foreground="White"
-           TextWrapping="Wrap"/>
+                                    <TextBlock Text="{DynamicResource StartupIntro_Title}"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               TextWrapping="Wrap"/>
 
-                        <TextBlock Text="{DynamicResource StartupIntro_Desc}"
-           Style="{StaticResource SectionDescription}"
-           Margin="0,4,0,8"
-           TextWrapping="Wrap"/>
+                                    <TextBlock Text="{DynamicResource StartupIntro_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
 
-                        <CheckBox Content="{DynamicResource StartupIntro_Enable}"
-          IsChecked="{Binding Settings.StartupIntroVideoEnabled}"
-          Margin="0,4,0,8"/>
+                                    <CheckBox Content="{DynamicResource StartupIntro_Enable}"
+                                              IsChecked="{Binding Settings.StartupIntroVideoEnabled}"
+                                              Margin="0,4,0,8"/>
 
                                     <TextBlock Text="{DynamicResource IntroVideo_Help}"
-            Style="{StaticResource SmallNoteText}"
-            Margin="0,4,0,8"/>
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
 
                                     <TextBlock Text="{DynamicResource ShutdownVideo_Title}"
-           FontWeight="SemiBold"
-           Foreground="White"
-           TextWrapping="Wrap"/>
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               TextWrapping="Wrap"/>
 
-                        <TextBlock Text="{DynamicResource ShutdownVideo_Desc}"
+                                    <TextBlock Text="{DynamicResource ShutdownVideo_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource ShutdownVideo_Enable}"
+                                              IsChecked="{Binding Settings.ShutdownVideoEnabled}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource ShutdownVideo_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========= HUB ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                        Background="{StaticResource AccentBrush}"
+                        CornerRadius="2"
+                        Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                           Style="{StaticResource SectionHeaderTitle}"
+                           Text="{DynamicResource WelcomeHubStartup_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource WelcomeHubStartup_Desc}"
            Style="{StaticResource SectionDescription}"
-           Margin="0,4,0,8"
            TextWrapping="Wrap"/>
 
-                        <CheckBox Content="{DynamicResource ShutdownVideo_Enable}"
-          IsChecked="{Binding Settings.ShutdownVideoEnabled}"
+                                    <CheckBox Content="{DynamicResource WelcomeHubStartup_Enable}"
+          IsChecked="{Binding Settings.OpenWelcomeHubOnStartup}"
           Margin="0,4,0,8"/>
 
-                        <TextBlock Text="{DynamicResource ShutdownVideo_Help}"
-           Style="{StaticResource SmallNoteText}"
-           Margin="0,4,0,8"/>
+                                    <TextBlock Text="{DynamicResource WelcomeHubStartup_Help}"
+            Style="{StaticResource SmallNoteText}"
+            Margin="0,4,0,8"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========= SPLASH ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource SplashScreen}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+
+                                    <!-- ========= SplashScreen ========= -->
+
+
+
+                                    <TextBlock Text="{DynamicResource GameLaunchSplash_Title}"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource GameLaunchSplash_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource GameLaunchSplash_Enable}"
+                                              IsChecked="{Binding Settings.GameLaunchSplashEnabled}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource GameLaunchSplash_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
+
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========= SOUNDS ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource EventSounds_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+
+                                    <TextBlock Text="{DynamicResource EventSounds_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource EventSounds_Enable}"
+                                              IsChecked="{Binding Settings.EventSoundsEnabled}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource EventSounds_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
 
                                 </StackPanel>
                             </StackPanel>
@@ -435,33 +626,41 @@
 
                         <!-- Header -->
                         <Border CornerRadius="14"
-                    BorderBrush="Transparent"
-                    BorderThickness="1"
-                    Background="Transparent"
-                    Padding="14"
-                    Margin="0,0,0,10">
+            BorderBrush="Transparent"
+            BorderThickness="1"
+            Background="Transparent"
+            Padding="14"
+            Margin="0,0,0,5">
                             <StackPanel HorizontalAlignment="Center">
                                 <TextBlock Text="{DynamicResource AppTitle}"
-                               FontWeight="Bold"
-                               FontSize="24"
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               HorizontalAlignment="Center"/>
+                       FontWeight="Bold"
+                       FontSize="24"
+                       Foreground="{StaticResource TextPrimaryBrush}"
+                       HorizontalAlignment="Center"/>
+                                <Border Background="#2200AEEF"
+                    CornerRadius="6"
+                    Padding="10"
+                    Margin="0,6,0,10"
+                    MaxWidth="650"
+                    HorizontalAlignment="Center">
 
-                                <TextBlock Text="{DynamicResource AppSubtitle}"
-                               FontSize="14"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               HorizontalAlignment="Center"
-                               Margin="0,2,0,6"
-                               TextWrapping="Wrap"/>
+                                    <TextBlock Text="{DynamicResource AppInfo}"
+                           Foreground="White"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"/>
+                                </Border>
+
 
 
                             </StackPanel>
                         </Border>
 
                         <Border Height="1"
-Background="{StaticResource SeparatorBrush}"
-Margin="0,6,0,10"/>
+            Background="{StaticResource SeparatorBrush}"
+            Margin="0,6,0,10"/>
 
+                        <!-- STEAM UPDATES -->
                         <Border Style="{StaticResource SectionCard}">
                             <StackPanel>
 
@@ -479,28 +678,25 @@ Margin="0,6,0,10"/>
 
                                         <TextBlock Grid.Column="1"
                                        Style="{StaticResource SectionHeaderTitle}"
-                                       Text="{DynamicResource GroupSteamFeatures}"/>
+                                       Text="{DynamicResource SteamUpdates_GroupTitle}"/>
                                     </Grid>
                                 </Border>
 
                                 <StackPanel Margin="12,10,12,12">
 
-                                    <TextBlock Text="{DynamicResource SteamUpdates_Title}"
-                                   FontWeight="SemiBold"
-                                   Foreground="White"
-                                   TextWrapping="Wrap"/>
-
-                                    <TextBlock Text="{DynamicResource SteamUpdates_Desc}"
+                                    <TextBlock Text="{DynamicResource SteamUpdates_GroupDesc}"
                                    Style="{StaticResource SectionDescription}"
-                                   Margin="0,4,0,8"/>
+                                   Margin="0,0,0,10"
+                                   TextWrapping="Wrap"/>
 
                                     <CheckBox Content="{DynamicResource SteamUpdates_Enable}"
                                   IsChecked="{Binding Settings.SteamUpdatesScanEnabled}"
-                                  Margin="0,4,0,8"/>
+                                  Margin="0,4,0,4"/>
 
                                     <TextBlock Text="{DynamicResource SteamUpdates_Enable_Help}"
                                    Style="{StaticResource SmallNoteText}"
-                                   Margin="0,4,0,8"/>
+                                   Margin="0,0,0,10"
+                                   TextWrapping="Wrap"/>
 
                                     <Border Style="{StaticResource SectionSeparator}"/>
 
@@ -511,55 +707,210 @@ Margin="0,6,0,10"/>
 
                                     <TextBlock Text="{DynamicResource SteamInitCache_ProgressDesc}"
                                    Style="{StaticResource SectionDescription}"
-                                   Margin="0,4,0,8"/>
+                                   Margin="0,4,0,8"
+                                   TextWrapping="Wrap"/>
 
-                                    <StackPanel Orientation="Horizontal">
+                                    <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Margin="0,2,0,6">
                                         <Button Content="{DynamicResource SteamInitCache}"
                                     Style="{StaticResource PrimaryButton}"
-                                    Margin="0,4,0,8"
                                     Click="InitializeSteamCache_Click"
                                     ToolTip="{DynamicResource SteamInitCache_Tooltip}"/>
 
                                         <StackPanel Orientation="Horizontal"
                                         VerticalAlignment="Center"
-                                        Margin="10,0,0,0">
+                                        Margin="12,0,0,0">
                                             <TextBlock Text="{DynamicResource LOCSteamLastScan}"
-                                           FontWeight="Light"
+                                           Style="{StaticResource SmallNoteText}"
                                            VerticalAlignment="Center"
-                                           Margin="0,0,5,0"/>
+                                           Margin="0,0,4,0"/>
                                             <TextBlock Text="{Binding Settings.LastSteamRecentCheckDisplay}"
-                                           FontWeight="Light"
+                                           Style="{StaticResource SmallNoteText}"
                                            VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </StackPanel>
 
                                     <TextBlock Text="{DynamicResource SteamInitCache_ProgressNote}"
                                    Style="{StaticResource SmallNoteText}"
-                                   Margin="0,4,0,8"/>
+                                   Margin="0,0,0,0"
+                                   TextWrapping="Wrap"/>
 
-                                    <Border Style="{StaticResource SectionSeparator}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
 
-                                    <TextBlock Text="{DynamicResource SteamPlayers_Title}"
+                        <!-- CURRENT PLAYERS -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                    Background="{StaticResource AccentBrush}"
+                                    CornerRadius="2"
+                                    Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                       Style="{StaticResource SectionHeaderTitle}"
+                                       Text="{DynamicResource SteamPlayers_GroupTitle}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource SteamPlayers_GroupDesc}"
+                                   Style="{StaticResource SectionDescription}"
+                                   Margin="0,0,0,10"
+                                   TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource SteamPlayers_Enable}"
+                                  IsChecked="{Binding Settings.SteamPlayerCountEnabled}"
+                                  Margin="0,4,0,4"/>
+
+                                    <TextBlock Text="{DynamicResource SteamPlayers_Help}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,0"
+                                   TextWrapping="Wrap"/>
+
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- STEAM STORE -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                    Background="{StaticResource AccentBrush}"
+                                    CornerRadius="2"
+                                    Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                       Style="{StaticResource SectionHeaderTitle}"
+                                       Text="{DynamicResource SteamStore_GroupTitle}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Language_Title}"
                                    FontWeight="SemiBold"
                                    Foreground="White"
                                    TextWrapping="Wrap"/>
 
-                                    <TextBlock Text="{DynamicResource SteamFeatures_Help}"
+                                    <TextBlock Text="{DynamicResource SteamStore_Language_Desc}"
                                    Style="{StaticResource SectionDescription}"
-                                   Margin="0,4,0,8"/>
+                                   Margin="0,4,0,6"
+                                   TextWrapping="Wrap"/>
 
-                                    <CheckBox Content="{DynamicResource SteamPlayers_Enable}"
-                                  IsChecked="{Binding Settings.SteamPlayerCountEnabled}"
-                                  Margin="0,4,0,8"/>
+                                    <TextBlock Text="{DynamicResource SteamStore_Language_Label}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,4"/>
+
+                                    <ComboBox SelectedValue="{Binding Settings.SteamStoreLanguage}"
+                                  SelectedValuePath="Tag"
+                                  Width="220"
+                                  HorizontalAlignment="Left"
+                                  Margin="0,0,0,12">
+                                        <ComboBoxItem Content="English" Tag="english"/>
+                                        <ComboBoxItem Content="French" Tag="french"/>
+                                        <ComboBoxItem Content="German" Tag="german"/>
+                                        <ComboBoxItem Content="Spanish" Tag="spanish"/>
+                                        <ComboBoxItem Content="Italian" Tag="italian"/>
+                                        <ComboBoxItem Content="Portuguese" Tag="portuguese"/>
+                                        <ComboBoxItem Content="Brazilian Portuguese" Tag="brazilian"/>
+                                        <ComboBoxItem Content="Russian" Tag="russian"/>
+                                        <ComboBoxItem Content="Polish" Tag="polish"/>
+                                        <ComboBoxItem Content="Czech" Tag="czech"/>
+                                        <ComboBoxItem Content="Japanese" Tag="japanese"/>
+                                        <ComboBoxItem Content="Korean" Tag="koreana"/>
+                                        <ComboBoxItem Content="Simplified Chinese" Tag="schinese"/>
+                                        <ComboBoxItem Content="Traditional Chinese" Tag="tchinese"/>
+                                    </ComboBox>
+
+                                    <Border Style="{StaticResource SectionSeparator}"/>
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Country_Title}"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Country_Desc}"
+                                   Style="{StaticResource SectionDescription}"
+                                   Margin="0,4,0,6"
+                                   TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Country_Label}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,4"/>
+
+                                    <ComboBox SelectedValue="{Binding Settings.SteamStoreRegion}"
+                                  SelectedValuePath="Tag"
+                                  Width="220"
+                                  HorizontalAlignment="Left"
+                                  Margin="0,0,0,8">
+                                        <ComboBoxItem Content="United States (USD)" Tag="US"/>
+                                        <ComboBoxItem Content="France (EUR)" Tag="FR"/>
+                                        <ComboBoxItem Content="Belgium (EUR)" Tag="BE"/>
+                                        <ComboBoxItem Content="Germany (EUR)" Tag="DE"/>
+                                        <ComboBoxItem Content="Spain (EUR)" Tag="ES"/>
+                                        <ComboBoxItem Content="Italy (EUR)" Tag="IT"/>
+                                        <ComboBoxItem Content="United Kingdom (GBP)" Tag="GB"/>
+                                        <ComboBoxItem Content="Canada (CAD)" Tag="CA"/>
+                                        <ComboBoxItem Content="Japan (JPY)" Tag="JP"/>
+                                        <ComboBoxItem Content="Brazil (BRL)" Tag="BR"/>
+                                        <ComboBoxItem Content="Poland (PLN)" Tag="PL"/>
+                                        <ComboBoxItem Content="Russia" Tag="RU"/>
+                                    </ComboBox>
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Country_Help}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,12"
+                                   TextWrapping="Wrap"/>
+
+                                    <Border Style="{StaticResource SectionSeparator}"/>
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Enable_Title}"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Enable_Desc}"
+                                   Style="{StaticResource SectionDescription}"
+                                   Margin="0,4,0,8"
+                                   TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource SteamStore_Enable}"
+                                  IsChecked="{Binding Settings.SteamStoreEnabled}"
+                                  Margin="0,4,0,4"/>
+
+                                    <TextBlock Text="{DynamicResource SteamStore_Enable_Help}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,0"
+                                   TextWrapping="Wrap"/>
 
                                 </StackPanel>
-
                             </StackPanel>
                         </Border>
 
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
+
+
 
 
             <!-- ========= ANIKI NEWS FEATURES ========= -->
@@ -571,147 +922,248 @@ Margin="0,6,0,10"/>
 
                         <!-- Header -->
                         <Border CornerRadius="14"
-                    BorderBrush="Transparent"
-                    BorderThickness="1"
-                    Background="Transparent"
-                    Padding="14"
-                    Margin="0,0,0,10">
+            BorderBrush="Transparent"
+            BorderThickness="1"
+            Background="Transparent"
+            Padding="14"
+            Margin="0,0,0,5">
                             <StackPanel HorizontalAlignment="Center">
                                 <TextBlock Text="{DynamicResource AppTitle}"
-                               FontWeight="Bold"
-                               FontSize="24"
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               HorizontalAlignment="Center"/>
+                       FontWeight="Bold"
+                       FontSize="24"
+                       Foreground="{StaticResource TextPrimaryBrush}"
+                       HorizontalAlignment="Center"/>
+                                <Border Background="#2200AEEF"
+                    CornerRadius="6"
+                    Padding="10"
+                    Margin="0,6,0,10"
+                    MaxWidth="650"
+                    HorizontalAlignment="Center">
 
-                                <TextBlock Text="{DynamicResource AppSubtitle}"
-                               FontSize="14"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               HorizontalAlignment="Center"
-                               Margin="0,2,0,6"
-                               TextWrapping="Wrap"/>
+                                    <TextBlock Text="{DynamicResource AppInfo}"
+                           Foreground="White"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"/>
+                                </Border>
+
 
 
                             </StackPanel>
                         </Border>
 
                         <Border Height="1"
-Background="{StaticResource SeparatorBrush}"
-Margin="0,6,0,10"/>
+            Background="{StaticResource SeparatorBrush}"
+            Margin="0,6,0,10"/>
 
                         <Border Style="{StaticResource SectionCard}">
-                            <StackPanel>
 
-                                <Border Style="{StaticResource SectionHeaderBar}">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="3"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
 
-                                        <Border Grid.Column="0"
-                                    Background="{StaticResource AccentBrush}"
-                                    CornerRadius="2"
-                                    Margin="0,2,8,2"/>
+                            <StackPanel Margin="12,10,12,12">
 
-                                        <TextBlock Grid.Column="1"
-                                       Style="{StaticResource SectionHeaderTitle}"
-                                       Text="{DynamicResource GroupAnikiFeatures}"/>
-                                    </Grid>
-                                </Border>
-
-                                <StackPanel Margin="12,10,12,12">
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_Title1}"
+                                <!-- INTRO -->
+                                <TextBlock Text="{DynamicResource AnikiNews_Title}"
                                    FontWeight="SemiBold"
                                    Foreground="White"
                                    TextWrapping="Wrap"/>
 
-                                    <TextBlock Text="{DynamicResource NewsScan_Desc}"
+                                <TextBlock Text="{DynamicResource NewsScan_Desc}"
                                    Style="{StaticResource SectionDescription}"
-                                   Margin="0,4,0,8"/>
+                                   Margin="0,4,0,6"
+                                   TextWrapping="Wrap"/>
 
-                                    <CheckBox Content="{DynamicResource NewsScan_Enable}"
+                                <!-- ENABLE -->
+                                <CheckBox Content="{DynamicResource NewsScan_Enable}"
                                   IsChecked="{Binding Settings.NewsScanEnabled}"
-                                  Margin="0,4,0,8"/>
+                                  Margin="0,2,0,4"/>
 
-                                    <TextBlock Text="{DynamicResource NewsScan_Enable_Help}"
+                                <TextBlock Text="{DynamicResource NewsScan_Enable_Help}"
                                    Style="{StaticResource SmallNoteText}"
-                                   Margin="0,4,0,8"/>
-
-                                    <Border Style="{StaticResource SectionSeparator}"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_Title}"
-                                   FontWeight="SemiBold"
-                                   Foreground="White"
+                                   Margin="0,0,0,10"
                                    TextWrapping="Wrap"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Desc}"
-                                   Style="{StaticResource SectionDescription}"
-                                   Margin="0,4,0,8"
-                                   TextWrapping="Wrap"/>
-
-                                    <TextBox Text="{Binding Settings.SteamNewsCustomFeedUrl, UpdateSourceTrigger=PropertyChanged}"
-                                 Margin="0,4,0,8"
-                                 HorizontalAlignment="Stretch"
-                                 ToolTip="{DynamicResource AnikiNews_CustomFeed_Tooltip}"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Help}"
-                                   Style="{StaticResource SmallNoteText}"
-                                   Margin="0,4,0,8"/>
-
-                                    <TextBlock Text="{DynamicResource NewsScan_Enable_Help2}"
-                                   Style="{StaticResource SmallNoteText}"
-                                   Margin="0,4,0,8"/>
-
-                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
-                                        <Button Content="{DynamicResource AnikiNews_ClearCache}"
-                                    Style="{StaticResource PrimaryButton}"
-                                    Click="ClearNewsCache_Click"
-                                    ToolTip="{DynamicResource AnikiNews_ClearCache_Tooltip}"/>
-
-                                        <TextBlock Text="{DynamicResource AnikiNews_ClearCache_Note}"
-                                       Style="{StaticResource SectionDescription}"
-                                       Margin="12,2,0,0"
-                                       VerticalAlignment="Center"/>
-                                    </StackPanel>
-
-                                    <!-- Exemples -->
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Help2}"
-                                   FontSize="12"
-                                   Style="{StaticResource SmallNoteText}"
-                                   Margin="0,8,0,2"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple1}"
-                                   Style="{StaticResource SmallNoteText}"
-                                   FontSize="12"
-                                   Margin="0,4,0,2"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple2}"
-                                   Style="{StaticResource SmallNoteText}"
-                                   FontSize="12"
-                                   Margin="0,4,0,2"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple3}"
-                                   Style="{StaticResource SmallNoteText}"
-                                   FontSize="12"
-                                   Margin="0,4,0,2"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple4}"
-                                   Style="{StaticResource SmallNoteText}"
-                                   FontSize="12"
-                                   Margin="0,4,0,2"/>
-
-                                    <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple5}"
-                                   Style="{StaticResource SmallNoteText}"
-                                   FontSize="12"
-                                   Margin="0,4,0,2"/>
-
-                                </StackPanel>
 
                             </StackPanel>
                         </Border>
 
+                        <Border Style="{StaticResource SectionCard}">
+
+                            <StackPanel Margin="12,10,12,12">
+
+                                <TextBlock Text="{DynamicResource AnikiNews_Title1}"
+    FontWeight="SemiBold"
+    Foreground="White"
+    TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Desc2}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,10"
+                                   TextWrapping="Wrap"/>
+
+                                <!-- SOURCE A -->
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceA_Title}"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,6"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceA_Name}"
+                                   Style="{StaticResource SectionDescription}"
+                                   Margin="0,2,0,4"/>
+
+                                <TextBox Text="{Binding Settings.NewsSourceATitle, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,8"
+                                 HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceA_Url}"
+                                   Style="{StaticResource SectionDescription}"
+                                   Margin="0,2,0,4"/>
+
+                                <TextBox Text="{Binding Settings.NewsSourceAUrl, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"
+                                 HorizontalAlignment="Stretch"
+                                 ToolTip="{DynamicResource AnikiNews_CustomFeed_Tooltip}"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Help}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,8"
+                                   TextWrapping="Wrap"/>
+
+                                <Button Content="{DynamicResource AnikiNews_SourceA_ClearCache}"
+                                Style="{StaticResource PrimaryButton}"
+                                Click="ClearNewsCacheA_Click"
+                                ToolTip="{DynamicResource AnikiNews_SourceA_ClearCache_Tooltip}"
+                                Margin="0,0,0,4"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceA_ClearCache_Tooltip}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,12"
+                                   TextWrapping="Wrap"/>
+
+                                <Border Style="{StaticResource SectionSeparator}"/>
+
+                                <!-- SOURCE B -->
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceB_Title}"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,6"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceB_Name}"
+                                   Style="{StaticResource SectionDescription}"
+                                   Margin="0,2,0,4"/>
+
+                                <TextBox Text="{Binding Settings.NewsSourceBTitle, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,8"
+                                 HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceB_Url}"
+                                   Style="{StaticResource SectionDescription}"
+                                   Margin="0,2,0,4"/>
+
+                                <TextBox Text="{Binding Settings.NewsSourceBUrl, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,0,0,4"
+                                 HorizontalAlignment="Stretch"
+                                 ToolTip="{DynamicResource AnikiNews_CustomFeed_Tooltip}"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Help}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,8"
+                                   TextWrapping="Wrap"/>
+
+                                <Button Content="{DynamicResource AnikiNews_SourceB_ClearCache}"
+                                Style="{StaticResource PrimaryButton}"
+                                Click="ClearNewsCacheB_Click"
+                                ToolTip="{DynamicResource AnikiNews_SourceB_ClearCache_Tooltip}"
+                                Margin="0,0,0,4"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_SourceB_ClearCache_Tooltip}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,0,0,12"
+                                   TextWrapping="Wrap"/>
+
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource SectionCard}">
+
+                            <StackPanel Margin="12,10,12,12">
+
+                                <!-- EXTRA INFO -->
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Help2}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   Margin="0,6,0,6"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource NewsScan_Enable_Help2_Line1}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource NewsScan_Enable_Help2_Line2}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource NewsScan_Enable_Help2_Line3}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource NewsScan_Enable_Help2_Line4}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource NewsScan_Enable_Help2_Line5}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   Margin="0,2,0,10"
+                                   TextWrapping="Wrap"/>
+
+                                <!-- EXAMPLES -->
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Help3}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"
+                                   Margin="0,6,0,6"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple1}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   FontSize="12"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple2}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   FontSize="12"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple3}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   FontSize="12"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple4}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   FontSize="12"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                                <TextBlock Text="{DynamicResource AnikiNews_CustomFeed_Exemple5}"
+                                   Style="{StaticResource SmallNoteText}"
+                                   FontSize="12"
+                                   Margin="0,2,0,2"
+                                   TextWrapping="Wrap"/>
+
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
+
+
                 </ScrollViewer>
             </TabItem>
 

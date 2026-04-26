@@ -13,9 +13,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Xml;
 
 
 namespace AnikiHelper
@@ -41,14 +38,14 @@ namespace AnikiHelper
     public class SteamGlobalNewsService
     {
         // Default URL 
-        private readonly string baseUrl = "https://feeds.feedburner.com/ign/games-all";
+        private const string DefaultNewsSourceAUrl = "https://gameinformer.com/news.xml";
+        private const string DefaultNewsSourceBUrl = "https://gameinformer.com/reviews.xml";
 
         // GUID of the official Steam plugin Playnite (used to find Steam games)
         private static readonly Guid SteamPluginId = Guid.Parse("CB91DFC9-B977-43BF-8E70-55F46E410FAB");
 
         private readonly IPlayniteAPI api;
         private readonly AnikiHelperSettings settings;
-        private readonly string steamLanguage;
         private readonly ILogger logger = LogManager.GetLogger();
 
 
@@ -129,21 +126,22 @@ namespace AnikiHelper
             this.api = api;
             this.settings = settings;
 
-            var playniteLang = api?.ApplicationSettings?.Language;
-            steamLanguage = MapPlayniteLanguageToSteam(playniteLang);
         }
 
         // JSON CACHE PATH 
-        private string GetNewsCachePath()
+        private string GetNewsCachePath(string sourceKey)
         {
-            var root = Path.Combine(api.Paths.ExtensionsDataPath, "96a983a3-3f13-4dce-a474-4052b718bb52");
+            var root = Path.Combine(
+                api.Paths.ExtensionsDataPath,
+                "96a983a3-3f13-4dce-a474-4052b718bb52",
+                "News Cache");
 
             if (!Directory.Exists(root))
             {
                 Directory.CreateDirectory(root);
             }
 
-            return Path.Combine(root, "CacheNews.json");
+            return Path.Combine(root, $"CacheNews_{sourceKey}.json");
         }
 
         // IMAGES CACHE PATH
@@ -152,6 +150,7 @@ namespace AnikiHelper
             var root = Path.Combine(
                 api.Paths.ExtensionsDataPath,
                 "96a983a3-3f13-4dce-a474-4052b718bb52",
+                "News Cache",
                 subFolder);
 
             if (!Directory.Exists(root))
@@ -234,16 +233,7 @@ namespace AnikiHelper
         }
 
 
-        // Saves a BitmapSource as a JPEG
-        private void SaveJpeg(string path, System.Windows.Media.Imaging.BitmapSource bitmap)
-        {
-            var encoder = new System.Windows.Media.Imaging.JpegBitmapEncoder();
-            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
-            using (var fs = new FileStream(path, FileMode.Create))
-            {
-                encoder.Save(fs);
-            }
-        }
+       
 
 
 
@@ -255,9 +245,9 @@ namespace AnikiHelper
             return $"{appId}|{title}|{date}";
         }
 
-        private List<SteamGlobalNewsItem> LoadNewsCache()
+        private List<SteamGlobalNewsItem> LoadNewsCache(string sourceKey)
         {
-            var path = GetNewsCachePath();
+            var path = GetNewsCachePath(sourceKey);
             if (!File.Exists(path))
             {
                 return new List<SteamGlobalNewsItem>();
@@ -274,9 +264,9 @@ namespace AnikiHelper
             }
         }
 
-        private void SaveNewsCache(List<SteamGlobalNewsItem> items)
+        private void SaveNewsCache(string sourceKey, List<SteamGlobalNewsItem> items)
         {
-            var path = GetNewsCachePath();
+            var path = GetNewsCachePath(sourceKey);
 
             try
             {
@@ -290,34 +280,28 @@ namespace AnikiHelper
         }
 
         // Purge images cache: delete files that are no longer referenced by the current cache items.
-        private void PurgeUnusedNewsImages(IList<SteamGlobalNewsItem> cacheItems)
+        private void PurgeUnusedNewsImages(string imagesFolder, IList<SteamGlobalNewsItem> cacheItems)
         {
             try
             {
-                var imagesRoot = GetImagesRoot("NewsImages");
+                var imagesRoot = GetImagesRoot(imagesFolder);
                 if (string.IsNullOrWhiteSpace(imagesRoot) || !Directory.Exists(imagesRoot))
                 {
                     return;
                 }
 
-                // Safety: if cache is null/empty, do nothing (avoid nuking everything by mistake)
                 if (cacheItems == null || cacheItems.Count == 0)
                 {
                     return;
                 }
 
-                // Collect referenced image file paths (LocalImagePath primarily)
                 var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var it in cacheItems)
                 {
-                    AddIfValidFilePath(referenced, it?.LocalImagePath);
-                    // Optional: if you ever store other cached paths here, add them too:
-                    // AddIfValidFilePath(referenced, it?.CoverPath);
-                    // AddIfValidFilePath(referenced, it?.IconPath);
+                    AddIfValidFilePath(referenced, it?.LocalImagePath, imagesFolder);
                 }
 
-                // Delete any file in NewsImages that is not referenced
                 foreach (var file in Directory.EnumerateFiles(imagesRoot))
                 {
                     try
@@ -331,17 +315,15 @@ namespace AnikiHelper
                     }
                     catch
                     {
-                        // Ignore (locked file / IO race / access)
                     }
                 }
             }
             catch
             {
-                // Ignore (never break news loading because of cache purge)
             }
         }
 
-        private void AddIfValidFilePath(HashSet<string> set, string path)
+        private void AddIfValidFilePath(HashSet<string> set, string path, string imagesFolder)
         {
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -351,9 +333,8 @@ namespace AnikiHelper
             try
             {
                 var full = NormalizeFullPath(path);
+                var root = NormalizeFullPath(GetImagesRoot(imagesFolder));
 
-                // Only keep files that are inside NewsImages folder (extra safety)
-                var root = NormalizeFullPath(GetImagesRoot("NewsImages"));
                 if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(full))
                 {
                     set.Add(full);
@@ -361,7 +342,6 @@ namespace AnikiHelper
             }
             catch
             {
-                // ignore
             }
         }
 
@@ -372,14 +352,7 @@ namespace AnikiHelper
         }
 
 
-        private static string AddLangToUrl(string url, string lang)
-        {
-            if (string.IsNullOrWhiteSpace(lang))
-                return url;
-
-            var sep = url.Contains("?") ? "&" : "?";
-            return $"{url}{sep}l={lang}";
-        }
+        
 
         // Small helper
         public Task<List<SteamGlobalNewsItem>> GetGenericFeedAsync(string url, string imagesFolder = "NewsImages")
@@ -387,34 +360,111 @@ namespace AnikiHelper
             return LoadFeedAsync(url, imagesFolder);
         }
 
+        private string GetDefaultUrlForSource(string sourceKey)
+        {
+            if (string.Equals(sourceKey, "A", StringComparison.OrdinalIgnoreCase))
+            {
+                return DefaultNewsSourceAUrl;
+            }
+
+            if (string.Equals(sourceKey, "B", StringComparison.OrdinalIgnoreCase))
+            {
+                return DefaultNewsSourceBUrl;
+            }
+
+            return DefaultNewsSourceAUrl;
+        }
+
 
 
         // MAIN METHOD
-        public async Task<List<SteamGlobalNewsItem>> GetGlobalNewsAsync()
+        public async Task<List<SteamGlobalNewsItem>> GetNewsForSourceAsync(
+             string sourceKey,
+             string feedUrl,
+             DateTime? lastRefreshUtc,
+             string lastCachedUrl,
+             bool force = false)
         {
-            logger.Info("[SteamGlobalNewsService] GetGlobalNewsAsync() starting...");
-            logger.Info($"CustomFeed={settings?.SteamNewsCustomFeedUrl}, LastRefreshUtc={settings?.SteamGlobalNewsLastRefreshUtc}");
+            if (string.IsNullOrWhiteSpace(sourceKey))
+            {
+                return new List<SteamGlobalNewsItem>();
+            }
 
-            // 1) Load the existing cache and remove news that is too old
-            var cache = LoadNewsCache();
+            
+
+            var imagesFolder = $"NewsImages_{sourceKey}";
             var nowUtc = DateTime.UtcNow;
-            var minDateUtc = nowUtc.AddDays(-CacheMaxDays);
+            var cacheMinDateUtc = nowUtc.AddDays(-(CacheMaxDays + 30));
 
-            cache = cache
-                .Where(n => n.PublishedUtc >= minDateUtc)
+            var defaultUrl = GetDefaultUrlForSource(sourceKey);
+            var normalizedFeedUrl = string.IsNullOrWhiteSpace(feedUrl)
+                ? defaultUrl
+                : feedUrl.Trim();
+            var normalizedLastCachedUrl = lastCachedUrl?.Trim() ?? string.Empty;
+
+            var urlChanged =
+                !string.IsNullOrWhiteSpace(normalizedLastCachedUrl) &&
+                !string.Equals(
+                    normalizedFeedUrl,
+                    normalizedLastCachedUrl,
+                    StringComparison.OrdinalIgnoreCase);
+
+            if (urlChanged)
+            {
+                try
+                {
+                    var cachePath = GetNewsCachePath(sourceKey);
+                    if (File.Exists(cachePath))
+                    {
+                        File.Delete(cachePath);
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    var imagesRoot = GetImagesRoot(imagesFolder);
+                    if (Directory.Exists(imagesRoot))
+                    {
+                        foreach (var file in Directory.EnumerateFiles(imagesRoot))
+                        {
+                            try
+                            {
+                                File.Delete(file);
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+
+                lastRefreshUtc = null;
+            }
+
+            var loadedCache = LoadNewsCache(sourceKey);
+
+            var cache = loadedCache
+                .Where(n => n.PublishedUtc >= cacheMinDateUtc)
                 .ToList();
 
-            // Check if the JSON actually exists
-            bool cacheMissing = !File.Exists(GetNewsCachePath());
+            var fallbackCache = loadedCache
+                .OrderByDescending(n => n.PublishedUtc)
+                .Take(DisplayMaxItems)
+                .ToList();
 
-            // If we have already scanned less than 3 hours ago AND the JSON exists, we simply return the cache. 
-            if (!cacheMissing && settings?.SteamGlobalNewsLastRefreshUtc != null)
+            bool cacheMissing = !File.Exists(GetNewsCachePath(sourceKey));
+
+            if (!force && !urlChanged && !cacheMissing && lastRefreshUtc != null)
             {
-                var lastUtc = settings.SteamGlobalNewsLastRefreshUtc.Value;
+                var lastUtc = lastRefreshUtc.Value;
                 if ((nowUtc - lastUtc).TotalHours < 3)
                 {
-                    logger.Info($"[SteamGlobalNewsService] SKIP scan → lastRefresh={lastUtc}, hoursSince={(nowUtc - lastUtc).TotalHours:F2}");
-
                     return cache
                         .OrderByDescending(n => n.PublishedUtc)
                         .Take(DisplayMaxItems)
@@ -422,56 +472,32 @@ namespace AnikiHelper
                 }
             }
 
-            // 2) Load a fresh feed 
-            List<SteamGlobalNewsItem> fresh = null;
+            logger.Info($"[SteamGlobalNewsService] Refreshing news source {sourceKey}.");
 
-            //  custom stream error flag
-            if (settings != null)
+            var fresh = await LoadFeedAsync(normalizedFeedUrl, imagesFolder).ConfigureAwait(false)
+                       ?? new List<SteamGlobalNewsItem>();
+
+
+            if (fresh.Count == 0 &&
+                !string.Equals(normalizedFeedUrl, defaultUrl, StringComparison.OrdinalIgnoreCase))
             {
-                settings.SteamNewsCustomFeedInvalid = false;
+                logger.Warn($"[SteamGlobalNewsService] Custom feed failed for source {sourceKey}, fallback to default feed.");
+
+                fresh = await LoadFeedAsync(defaultUrl, imagesFolder).ConfigureAwait(false)
+                       ?? new List<SteamGlobalNewsItem>();
+
+                normalizedFeedUrl = defaultUrl;
+
             }
 
-            // 2a) User-defined custom feed
-            var customUrl = settings?.SteamNewsCustomFeedUrl;
-            if (!string.IsNullOrWhiteSpace(customUrl))
+            if (fresh.Count == 0 && fallbackCache.Count > 0)
             {
-                logger.Warn("[SteamGlobalNewsService] REFRESH TRIGGERED → scanning RSS feed NOW");
+                logger.Warn(
+                    $"[AnikiHelper] GetNewsForSourceAsync {sourceKey}: fresh feed empty, returning fallback cache with {fallbackCache.Count} items");
 
-                fresh = await LoadFeedAsync(customUrl).ConfigureAwait(false);
-
-                if (fresh == null || fresh.Count == 0)
-                {
-                    // Flux custom HS → on met le flag, le thème pourra afficher un warning
-                    if (settings != null)
-                    {
-                        settings.SteamNewsCustomFeedInvalid = true;
-                    }
-                }
+                return fallbackCache;
             }
 
-            // 2b) If no custom or empty custom feed → default feed
-            if (fresh == null || fresh.Count == 0)
-            {
-                var urlLang = AddLangToUrl(baseUrl, steamLanguage);
-                fresh = await LoadFeedAsync(urlLang).ConfigureAwait(false) ?? new List<SteamGlobalNewsItem>();
-
-                if (fresh.Count == 0)
-                {
-                    var urlEn = AddLangToUrl(baseUrl, "english");
-                    var fallback = await LoadFeedAsync(urlEn).ConfigureAwait(false);
-                    if (fallback != null)
-                    {
-                        fresh = fallback;
-                    }
-                }
-            }
-
-            if (fresh == null)
-            {
-                fresh = new List<SteamGlobalNewsItem>();
-            }
-
-            // 3) Merge cache + fresh by unique key (AppId + Title + Date)
             var allDict = new Dictionary<string, SteamGlobalNewsItem>();
 
             foreach (var item in cache)
@@ -486,31 +512,32 @@ namespace AnikiHelper
             foreach (var item in fresh)
             {
                 var key = MakeNewsKey(item);
-                // The new feed overwrites the old version of the same article.
                 allDict[key] = item;
             }
 
-            // 4) Cleaning and limiting the cache
             var merged = allDict.Values
-                .Where(n => n.PublishedUtc >= minDateUtc)
+                .Where(n => n.PublishedUtc >= cacheMinDateUtc)
                 .OrderByDescending(n => n.PublishedUtc)
                 .Take(CacheMaxItems)
                 .ToList();
 
-            // 5) Saving to disk
-            SaveNewsCache(merged);
+            SaveNewsCache(sourceKey, merged);
+            PurgeUnusedNewsImages(imagesFolder, merged);
 
-            // 5a) Purge unused cached images (keep only what's referenced by the cache)
-            PurgeUnusedNewsImages(merged);
-
-            // 5b) Updates the last refresh timestamp
             if (settings != null)
             {
-                settings.SteamGlobalNewsLastRefreshUtc = nowUtc;
+                if (string.Equals(sourceKey, "A", StringComparison.OrdinalIgnoreCase))
+                {
+                    settings.SteamGlobalNewsALastRefreshUtc = nowUtc;
+                    settings.LastCachedNewsSourceAUrl = normalizedFeedUrl;
+                }
+                else if (string.Equals(sourceKey, "B", StringComparison.OrdinalIgnoreCase))
+                {
+                    settings.SteamGlobalNewsBLastRefreshUtc = nowUtc;
+                    settings.LastCachedNewsSourceBUrl = normalizedFeedUrl;
+                }
             }
 
-
-            // 6) Only the last X are returned to the theme
             return merged
                 .OrderByDescending(n => n.PublishedUtc)
                 .Take(DisplayMaxItems)
@@ -911,65 +938,6 @@ namespace AnikiHelper
             return string.Empty;
         }
 
-        private static string CleanSteamHtml(string html)
-        {
-            if (string.IsNullOrWhiteSpace(html))
-            {
-                return string.Empty;
-            }
-
-            var options = RegexOptions.IgnoreCase | RegexOptions.Singleline;
-
-            html = Regex.Replace(
-                html,
-                "<div[^>]+class=\"[^\"]*bb_video[^\"]*\"[^>]*>.*?</div>",
-                string.Empty,
-                options);
-
-            html = Regex.Replace(
-                html,
-                "<video[^>]*>.*?</video>",
-                string.Empty,
-                options);
-
-            html = Regex.Replace(
-                html,
-                "<iframe[^>]*>.*?</iframe>",
-                string.Empty,
-                options);
-
-            html = Regex.Replace(
-                html,
-                "<div[^>]*>(\\s|&nbsp;|&#160;|<br\\s*/?>)*</div>",
-                string.Empty,
-                options);
-
-            html = Regex.Replace(
-                html,
-                "<p[^>]*>[\\sーー\\-_=]+</p>",
-                "<hr/>",
-                options);
-
-            html = Regex.Replace(
-                html,
-                "<p[^>]*>(\\s|&nbsp;|&#160;|<br\\s*/?>)*</p>",
-                string.Empty,
-                options);
-
-            html = Regex.Replace(
-                html,
-                @"^(\s|<br\s*/?>|&nbsp;|&#160;)+",
-                string.Empty,
-                options);
-
-            html = Regex.Replace(
-                html,
-                "(<br\\s*/?>\\s*){3,}",
-                "<br/><br/>",
-                options);
-
-            return html.Trim();
-        }
 
         private static string NormalizeSteamImages(string html)
         {
@@ -1076,31 +1044,6 @@ namespace AnikiHelper
             catch { }
         }
 
-
-
-        private static string MapPlayniteLanguageToSteam(string code)
-        {
-            if (string.IsNullOrWhiteSpace(code))
-                return "english";
-
-            code = code.ToLowerInvariant();
-
-            if (code.StartsWith("fr")) return "french";
-            if (code.StartsWith("de")) return "german";
-            if (code.StartsWith("es")) return "spanish";
-            if (code.StartsWith("it")) return "italian";
-            if (code.StartsWith("pt_br")) return "brazilian";
-            if (code.StartsWith("pt")) return "portuguese";
-            if (code.StartsWith("ru")) return "russian";
-            if (code.StartsWith("pl")) return "polish";
-            if (code.StartsWith("cs")) return "czech";
-            if (code.StartsWith("ja")) return "japanese";
-            if (code.StartsWith("ko")) return "koreana";
-            if (code.StartsWith("zh_cn")) return "schinese";
-            if (code.StartsWith("zh_tw")) return "tchinese";
-
-            return "english";
-        }
 
         private static string GetGameCoverPath(Game game)
         {

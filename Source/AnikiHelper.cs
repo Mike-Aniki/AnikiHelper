@@ -18,7 +18,11 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
-
+using System.Windows.Input;
+using System.Runtime.InteropServices;
+using AnikiHelper.Services;
+using System.Globalization;
+using Microsoft.Win32;
 
 namespace AnikiHelper
 {
@@ -26,7 +30,9 @@ namespace AnikiHelper
     {
         private static readonly ILogger logger = LogManager.GetLogger();
 
-        private readonly SteamGlobalNewsService steamGlobalNewsService;
+        private readonly SteamGlobalNewsService rssNewsService;
+        private readonly EventSoundService eventSoundService;
+        private readonly AnikiWindowManager anikiWindowManager;
 
         private readonly bool isFullscreenMode;
 
@@ -44,6 +50,18 @@ namespace AnikiHelper
         private const string ShutdownVideoFolderName = "Startup Video";
         private const string ShutdownVideoFileName = "Shutdown.mp4";
 
+        private GameLaunchSplashWindow currentGameLaunchSplash;
+        private DateTime? currentGameLaunchSplashShownAt;
+        private const int GameLaunchSplashMinimumDurationMs = 4000;
+        private const int GameLaunchSplashForegroundCheckIntervalMs = 250;
+        private const int GameLaunchSplashMaxWaitAfterGameStartedMs = 12000;
+        private const int GameLaunchSplashPostFocusLossDelayMs = 1300;
+        private const int GameLaunchSplashFocusLossStabilityMs = 500;
+        private const string CustomSplashTagName = "[Aniki] Custom Splash";
+
+        private readonly System.Threading.SemaphoreSlim steamStoreOpenLock = new System.Threading.SemaphoreSlim(1, 1);
+        private DateTime lastSteamStoreOpenRequestUtc = DateTime.MinValue;
+
         public static AnikiHelper Instance { get; private set; }
 
         private const int GlobalNewsRefreshIntervalHours = 3;
@@ -55,8 +73,8 @@ namespace AnikiHelper
         private static readonly string[] PlayniteNewsFeedUrls = new[]
         {
             "https://github.com/Mike-Aniki/AnikiHelper/releases.atom",
-            "https://github.com/jonosellier/toggle-theme-playnite/releases.atom",
-            "https://github.com/And360red/Solaris/releases.atom",
+            "https://github.com/Mike-Aniki/Steam_Friends_Fullscreen/releases.atom",
+            "https://github.com/aHuddini/UniPlaySong/releases.atom",
             "https://github.com/Mike-Aniki/Aniki-ReMake/releases.atom",
             "https://github.com/Lacro59/playnite-screenshotsvisualizer-plugin/releases.atom",
             "https://github.com/Lacro59/playnite-checkdlc-plugin/releases.atom",
@@ -65,23 +83,73 @@ namespace AnikiHelper
             "https://github.com/JosefNemec/Playnite/releases.atom",
             "https://github.com/ashpynov/PlayniteSound/releases.atom",
             "https://github.com/ashpynov/ThemeOptions/releases.atom",
-            "https://github.com/Lacro59/playnite-successstory-plugin/releases.atom",
-            "https://github.com/Lacro59/playnite-howlongtobeat-plugin/releases.atom"
+            "https://github.com/justin-delano/PlayniteAchievements/releases.atom",
+            "https://github.com/Lacro59/playnite-howlongtobeat-plugin/releases.atom",
+            "https://github.com/jonosellier/NowPlaying/releases.atom",
+            "https://github.com/HerrKnarz/Playnite-Extensions/releases.atom"
         };
 
 
-        // === Steam Deals (game-deals.app) ===
-        private const int DealsRefreshIntervalHours = 12; // 12h 
-        private const int DealsMaxDays = 7;               // keep for a maximum of 7 days
-        private const int DealsMaxItems = 15;             // keep a maximum of 15 deals
-        private const string DealsFeedUrl =
-            "https://game-deals.app/rss/discounts/steam";
+        
 
         private readonly Random hubRandom = new Random();
         private bool hubPage3CardsInitialized = false;
 
         // === Diagnostics and paths ===
         private string GetDataRoot() => Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
+
+        private void CleanupLegacyNewsCache()
+        {
+            try
+            {
+                var root = GetDataRoot();
+
+                var legacyFiles = new[]
+                {
+            Path.Combine(root, "CacheNews.json")
+        };
+
+                var legacyDirs = new[]
+                {
+            Path.Combine(root, "NewsImages"),
+            Path.Combine(root, "DealsImages")
+        };
+
+                foreach (var file in legacyFiles)
+                {
+                    try
+                    {
+                        if (File.Exists(file))
+                        {
+                            File.Delete(file);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, $"[AnikiHelper] Failed to delete legacy file: {file}");
+                    }
+                }
+
+                foreach (var dir in legacyDirs)
+                {
+                    try
+                    {
+                        if (Directory.Exists(dir))
+                        {
+                            Directory.Delete(dir, true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, $"[AnikiHelper] Failed to delete legacy folder: {dir}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] CleanupLegacyNewsCache failed.");
+            }
+        }
 
         // News update for Welcome Hub
         private void UpdateLatestNewsRotationFromList(IList<SteamGlobalNewsItem> items)
@@ -191,65 +259,210 @@ namespace AnikiHelper
             ApplyLatestNewsSnapshot(latestNewsRotation[latestNewsRotationIndex]);
         }
 
+        public void CloseWelcomeHub()
+        {
+            if (Settings != null)
+            {
+                Settings.IsWelcomeHubClosing = false;
+                Settings.IsWelcomeHubOpen = false;
+            }
+        }
 
-        // Charge les news globales depuis CacheNews.json si Settings.SteamGlobalNews est vide 
-        // Load global news from CacheNews.json if Settings.SteamGlobalNews is empty 
+        public void StartClosingWelcomeHub()
+        {
+            if (Settings != null)
+            {
+                Settings.IsWelcomeHubClosing = true;
+            }
+        }
+
+        public void FinishClosingWelcomeHub()
+        {
+            if (Settings != null)
+            {
+                Settings.IsWelcomeHubClosing = false;
+                Settings.IsWelcomeHubOpen = false;
+            }
+        }
+
+        public void SetWelcomeHubState(bool isOpen)
+        {
+            if (Settings != null)
+            {
+                Settings.IsWelcomeHubOpen = isOpen;
+                logger.Info($"[AnikiHelper] SetWelcomeHubState -> IsWelcomeHubOpen = {isOpen}");
+            }
+        }
+
+        public void OpenWelcomeHub()
+        {
+            if (Settings != null)
+            {
+                Settings.IsWelcomeHubClosing = false;
+                Settings.IsWelcomeHubOpen = true;
+            }
+        }
+
+        public void InitializeWelcomeHubState(bool openAtStartup)
+        {
+            if (openAtStartup)
+            {
+                OpenWelcomeHub();
+            }
+            else
+            {
+                CloseWelcomeHub();
+            }
+
+            logger.Info($"[AnikiHelper] InitializeWelcomeHubState -> IsWelcomeHubOpen = {openAtStartup}");
+        }
+
+        public void OpenGameDetails(Guid gameId)
+        {
+
+            if (gameId == Guid.Empty || PlayniteApi?.MainView == null)
+            {
+                logger.Warn("[AnikiHelper] OpenGameDetails aborted: empty gameId or MainView null.");
+                return;
+            }
+
+            try
+            {
+                var game = PlayniteApi.Database?.Games?.Get(gameId);
+                if (game == null)
+                {
+                    logger.Warn($"[AnikiHelper] Game not found for id={gameId}");
+                    return;
+                }
+
+                StartClosingWelcomeHub();
+
+                PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        // laisse jouer l'anim du hub
+                        await Task.Delay(180);
+
+                        PlayniteApi.MainView.SelectGame(gameId);
+
+                        // laisse le temps à Playnite d'appliquer la nouvelle sélection
+                        await Task.Delay(310);
+
+                        if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
+                        {
+                            PlayniteApi.MainView.ToggleFullscreenView();
+                        }
+
+                        // petit délai pour laisser la vue détails se poser
+                        await Task.Delay(50);
+
+                        FinishClosingWelcomeHub();
+                    }
+                    catch (Exception innerEx)
+                    {
+                        logger.Error(innerEx, $"[AnikiHelper] Failed inside UI dispatcher for {gameId}.");
+                    }
+                }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, $"[AnikiHelper] Failed to open game details for {gameId}.");
+            }
+        }
 
         private void LoadNewsFromCacheIfNeeded()
         {
             try
             {
-                if (Settings.SteamGlobalNews != null && Settings.SteamGlobalNews.Count > 0)
+                LoadNewsSourceFromCache("A");
+                LoadNewsSourceFromCache("B");
+
+                if (Settings.SteamGlobalNewsA != null && Settings.SteamGlobalNewsA.Count > 0)
                 {
-                    UpdateLatestNewsRotationFromList(Settings.SteamGlobalNews.ToList());
-                    return;
+                    UpdateLatestNewsRotationFromList(Settings.SteamGlobalNewsA.ToList());
                 }
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to load news from cache.");
+            }
+        }
 
-                var path = Path.Combine(GetDataRoot(), "CacheNews.json");
-                if (!File.Exists(path))
+        private void LoadNewsSourceFromCache(string sourceKey)
+        {
+            var newsRoot = Path.Combine(GetDataRoot(), "News Cache");
+            var path = Path.Combine(newsRoot, $"CacheNews_{sourceKey}.json");
+
+            if (!File.Exists(path))
+            {
+                logger.Info($"[AnikiHelper] Cache load {sourceKey}: file not found -> {path}");
+                return;
+            }
+
+            var cached = Serialization.FromJsonFile<List<SteamGlobalNewsItem>>(path);
+            if (cached == null || cached.Count == 0)
+            {
+                logger.Info($"[AnikiHelper] Cache load {sourceKey}: file exists but contains 0 items -> {path}");
+                return;
+            }
+
+            logger.Info($"[AnikiHelper] Cache load {sourceKey}: loaded {cached.Count} items from {path}");
+
+            var ordered = cached
+                .OrderByDescending(n => n.PublishedUtc)
+                .Take(30)
+                .ToList();
+
+            Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem> target = null;
+
+                if (sourceKey == "A")
                 {
-                    return;
-                }
-
-                var cached = Serialization.FromJsonFile<List<SteamGlobalNewsItem>>(path);
-                if (cached == null || cached.Count == 0)
-                {
-                    return;
-                }
-
-                var ordered = cached
-                    .OrderByDescending(n => n.PublishedUtc)
-                    .Take(30)
-                    .ToList();
-
-                Application.Current?.Dispatcher?.Invoke(() =>
-                {
-                    if (Settings.SteamGlobalNews == null)
+                    if (Settings.SteamGlobalNewsA == null)
                     {
-                        Settings.SteamGlobalNews =
+                        Settings.SteamGlobalNewsA =
                             new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
                     }
                     else
                     {
-                        Settings.SteamGlobalNews.Clear();
+                        Settings.SteamGlobalNewsA.Clear();
                     }
 
+                    target = Settings.SteamGlobalNewsA;
+                }
+                else if (sourceKey == "B")
+                {
+                    if (Settings.SteamGlobalNewsB == null)
+                    {
+                        Settings.SteamGlobalNewsB =
+                            new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
+                    }
+                    else
+                    {
+                        Settings.SteamGlobalNewsB.Clear();
+                    }
+
+                    target = Settings.SteamGlobalNewsB;
+                }
+
+                if (target != null)
+                {
                     foreach (var it in ordered)
                     {
-                        Settings.SteamGlobalNews.Add(it);
+                        target.Add(it);
                     }
-                });
+                }
+            });
 
-                UpdateLatestNewsRotationFromList(ordered);
-                SaveSettingsSafe();
-            }
-            catch (Exception ex)
+            if (sourceKey == "A")
             {
-                logger.Error(ex, "[AnikiHelper] Failed to load global news from cache.");
+                UpdateLatestNewsRotationFromList(ordered);
             }
+
+            SaveSettingsSafe();
         }
-
-
 
         private class SteamUpdateCacheEntry
         {
@@ -276,8 +489,6 @@ namespace AnikiHelper
 
             return $"{title}|{url}";
         }
-
-
 
         // --- Cache of Steam updates already viewed (SteamID -> latest update title) ---
         private string GetSteamUpdatesCachePath()
@@ -667,9 +878,9 @@ namespace AnikiHelper
         private readonly SteamUpdateLiteService steamUpdateService;
         private readonly DispatcherTimer steamUpdateTimer;
         private Playnite.SDK.Models.Game pendingUpdateGame;
-        private readonly DispatcherTimer dealsTimer;
         private readonly DispatcherTimer newsRotationTimer;
         private readonly DispatcherTimer suggestedRotationTimer;
+        private readonly SemaphoreSlim newsRefreshGate = new SemaphoreSlim(1, 1);
 
         private readonly List<SteamGlobalNewsItem> latestNewsRotation = new List<SteamGlobalNewsItem>();
         private int latestNewsRotationIndex = 0;
@@ -692,6 +903,7 @@ namespace AnikiHelper
 
         // Steam current players
         private readonly SteamPlayerCountService steamPlayerCountService = new SteamPlayerCountService();
+        private SteamStoreService steamStoreService;
 
         // GUID plugin Steam officiel
         private static readonly Guid SteamPluginId = Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab");
@@ -867,92 +1079,155 @@ namespace AnikiHelper
 
         private async Task RefreshGlobalSteamNewsAsync(bool force = false)
         {
+            if (!await newsRefreshGate.WaitAsync(0))
+            {
+                return;
+            }
+
             try
             {
-                var nowUtc = DateTime.UtcNow;
-
-                DateTime? last = null;
                 bool enabled = false;
+                string sourceAUrl = string.Empty;
+                string sourceBUrl = string.Empty;
+                DateTime? lastA = null;
+                DateTime? lastB = null;
+                string lastCachedAUrl = string.Empty;
+                string lastCachedBUrl = string.Empty;
 
                 OnUi(() =>
                 {
-                    last = Settings.SteamGlobalNewsLastRefreshUtc;
                     enabled = Settings.NewsScanEnabled;
-                });
 
-                logger.Debug($"[NewsScan] Start (force={force}, enabled={enabled})");
+                    sourceAUrl = Settings.NewsSourceAUrl ?? string.Empty;
+                    sourceBUrl = Settings.NewsSourceBUrl ?? string.Empty;
+
+                    lastA = Settings.SteamGlobalNewsALastRefreshUtc;
+                    lastB = Settings.SteamGlobalNewsBLastRefreshUtc;
+
+                    lastCachedAUrl = Settings.LastCachedNewsSourceAUrl ?? string.Empty;
+                    lastCachedBUrl = Settings.LastCachedNewsSourceBUrl ?? string.Empty;
+                });
 
                 if (!enabled)
                 {
-                    logger.Debug("[NewsScan] Skipped (disabled)");
                     return;
                 }
 
+                var itemsA = new List<SteamGlobalNewsItem>();
+                var itemsB = new List<SteamGlobalNewsItem>();
 
-                // Cooldown (3h)
-                if (!force && last.HasValue)
+                itemsA = await rssNewsService.GetNewsForSourceAsync(
+                    "A",
+                    sourceAUrl,
+                    lastA,
+                    lastCachedAUrl,
+                    force).ConfigureAwait(false) ?? new List<SteamGlobalNewsItem>();
+
+                itemsB = await rssNewsService.GetNewsForSourceAsync(
+                    "B",
+                    sourceBUrl,
+                    lastB,
+                    lastCachedBUrl,
+                    force).ConfigureAwait(false) ?? new List<SteamGlobalNewsItem>();
+
+                logger.Info(
+                    $"[AnikiHelper] RefreshGlobalSteamNewsAsync: itemsA={itemsA?.Count ?? 0}, itemsB={itemsB?.Count ?? 0}, " +
+                    $"currentA={Settings.SteamGlobalNewsA?.Count ?? 0}, currentB={Settings.SteamGlobalNewsB?.Count ?? 0}");
+
+                bool sameA = false;
+                bool sameB = false;
+
+                OnUi(() =>
                 {
-                    var hours = (nowUtc - last.Value).TotalHours;
-                    if (hours < GlobalNewsRefreshIntervalHours)
-                    {
-                        logger.Debug($"[NewsScan] Skipped (cooldown {hours:F1}h < {GlobalNewsRefreshIntervalHours}h)");
-                        return;
-                    }
-                }
+                    sameA = Settings.SteamGlobalNewsA != null &&
+                            Settings.SteamGlobalNewsA.Count == itemsA.Count &&
+                            Settings.SteamGlobalNewsA
+                                .Select(x => $"{x.Title}|{x.DateString}|{x.Url}")
+                                .SequenceEqual(itemsA.Select(x => $"{x.Title}|{x.DateString}|{x.Url}"));
 
-                // Scan
-                var items = await steamGlobalNewsService.GetGlobalNewsAsync().ConfigureAwait(false);
-                if (items == null)
-                {
-                    logger.Warn("[NewsScan] Service returned NULL");
-                    items = new List<SteamGlobalNewsItem>();
-                }
-
-                logger.Debug($"[NewsScan] Items fetched: {items.Count}");
-
-                Application.Current?.Dispatcher?.Invoke(() =>
-                {
-                    if (Settings.SteamGlobalNews == null)
-                    {
-                        Settings.SteamGlobalNews =
-                            new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
-                    }
-
-                    Settings.SteamGlobalNews.Clear();
-                    foreach (var it in items)
-                        Settings.SteamGlobalNews.Add(it);
-
-                    Settings.SteamGlobalNewsLastRefreshUtc = nowUtc;
-
-                    logger.Debug("[NewsScan] Updated settings & memory list");
+                    sameB = Settings.SteamGlobalNewsB != null &&
+                            Settings.SteamGlobalNewsB.Count == itemsB.Count &&
+                            Settings.SteamGlobalNewsB
+                                .Select(x => $"{x.Title}|{x.DateString}|{x.Url}")
+                                .SequenceEqual(itemsB.Select(x => $"{x.Title}|{x.DateString}|{x.Url}"));
                 });
 
-                // ✅ sauvegarde hors UI
-                SaveSettingsSafe();
+                if (!sameA || !sameB)
+                {
+                    OnUi(() =>
+                    {
+                        if (Settings.SteamGlobalNewsA == null)
+                        {
+                            Settings.SteamGlobalNewsA =
+                                new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
+                        }
 
-                UpdateLatestNewsRotationFromList(items);
+                        if (Settings.SteamGlobalNewsB == null)
+                        {
+                            Settings.SteamGlobalNewsB =
+                                new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
+                        }
+
+                        if (!sameA && itemsA.Count > 0)
+                        {
+                            Settings.SteamGlobalNewsA.Clear();
+                            foreach (var it in itemsA)
+                            {
+                                Settings.SteamGlobalNewsA.Add(it);
+                            }
+                        }
+
+                        if (!sameB && itemsB.Count > 0)
+                        {
+                            Settings.SteamGlobalNewsB.Clear();
+                            foreach (var it in itemsB)
+                            {
+                                Settings.SteamGlobalNewsB.Add(it);
+                            }
+                        }
+                    });
+
+                    SaveSettingsSafe();
+                }
+
+                logger.Info(
+                    $"[AnikiHelper] Refresh apply result: finalA={Settings.SteamGlobalNewsA?.Count ?? 0}, finalB={Settings.SteamGlobalNewsB?.Count ?? 0}, " +
+                    $"sameA={sameA}, sameB={sameB}");
+
+                if (itemsA != null && itemsA.Count > 0)
+                {
+                    UpdateLatestNewsRotationFromList(itemsA);
+                }
+                else if (Settings.SteamGlobalNewsA != null && Settings.SteamGlobalNewsA.Count > 0)
+                {
+                    UpdateLatestNewsRotationFromList(Settings.SteamGlobalNewsA.ToList());
+                }
             }
             catch (Exception ex)
             {
                 logger.Error(ex, "[NewsScan] ERROR");
 
-                Application.Current?.Dispatcher?.Invoke(() =>
+                OnUi(() =>
                 {
-                    if (Settings.SteamGlobalNews == null)
+                    if (Settings.SteamGlobalNewsA == null)
                     {
-                        Settings.SteamGlobalNews =
+                        Settings.SteamGlobalNewsA =
                             new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>();
                     }
 
-                    Settings.SteamGlobalNews.Clear();
-                    Settings.SteamGlobalNews.Add(new SteamGlobalNewsItem
+                    Settings.SteamGlobalNewsA.Clear();
+                    Settings.SteamGlobalNewsA.Add(new SteamGlobalNewsItem
                     {
                         GameName = "Error",
-                        Title = "Error while loading global Steam news",
+                        Title = "Error while loading news source A",
                         DateString = DateTime.Now.ToString("dd/MM/yyyy HH:mm"),
                         Summary = ex.Message
                     });
                 });
+            }
+            finally
+            {
+                newsRefreshGate.Release();
             }
         }
 
@@ -980,10 +1255,6 @@ namespace AnikiHelper
                     var hours = (nowUtc - last.Value).TotalHours;
                     if (hours < PlayniteNewsRefreshIntervalHours)
                     {
-                        if (!silent)
-                        {
-                            logger.Debug($"[PlayniteNews] Skipped (cooldown {hours:F1}h < {PlayniteNewsRefreshIntervalHours}h)");
-                        }
                         return;
                     }
                 }
@@ -1000,7 +1271,7 @@ namespace AnikiHelper
 
                     try
                     {
-                        var items = await steamGlobalNewsService
+                        var items = await rssNewsService
                             .GetGenericFeedAsync(url)
                             .ConfigureAwait(false);
 
@@ -1093,106 +1364,6 @@ namespace AnikiHelper
                 logger.Warn(ex, "[PlayniteNews] RefreshPlayniteNewsAsync failed.");
             }
         }
-
-
-
-        // Steam Deals via game-deals.app
-        private async Task RefreshDealsAsync(bool force = false, bool silent = false)
-        {
-            try
-            {
-                var nowUtc = DateTime.UtcNow;
-
-                DateTime? last = null;
-                OnUi(() => last = Settings.LastDealsScanUtc);
-
-
-                // Cooldown 12h
-                if (!force && last.HasValue)
-                {
-                    var hours = (nowUtc - last.Value).TotalHours;
-                    if (hours < DealsRefreshIntervalHours)
-                    {
-                        if (!silent)
-                        {
-                            logger.Debug($"[Deals] Skipped (cooldown {hours:F1}h < {DealsRefreshIntervalHours}h)");
-                        }
-                        return;
-                    }
-                }
-
-                var items = await steamGlobalNewsService
-                    .GetGenericFeedAsync(DealsFeedUrl, "DealsImages")
-                    .ConfigureAwait(false);
-
-                if (items == null)
-                {
-                    items = new List<SteamGlobalNewsItem>();
-                }
-
-                var threshold = nowUtc.AddDays(-DealsMaxDays);
-
-                var filtered = items
-                    .Where(n => n.PublishedUtc > threshold)
-                    .OrderByDescending(n => n.PublishedUtc)
-                    .Take(DealsMaxItems)
-                    .ToList();
-
-                // ✅ Build the new collection OFF the UI thread
-                var newDeals = new System.Collections.ObjectModel.ObservableCollection<SteamGlobalNewsItem>(filtered);
-
-                var dispatcher = Application.Current?.Dispatcher;
-
-                if (dispatcher != null)
-                {
-                    // ✅ Single UI update (no Clear + 15 Adds)
-                    await dispatcher.InvokeAsync(() =>
-                    {
-                        Settings.Deals = newDeals;
-                        Settings.LastDealsScanUtc = nowUtc;
-                    }, DispatcherPriority.Background).Task.ConfigureAwait(false);
-
-                }
-                else
-                {
-                    // Fallback (rare)
-                    Settings.Deals = newDeals;
-                    Settings.LastDealsScanUtc = nowUtc;
-                }
-
-                // ✅ Save outside UI thread work
-                SaveSettingsSafe();
-
-                // ✅ purge des images deals (après update)
-                steamGlobalNewsService.PurgeDealsImagesByAge(DealsMaxDays);
-            }
-            catch (Exception ex)
-            {
-                if (!silent)
-                {
-                    logger.Warn(ex, "[Deals] RefreshDealsAsync failed.");
-                }
-            }
-        }
-
-
-
-
-        private async void DealsTimer_Tick(object sender, EventArgs e)
-        {
-            // Only start the scan if you are in full-screen mode.
-            if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
-            {
-                return;
-            }
-
-            await RefreshDealsAsync(force: false, silent: true);
-        }
-
-
-
-      
-
 
 
         private async Task<bool> UpdateSteamUpdateCacheOnlyForGameAsync(Playnite.SDK.Models.Game game, CancellationToken ct)
@@ -2402,7 +2573,16 @@ namespace AnikiHelper
 
             var trimmed = name.Trim();
 
+            // Ignore technical / metadata tags like:
+            // [Game Engine] ..., [People] ..., [UPS] ..., [HLTB] ...
             if (trimmed.StartsWith("[", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Ignore structured / technical tags like:
+            // icon:, noicon:, composer: Toshiki Aida
+            if (trimmed.Contains(":"))
             {
                 return false;
             }
@@ -2656,7 +2836,9 @@ namespace AnikiHelper
 
             var refName = Safe(refGame.Name);
             var refGenres = GetGenreNames(refGame).ToList();
-            var refTags = GetTagNames(refGame).ToList();
+            var refTags = GetTagNames(refGame)
+                .Where(IsUsefulProfileTag)
+                .ToList();
             var refDevs = GetDeveloperNames(refGame).ToList();
             var refPubs = GetPublisherNames(refGame).ToList();
 
@@ -2685,7 +2867,9 @@ namespace AnikiHelper
 
                 // Candidate data
                 var genres = GetGenreNames(g).ToList();
-                var tags = GetTagNames(g).ToList();
+                var tags = GetTagNames(g)
+                    .Where(IsUsefulProfileTag)
+                    .ToList();
                 var devs = GetDeveloperNames(g).ToList();
                 var pubs = GetPublisherNames(g).ToList();
 
@@ -2934,6 +3118,7 @@ namespace AnikiHelper
 
             return new SuggestedGameSnapshot
             {
+                GameId = game.Id,
                 SourceName = refName ?? string.Empty,
                 Name = Safe(game.Name),
                 CoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath,
@@ -2955,6 +3140,7 @@ namespace AnikiHelper
                     Settings.SuggestedGameSourceName = string.Empty;
                     Settings.SuggestedGameReasonKey = string.Empty;
                     Settings.SuggestedGameBannerText = string.Empty;
+                    Settings.SuggestedGameLastId = Guid.Empty;
 
                     Settings.SuggestedGameBackgroundPathA = string.Empty;
                     Settings.SuggestedGameBackgroundPathB = string.Empty;
@@ -2971,6 +3157,7 @@ namespace AnikiHelper
                 Settings.SuggestedGameBackgroundPath = item.BackgroundPath ?? string.Empty;
                 Settings.SuggestedGameReasonKey = item.ReasonKey ?? string.Empty;
                 Settings.SuggestedGameBannerText = item.BannerText ?? string.Empty;
+                Settings.SuggestedGameLastId = item.GameId;
 
                 var bgPath = item.BackgroundPath ?? string.Empty;
 
@@ -3018,6 +3205,7 @@ namespace AnikiHelper
 
         private class SuggestedGameSnapshot
         {
+            public Guid GameId { get; set; } = Guid.Empty;
             public string Name { get; set; }
             public string CoverPath { get; set; }
             public string BackgroundPath { get; set; }
@@ -3037,6 +3225,28 @@ namespace AnikiHelper
         {
             public DateTime MonthStart { get; set; }
             public Dictionary<Guid, ulong> Minutes { get; set; }
+        }
+
+        private class MonthlyBackupPackage
+        {
+            public int Version { get; set; } = 1;
+            public DateTime ExportedAt { get; set; }
+            public List<MonthlyBackupMonth> Months { get; set; } = new List<MonthlyBackupMonth>();
+        }
+
+        private class MonthlyBackupMonth
+        {
+            public string MonthKey { get; set; } // ex: "2026-04"
+            public List<MonthlyBackupEntry> Games { get; set; } = new List<MonthlyBackupEntry>();
+        }
+
+        private class MonthlyBackupEntry
+        {
+            public string OriginalGameId { get; set; }
+            public string Name { get; set; }
+            public string PluginId { get; set; }
+            public string LibraryGameId { get; set; }
+            public ulong Minutes { get; set; }
         }
 
         private Dictionary<Guid, ulong> ComputeRecentMinutesFromSnapshots(
@@ -3175,6 +3385,57 @@ namespace AnikiHelper
             return list;
         }
 
+        private string SafePluginId(Game game)
+        {
+            if (game?.PluginId == null || game.PluginId == Guid.Empty)
+            {
+                return string.Empty;
+            }
+
+            return game.PluginId.ToString();
+        }
+
+        private string SafeLibraryGameId(Game game)
+        {
+            return game?.GameId?.Trim() ?? string.Empty;
+        }
+
+        private Game FindGameForBackupEntry(MonthlyBackupEntry entry, List<Game> games)
+        {
+            if (entry == null || games == null || games.Count == 0)
+            {
+                return null;
+            }
+
+            // 1) Match fort : PluginId + LibraryGameId
+            if (!string.IsNullOrWhiteSpace(entry.PluginId) &&
+                !string.IsNullOrWhiteSpace(entry.LibraryGameId))
+            {
+                var strongMatch = games.FirstOrDefault(g =>
+                    string.Equals(SafePluginId(g), entry.PluginId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(SafeLibraryGameId(g), entry.LibraryGameId, StringComparison.OrdinalIgnoreCase));
+
+                if (strongMatch != null)
+                {
+                    return strongMatch;
+                }
+            }
+
+            // 2) Fallback : nom exact (insensible à la casse)
+            if (!string.IsNullOrWhiteSpace(entry.Name))
+            {
+                var nameMatches = games
+                    .Where(g => string.Equals(g?.Name?.Trim(), entry.Name.Trim(), StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (nameMatches.Count == 1)
+                {
+                    return nameMatches[0];
+                }
+            }
+
+            return null;
+        }
 
         private void EnsureCurrentMonthSnapshotExists()
         {
@@ -3250,7 +3511,6 @@ namespace AnikiHelper
                 Directory.CreateDirectory(Path.GetDirectoryName(file) ?? GetMonthlyDir());
                 File.WriteAllText(file, json);
 
-                logger.Debug($"[AnikiHelper] Monthly snapshot: added {Safe(g.Name)} ({g.Id}) for {monthStart:yyyy-MM} with base={baseMinutes} minutes.");
             }
             catch (Exception ex)
             {
@@ -3284,6 +3544,148 @@ namespace AnikiHelper
             }
         }
 
+        public void ExportMonthlyBackup(string exportFilePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(exportFilePath))
+                {
+                    throw new Exception("Export path is empty.");
+                }
+
+                var snapshots = LoadAllMonthlySnapshots();
+                var allGames = PlayniteApi.Database.Games.ToList();
+
+                var package = new MonthlyBackupPackage
+                {
+                    Version = 1,
+                    ExportedAt = DateTime.Now
+                };
+
+                foreach (var snap in snapshots.OrderBy(s => s.MonthStart))
+                {
+                    var month = new MonthlyBackupMonth
+                    {
+                        MonthKey = snap.MonthStart.ToString("yyyy-MM")
+                    };
+
+                    foreach (var kv in snap.Minutes)
+                    {
+                        var game = allGames.FirstOrDefault(g => g.Id == kv.Key);
+
+                        month.Games.Add(new MonthlyBackupEntry
+                        {
+                            OriginalGameId = kv.Key.ToString(),
+                            Name = game?.Name ?? string.Empty,
+                            PluginId = SafePluginId(game),
+                            LibraryGameId = SafeLibraryGameId(game),
+                            Minutes = kv.Value
+                        });
+                    }
+
+                    package.Months.Add(month);
+                }
+
+                var json = Serialization.ToJson(package, true);
+
+                var dir = Path.GetDirectoryName(exportFilePath);
+                if (!string.IsNullOrWhiteSpace(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                File.WriteAllText(exportFilePath, json);
+
+                logger.Info($"[AnikiHelper] Monthly backup exported: {exportFilePath}");
+                PlayniteApi.Dialogs.ShowMessage("Monthly backup exported successfully.", "AnikiHelper");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] ExportMonthlyBackup failed");
+                PlayniteApi.Dialogs.ShowErrorMessage($"Monthly backup export failed: {ex.Message}", "AnikiHelper");
+            }
+        }
+
+        public void ImportMonthlyBackup(string importFilePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(importFilePath) || !File.Exists(importFilePath))
+                {
+                    throw new Exception("Backup file not found.");
+                }
+
+                var json = File.ReadAllText(importFilePath);
+                var package = Serialization.FromJson<MonthlyBackupPackage>(json);
+
+                if (package == null || package.Months == null || package.Months.Count == 0)
+                {
+                    throw new Exception("Backup file is empty or invalid.");
+                }
+
+                var allGames = PlayniteApi.Database.Games.ToList();
+
+                int restoredMonths = 0;
+                int restoredEntries = 0;
+                int skippedEntries = 0;
+
+                foreach (var month in package.Months)
+                {
+                    if (month == null || string.IsNullOrWhiteSpace(month.MonthKey))
+                    {
+                        continue;
+                    }
+
+                    if (!DateTime.TryParseExact(
+                        month.MonthKey,
+                        "yyyy-MM",
+                        null,
+                        System.Globalization.DateTimeStyles.None,
+                        out var monthStart))
+                    {
+                        continue;
+                    }
+
+                    var rebuiltSnapshot = new Dictionary<Guid, ulong>();
+
+                    foreach (var entry in month.Games ?? Enumerable.Empty<MonthlyBackupEntry>())
+                    {
+                        var game = FindGameForBackupEntry(entry, allGames);
+                        if (game == null)
+                        {
+                            skippedEntries++;
+                            continue;
+                        }
+
+                        rebuiltSnapshot[game.Id] = entry.Minutes;
+                        restoredEntries++;
+                    }
+
+                    var file = GetMonthFilePath(monthStart);
+                    var monthJson = Serialization.ToJson(rebuiltSnapshot, true);
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(file) ?? GetMonthlyDir());
+                    File.WriteAllText(file, monthJson);
+
+                    restoredMonths++;
+                }
+
+                EnsureMonthlySnapshotSafe();
+                RecalcStatsSafe();
+
+                logger.Info($"[AnikiHelper] Monthly backup imported: {importFilePath} | months={restoredMonths} entries={restoredEntries} skipped={skippedEntries}");
+
+                PlayniteApi.Dialogs.ShowMessage(
+                    $"Monthly backup imported.\n\nMonths restored: {restoredMonths}\nEntries restored: {restoredEntries}\nEntries skipped: {skippedEntries}",
+                    "AnikiHelper");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] ImportMonthlyBackup failed");
+                PlayniteApi.Dialogs.ShowErrorMessage($"Monthly backup import failed: {ex.Message}", "AnikiHelper");
+            }
+        }
+
         // Clears the dynamic color cache 
         public void ClearDynamicColorCache()
         {
@@ -3311,53 +3713,70 @@ namespace AnikiHelper
         }
 
         // Deletes the News cache
-        public void ClearNewsCache()
+
+        public void ClearNewsCacheA()
         {
             try
             {
-                // 1) Clear the list in memory + reset flags (ON UI thread)
                 OnUi(() =>
                 {
-                    Settings.SteamGlobalNews?.Clear();
-                    Settings.PlayniteNews?.Clear();
-                    Settings.Deals?.Clear();
-
-                    Settings.PlayniteNewsHasNew = false;
-                    Settings.PlayniteNewsLastKey = string.Empty;
-
-                    // 2) Reset des timestamps pour forcer un rescan
-                    Settings.SteamGlobalNewsLastRefreshUtc = null;
-                    Settings.LastNewsScanUtc = DateTime.MinValue;
-                    Settings.PlayniteNewsLastRefreshUtc = null;
-                    Settings.LastDealsScanUtc = null;
+                    Settings.SteamGlobalNewsA?.Clear();
+                    Settings.SteamGlobalNewsALastRefreshUtc = null;
+                    Settings.LastCachedNewsSourceAUrl = string.Empty;
                 });
 
+                var newsRoot = Path.Combine(GetDataRoot(), "News Cache");
 
-                // 3) Delete the JSON file
-                var jsonPath = Path.Combine(GetDataRoot(), "CacheNews.json");
+                var jsonPath = Path.Combine(newsRoot, "CacheNews_A.json");
                 if (File.Exists(jsonPath))
                 {
                     File.Delete(jsonPath);
                 }
 
-                // 4) Delete the NewsImages folder (thumbnails)
-                var imgRoot = Path.Combine(GetDataRoot(), "NewsImages");
+                var imgRoot = Path.Combine(newsRoot, "NewsImages_A");
                 if (Directory.Exists(imgRoot))
                 {
                     Directory.Delete(imgRoot, true);
                 }
-                var dealsImgRoot = Path.Combine(GetDataRoot(), "DealsImages");
-                if (Directory.Exists(dealsImgRoot))
-                {
-                    Directory.Delete(dealsImgRoot, true);
-                }
 
-                // 5) Save the updated settings
                 SaveSettingsSafe();
             }
             catch (Exception ex)
             {
-                logger.Error(ex, "[AnikiHelper] ClearNewsCache failed.");
+                logger.Error(ex, "[AnikiHelper] ClearNewsCacheA failed.");
+            }
+        }
+
+        public void ClearNewsCacheB()
+        {
+            try
+            {
+                OnUi(() =>
+                {
+                    Settings.SteamGlobalNewsB?.Clear();
+                    Settings.SteamGlobalNewsBLastRefreshUtc = null;
+                    Settings.LastCachedNewsSourceBUrl = string.Empty;
+                });
+
+                var newsRoot = Path.Combine(GetDataRoot(), "News Cache");
+
+                var jsonPath = Path.Combine(newsRoot, "CacheNews_B.json");
+                if (File.Exists(jsonPath))
+                {
+                    File.Delete(jsonPath);
+                }
+
+                var imgRoot = Path.Combine(newsRoot, "NewsImages_B");
+                if (Directory.Exists(imgRoot))
+                {
+                    Directory.Delete(imgRoot, true);
+                }
+
+                SaveSettingsSafe();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] ClearNewsCacheB failed.");
             }
         }
 
@@ -3421,7 +3840,12 @@ namespace AnikiHelper
             var playniteLang = api?.ApplicationSettings?.Language;
 
             steamUpdateService = new SteamUpdateLiteService(playniteLang);
-            steamGlobalNewsService = new SteamGlobalNewsService(api, Settings);
+            rssNewsService = new SteamGlobalNewsService(api, Settings);
+            eventSoundService = new EventSoundService(api, Settings);
+            anikiWindowManager = new AnikiWindowManager(api);
+            steamStoreService = new SteamStoreService(api, GetPluginUserDataPath());
+
+            CleanupLegacyNewsCache();
 
             AddSettingsSupportSafe("AnikiHelper", "Settings");
 
@@ -3432,6 +3856,46 @@ namespace AnikiHelper
                     e.PropertyName == nameof(Settings.PlaytimeUseDaysFormat))
                 {
                     RecalcStatsSafe();
+                }
+
+                if (e.PropertyName == nameof(Settings.SteamStoreEnabled) && Settings.SteamStoreEnabled == false)
+                {
+                    OnUi(() =>
+                    {
+                        Settings.SteamStoreDeals.Clear();
+                        Settings.SteamStoreNewReleases.Clear();
+                        Settings.SteamStoreTopSellers.Clear();
+                        Settings.SteamStoreSpotlight.Clear();
+
+                        Settings.SteamStoreDetailsVisible = false;
+                        Settings.SteamStoreDetailsLoading = false;
+                        Settings.SteamStoreDetailsTitle = string.Empty;
+                        Settings.SteamStoreDetailsImage = string.Empty;
+                        Settings.SteamStoreDetailsBackgroundImage = string.Empty;
+                        Settings.SteamStoreDetailsDescription = string.Empty;
+                        Settings.SteamStoreDetailsPrice = string.Empty;
+                        Settings.SteamStoreDetailsDiscount = string.Empty;
+                        Settings.SteamStoreDetailsOriginalPrice = string.Empty;
+                        Settings.SteamStoreDetailsMetacriticScore = string.Empty;
+                        Settings.SteamStoreDetailsRecommendationsTotal = string.Empty;
+                        Settings.SteamStoreDetailsAchievementsTotal = string.Empty;
+                        Settings.SteamStoreDetailsDlcCount = string.Empty;
+                        Settings.SteamStoreDetailsSupportedLanguages = string.Empty;
+                        Settings.SteamStoreDetailsScreenshot1 = string.Empty;
+                        Settings.SteamStoreDetailsScreenshot2 = string.Empty;
+                        Settings.SteamStoreDetailsScreenshot3 = string.Empty;
+                        Settings.SteamStoreDetailsReleaseDate = string.Empty;
+                        Settings.SteamStoreDetailsIsPreorder = false;
+                        Settings.SteamStoreDetailsDevelopers = string.Empty;
+                        Settings.SteamStoreDetailsPublishers = string.Empty;
+                        Settings.SteamStoreDetailsGenres = string.Empty;
+                        Settings.SteamStoreDetailsCategories = string.Empty;
+                        Settings.SteamStoreDetailsControllerSupport = string.Empty;
+                        Settings.SteamStoreDetailsAppId = 0;
+                        Settings.SteamStoreDetailsStoreUrl = string.Empty;
+                    });
+
+                    SaveSettingsSafe();
                 }
             };
 
@@ -3464,14 +3928,6 @@ namespace AnikiHelper
                 steamUpdatesCacheFlushTimer.Tick += (s, e) => FlushSteamUpdatesCacheIfNeeded();
                 steamUpdatesCacheFlushTimer.Start();
 
-
-                // Timer pour les deals (on check toutes les heures, mais avec cooldown 12h)
-                dealsTimer = new DispatcherTimer
-                {
-                    Interval = TimeSpan.FromHours(1)
-                };
-                dealsTimer.Tick += DealsTimer_Tick;
-
                 newsRotationTimer = new DispatcherTimer
                 {
                     Interval = TimeSpan.FromSeconds(15)
@@ -3484,6 +3940,518 @@ namespace AnikiHelper
                 };
                 suggestedRotationTimer.Tick += SuggestedRotationTimer_Tick;
             }
+        }
+
+        public string GetResolvedSteamStoreLanguage()
+        {
+            if (!string.IsNullOrWhiteSpace(Settings?.SteamStoreLanguage))
+            {
+                return Settings.SteamStoreLanguage.Trim().ToLowerInvariant();
+            }
+
+            return "english";
+        }
+
+        public string GetResolvedSteamStoreRegion()
+        {
+            if (!string.IsNullOrWhiteSpace(Settings?.SteamStoreRegion))
+            {
+                return Settings.SteamStoreRegion.Trim().ToUpperInvariant();
+            }
+
+            return "US";
+        }
+
+        public async void OpenSteamStoreDetails(SteamStoreItem item)
+        {
+            if (Settings?.SteamStoreEnabled != true)
+            {
+                return;
+            }
+
+            if (item == null)
+            {
+                return;
+            }
+
+            if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+            {
+                return;
+            }
+
+            if (!IsAnikiThemeActive())
+            {
+                return;
+            }
+
+            try
+            {
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+
+                OpenChildWindow("SteamStoreDetailsStyle");
+
+                OnUi(() =>
+                {
+                    Settings.SteamStoreDetailsTitle = item.Name ?? string.Empty;
+                    Settings.SteamStoreDetailsImage = item.HeaderImageLocalPath ?? item.HeaderImageUrl ?? string.Empty;
+                    Settings.SteamStoreDetailsBackgroundImage =
+                        item.BackgroundImageLocalPath ??
+                        item.BackgroundImageUrl ??
+                        item.HeaderImageLocalPath ??
+                        item.HeaderImageUrl ??
+                        string.Empty;
+                    Settings.SteamStoreDetailsDescription = "Loading details...";
+                    Settings.SteamStoreDetailsPrice = item.FinalPriceDisplay ?? string.Empty;
+                    Settings.SteamStoreDetailsDiscount = item.DiscountDisplay ?? string.Empty;
+                    Settings.SteamStoreDetailsOriginalPrice = item.OriginalPriceDisplay ?? string.Empty;
+                    Settings.SteamStoreDetailsAppId = item.AppId;
+                    Settings.SteamStoreDetailsStoreUrl = item.StoreUrl ?? $"https://store.steampowered.com/app/{item.AppId}/";
+                    Settings.SteamStoreDetailsReleaseDate = "Loading...";
+                    Settings.SteamStoreDetailsIsPreorder = false;
+                    Settings.SteamStoreDetailsDevelopers = "Loading...";
+                    Settings.SteamStoreDetailsPublishers = "Loading...";
+                    Settings.SteamStoreDetailsGenres = "Loading...";
+                    Settings.SteamStoreDetailsCategories = "Loading...";
+                    Settings.SteamStoreDetailsSupportedLanguages = "Loading...";
+                    Settings.SteamStoreDetailsControllerSupport = "Loading...";
+                    Settings.SteamStoreDetailsLoading = true;
+                    Settings.SteamStoreDetailsVisible = true;
+                });
+
+                await steamStoreService.EnrichStoreItemDetailsAsync(item, language, region);
+
+                OnUi(() =>
+                {
+                    Settings.SteamStoreDetailsBackgroundImage =
+                        item.BackgroundImageLocalPath ??
+                        item.BackgroundImageUrl ??
+                        item.HeaderImageLocalPath ??
+                        item.HeaderImageUrl ??
+                        Settings.SteamStoreDetailsImage ??
+                        string.Empty;
+
+                    Settings.SteamStoreDetailsDescription = string.IsNullOrWhiteSpace(item.ShortDescription)
+                        ? "No description available for this title."
+                        : item.ShortDescription;
+
+                    Settings.SteamStoreDetailsReleaseDate = string.IsNullOrWhiteSpace(item.ReleaseDateDisplay)
+                        ? "Release date unavailable"
+                        : item.ReleaseDateDisplay;
+
+                    Settings.SteamStoreDetailsIsPreorder = item.ComingSoon || item.IsPreorder;
+
+                    Settings.SteamStoreDetailsDiscount = item.DiscountDisplay ?? string.Empty;
+
+                    Settings.SteamStoreDetailsDevelopers = item.Developers != null && item.Developers.Count > 0
+                        ? string.Join(", ", item.Developers)
+                        : "Unknown";
+
+                    Settings.SteamStoreDetailsPublishers = item.Publishers != null && item.Publishers.Count > 0
+                        ? string.Join(", ", item.Publishers)
+                        : "Unknown";
+
+                    Settings.SteamStoreDetailsGenres = item.Genres != null && item.Genres.Count > 0
+                        ? string.Join(", ", item.Genres)
+                        : "Unknown";
+
+                    Settings.SteamStoreDetailsCategories = item.Categories != null && item.Categories.Count > 0
+                        ? string.Join(", ", item.Categories)
+                        : "Unknown";
+
+                    Settings.SteamStoreDetailsSupportedLanguages = string.IsNullOrWhiteSpace(item.SupportedLanguages)
+                        ? "Unknown"
+                        : item.SupportedLanguages;
+
+                    Settings.SteamStoreDetailsControllerSupport = string.IsNullOrWhiteSpace(item.ControllerSupport)
+                        ? "Unknown"
+                        : item.ControllerSupport;
+
+                    Settings.SteamStoreDetailsPrice = item.FinalPriceDisplay ?? string.Empty;
+                    Settings.SteamStoreDetailsDiscount = item.DiscountDisplay ?? string.Empty;
+                    Settings.SteamStoreDetailsOriginalPrice = item.OriginalPriceDisplay ?? string.Empty;
+                    Settings.SteamStoreDetailsMetacriticScore = item.MetacriticScore > 0
+                        ? item.MetacriticScore.ToString()
+                        : string.Empty;
+
+                    Settings.SteamStoreDetailsRecommendationsTotal = item.RecommendationsTotal > 0
+                        ? item.RecommendationsTotal.ToString("N0")
+                        : string.Empty;
+
+                    Settings.SteamStoreDetailsAchievementsTotal = item.AchievementsTotal > 0
+                        ? item.AchievementsTotal.ToString()
+                        : string.Empty;
+
+                    Settings.SteamStoreDetailsDlcCount = item.DlcCount > 0
+                        ? item.DlcCount.ToString()
+                        : string.Empty;
+
+                    Settings.SteamStoreDetailsScreenshot1 = item.Screenshot1LocalPath ?? item.Screenshot1Url ?? string.Empty;
+                    Settings.SteamStoreDetailsScreenshot2 = item.Screenshot2LocalPath ?? item.Screenshot2Url ?? string.Empty;
+                    Settings.SteamStoreDetailsScreenshot3 = item.Screenshot3LocalPath ?? item.Screenshot3Url ?? string.Empty;
+                    Settings.SteamStoreDetailsLoading = false;
+                });
+
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to open Steam Store details.");
+            }
+        }
+
+        private void ReplaceSteamStoreCollection(System.Collections.ObjectModel.ObservableCollection<SteamStoreItem> target, System.Collections.Generic.List<SteamStoreItem> items)
+        {
+            target.Clear();
+
+            if (items == null)
+            {
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                target.Add(item);
+            }
+        }
+
+        private async Task LoadSteamStoreCacheOnlyAsync()
+        {
+            if (Settings?.SteamStoreEnabled != true)
+            {
+                return;
+            }
+
+            if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+            {
+                return;
+            }
+
+            if (!IsAnikiThemeActive())
+            {
+                return;
+            }
+
+            var language = GetResolvedSteamStoreLanguage();
+            var region = GetResolvedSteamStoreRegion();
+
+            var dealsTask = steamStoreService.GetDealsFromCacheOnlyAsync(language, region);
+            var newTask = steamStoreService.GetNewReleasesFromCacheOnlyAsync(language, region);
+            var topSellersTask = steamStoreService.GetTopSellersFromCacheOnlyAsync(language, region);
+            var spotlightTask = steamStoreService.GetSpotlightFromCacheOnlyAsync(language, region);
+
+            await Task.WhenAll(dealsTask, newTask, topSellersTask, spotlightTask);
+
+            OnUi(() =>
+            {
+                ReplaceSteamStoreCollection(Settings.SteamStoreDeals, dealsTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, topSellersTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreSpotlight, spotlightTask.Result);
+            });
+        }
+
+        private async Task PreloadSteamStoreBackgroundsAsync(List<SteamStoreItem> items, string language, string region)
+        {
+            if (items == null || items.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var item in items.Take(10))
+            {
+                try
+                {
+                    if (item == null || item.AppId <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(item.BackgroundImageLocalPath))
+                    {
+                        continue;
+                    }
+
+                    await steamStoreService.EnrichStoreItemDetailsAsync(item, language, region);
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to preload Steam Store background.");
+                }
+            }
+        }
+
+        private async Task RefreshSteamStoreAllAsync()
+        {
+            if (Settings?.SteamStoreEnabled != true)
+            {
+                return;
+            }
+
+            if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+            {
+                return;
+            }
+
+            if (!IsAnikiThemeActive())
+            {
+                return;
+            }
+
+            var language = GetResolvedSteamStoreLanguage();
+            var region = GetResolvedSteamStoreRegion();
+
+            var dealsTask = steamStoreService.GetDealsAsync(language, region, TimeSpan.FromDays(1));
+            var newTask = steamStoreService.GetNewReleasesAsync(language, region, TimeSpan.FromDays(1));
+            var topSellersTask = steamStoreService.GetTopSellersAsync(language, region, TimeSpan.FromDays(1));
+            var spotlightTask = steamStoreService.GetSpotlightAsync(language, region, TimeSpan.FromDays(1));
+
+            await Task.WhenAll(dealsTask, newTask, topSellersTask, spotlightTask);
+            await PreloadSteamStoreBackgroundsAsync(dealsTask.Result, language, region);
+            await PreloadSteamStoreBackgroundsAsync(newTask.Result, language, region);
+            await PreloadSteamStoreBackgroundsAsync(topSellersTask.Result, language, region);
+            await PreloadSteamStoreBackgroundsAsync(spotlightTask.Result, language, region);
+
+
+            OnUi(() =>
+            {
+                ReplaceSteamStoreCollection(Settings.SteamStoreDeals, dealsTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, topSellersTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreSpotlight, spotlightTask.Result);
+
+                SaveSettingsSafe();
+            });
+        }
+
+        public async Task OnSteamStoreViewOpenedAsync()
+        {
+            if (Settings?.SteamStoreEnabled != true)
+            {
+                return;
+            }
+
+            await steamStoreOpenLock.WaitAsync();
+
+            try
+            {
+                if ((DateTime.UtcNow - lastSteamStoreOpenRequestUtc) < TimeSpan.FromSeconds(2))
+                {
+                    return;
+                }
+
+                lastSteamStoreOpenRequestUtc = DateTime.UtcNow;
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                await LoadSteamStoreCacheOnlyAsync();
+
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+
+                var mustRefresh = await steamStoreService.IsAnyStoreCacheMissingOrExpiredAsync(
+                    language,
+                    region,
+                    TimeSpan.FromDays(1)
+                );
+
+                if (!mustRefresh)
+                {
+                    return;
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await RefreshSteamStoreAllAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] OnSteamStoreViewOpenedAsync refresh failed.");
+                    }
+                });
+            }
+            finally
+            {
+                steamStoreOpenLock.Release();
+            }
+        }
+
+        public async Task RefreshSteamDealsAsync()
+        {
+            try
+            {
+                if (Settings?.SteamStoreEnabled != true)
+                {
+                    return;
+                }
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+
+                var items = await steamStoreService.GetDealsAsync(language, region, TimeSpan.FromDays(1));
+
+                Settings.SteamStoreDeals.Clear();
+
+                if (items != null)
+                {
+                    foreach (var item in items)
+                    {
+                        Settings.SteamStoreDeals.Add(item);
+                    }
+                }
+
+                SaveSettingsSafe();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to refresh Steam deals.");
+            }
+        }
+
+        public async Task RefreshSteamNewReleasesAsync()
+        {
+            try
+            {
+                if (Settings?.SteamStoreEnabled != true)
+                {
+                    return;
+                }
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+
+                var items = await steamStoreService.GetNewReleasesAsync(language, region, TimeSpan.FromDays(1));
+
+                Settings.SteamStoreNewReleases.Clear();
+
+                foreach (var item in items)
+                {
+                    Settings.SteamStoreNewReleases.Add(item);
+                }
+
+                SaveSettingsSafe();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to refresh Steam new releases.");
+            }
+        }
+
+        public async Task RefreshSteamTopSellersAsync()
+        {
+            try
+            {
+                if (Settings?.SteamStoreEnabled != true)
+                {
+                    return;
+                }
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+
+                var items = await steamStoreService.GetTopSellersAsync(language, region, TimeSpan.FromDays(1));
+
+                Settings.SteamStoreTopSellers.Clear();
+
+                foreach (var item in items)
+                {
+                    Settings.SteamStoreTopSellers.Add(item);
+                }
+
+                SaveSettingsSafe();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to refresh Steam top sellers titles.");
+            }
+        }
+
+        public async Task RefreshSteamSpotlightAsync()
+        {
+            try
+            {
+                if (Settings?.SteamStoreEnabled != true)
+                {
+                    return;
+                }
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+
+                var items = await steamStoreService.GetSpotlightAsync(language, region, TimeSpan.FromDays(1));
+
+                Settings.SteamStoreSpotlight.Clear();
+
+                foreach (var item in items)
+                {
+                    Settings.SteamStoreSpotlight.Add(item);
+                }
+
+                SaveSettingsSafe();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to refresh Steam spotlight.");
+            }
+        }
+
+        public void OpenWindow(string styleKey)
+        {
+            anikiWindowManager?.OpenWindow(styleKey);
+        }
+
+        public void OpenChildWindow(string styleKey)
+        {
+            anikiWindowManager?.OpenChildWindow(styleKey);
         }
 
         private void AddSettingsSupportSafe(string sourceName, string settingsRootPropertyName)
@@ -3918,6 +4886,31 @@ namespace AnikiHelper
             }
         }
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        private bool IsPlayniteForegroundWindow()
+        {
+            try
+            {
+                var foregroundHandle = GetForegroundWindow();
+                if (foregroundHandle == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                GetWindowThreadProcessId(foregroundHandle, out uint foregroundProcessId);
+                return foregroundProcessId == (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         internal async Task ShowStartupVideoAsync()
         {
             if (startupVideoSequenceRunning)
@@ -3926,6 +4919,11 @@ namespace AnikiHelper
             }
 
             if (!(Settings?.StartupIntroVideoEnabled ?? true))
+            {
+                return;
+            }
+
+            if (!IsPlayniteForegroundWindow())
             {
                 return;
             }
@@ -3953,12 +4951,16 @@ namespace AnikiHelper
 
                 await Task.Delay(StartupVideoDuration);
 
+                try
+                {
+                    overlay.Close();
+                    overlay = null;
+                }
+                catch { }
+
+                await Task.Delay(100);
+
                 await RestorePlayniteWindowsAfterStartupAsync();
-
-                await Application.Current.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-
-                overlay.Close();
-                overlay = null;
             }
             catch (Exception ex)
             {
@@ -4105,6 +5107,18 @@ namespace AnikiHelper
                     }
                 }
                 catch { }
+
+                await Task.Delay(100);
+
+                try
+                {
+                    if (main != null)
+                    {
+                        main.Activate();
+                        main.Focus();
+                    }
+                }
+                catch { }
             }
             catch (Exception ex)
             {
@@ -4149,14 +5163,29 @@ namespace AnikiHelper
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
             base.OnApplicationStarted(args);
+            eventSoundService.PlayApplicationStarted();
 
-            
             if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
             {
                 return;
             }
 
             var isAnikiThemeActive = IsAnikiThemeActive();
+
+            try
+            {
+                if (isAnikiThemeActive)
+                {
+                    OnUi(() =>
+                    {
+                        Settings.IsWelcomeHubOpen = Settings.OpenWelcomeHubOnStartup;
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to initialize welcome hub startup state.");
+            }
 
             hubPage3CardsInitialized = false;
             EnsureMonthlySnapshotSafe();
@@ -4272,14 +5301,7 @@ namespace AnikiHelper
             }
             catch { }
 
-            // --- Steam Deals (game-deals.app) ---
-            try
-            {
-                _ = RefreshDealsAsync(force: false, silent: true);
-
-                dealsTimer?.Start();
-            }
-            catch { }
+            
 
 
             // Random login screen
@@ -4325,10 +5347,27 @@ namespace AnikiHelper
             catch { }
         }
 
+        public override void OnControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
+        {
+            if (args.Button == ControllerInput.B && args.State == ControllerInputState.Pressed)
+            {
+                if (anikiWindowManager != null && anikiWindowManager.IsTopWindowActive())
+                {
+                    if (anikiWindowManager.CloseTopWindow())
+                    {
+                        return;
+                    }
+                }
+            }
+
+            base.OnControllerButtonStateChanged(args);
+        }
+
         public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
         {
+            eventSoundService.PlayApplicationStopped();
+
             try { steamUpdateTimer?.Stop(); } catch { }
-            try { dealsTimer?.Stop(); } catch { }
             try { steamUpdatesCacheFlushTimer?.Stop(); } catch { }
             try { newsRotationTimer?.Stop(); } catch { }
             try { suggestedRotationTimer?.Stop(); } catch { }
@@ -4424,22 +5463,539 @@ namespace AnikiHelper
             steamUpdateTimer.Start();
         }
 
+        public override void OnGameStarting(OnGameStartingEventArgs args)
+        {
+            base.OnGameStarting(args);
+            eventSoundService.PlayGameStarting();
+
+            try
+            {
+                if (!(Settings?.GameLaunchSplashEnabled ?? false))
+                {
+                    return;
+                }
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                var game = args?.Game;
+                if (game == null)
+                {
+                    return;
+                }
+
+                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    CloseCurrentGameLaunchSplash();
+
+                    var bgPath = GetBestGameLaunchSplashBackground(game);
+                    currentGameLaunchSplash = new GameLaunchSplashWindow(game, bgPath);
+                    currentGameLaunchSplash.Show();
+                    currentGameLaunchSplashShownAt = DateTime.Now;
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to show game launch splash.");
+            }
+        }
+
+        private string GetBestGameLaunchSplashBackground(Game game)
+        {
+            try
+            {
+                var custom = GetStoredCustomSplashPath(game);
+                if (!string.IsNullOrWhiteSpace(custom) && File.Exists(custom))
+                {
+                    return custom;
+                }
+
+                if (!string.IsNullOrWhiteSpace(game?.BackgroundImage))
+                {
+                    var bg = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
+                    if (!string.IsNullOrWhiteSpace(bg) && File.Exists(bg))
+                    {
+                        return bg;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(game?.CoverImage))
+                {
+                    var cover = PlayniteApi.Database.GetFullFilePath(game.CoverImage);
+                    if (!string.IsNullOrWhiteSpace(cover) && File.Exists(cover))
+                    {
+                        return cover;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to resolve splash background.");
+            }
+
+            return null;
+        }
+
+        private Tag GetOrCreateCustomSplashTag()
+        {
+            var existing = PlayniteApi.Database.Tags
+                .FirstOrDefault(t => string.Equals(t.Name, CustomSplashTagName, StringComparison.OrdinalIgnoreCase));
+
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var tag = new Tag(CustomSplashTagName);
+            PlayniteApi.Database.Tags.Add(tag);
+            return tag;
+        }
+
+        private void UpdateCustomSplashTag(Game game, bool hasCustomSplash)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var dbGame = PlayniteApi.Database.Games.Get(game.Id);
+                if (dbGame == null)
+                {
+                    return;
+                }
+
+                if (dbGame.TagIds == null)
+                {
+                    dbGame.TagIds = new List<Guid>();
+                }
+
+                var tag = GetOrCreateCustomSplashTag();
+
+                if (hasCustomSplash)
+                {
+                    if (!dbGame.TagIds.Contains(tag.Id))
+                    {
+                        dbGame.TagIds.Add(tag.Id);
+                        PlayniteApi.Database.Games.Update(dbGame);
+                    }
+                }
+                else
+                {
+                    if (dbGame.TagIds.Contains(tag.Id))
+                    {
+                        dbGame.TagIds.Remove(tag.Id);
+                        PlayniteApi.Database.Games.Update(dbGame);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to update custom splash tag.");
+            }
+        }
+
+        private string GetCustomSplashImagesFolder()
+        {
+            var folder = Path.Combine(GetPluginUserDataPath(), "CustomSplashImages");
+            Directory.CreateDirectory(folder);
+            return folder;
+        }
+
+        private string GetStoredCustomSplashPath(Game game)
+        {
+            if (game == null || Settings?.CustomGameLaunchSplashImages == null)
+            {
+                return null;
+            }
+
+            if (Settings.CustomGameLaunchSplashImages.TryGetValue(game.Id, out var path) &&
+                !string.IsNullOrWhiteSpace(path) &&
+                File.Exists(path))
+            {
+                return path;
+            }
+
+            return null;
+        }
+
+        private void RemoveExistingCustomSplashFiles(Guid gameId)
+        {
+            try
+            {
+                var folder = GetCustomSplashImagesFolder();
+                foreach (var file in Directory.EnumerateFiles(folder, $"{gameId}.*", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        File.Delete(file);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void SetCustomSplashImage(Game game)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var dialog = new OpenFileDialog
+                {
+                    Title = string.Format(ResourceProvider.GetString("LOCAnikiHelperChooseSplashImageForGame"), game.Name),
+                    Filter = "Image files|*.jpg;*.jpeg;*.png;*.webp;*.bmp",
+                    Multiselect = false,
+                    CheckFileExists = true
+                };
+
+                if (dialog.ShowDialog() != true)
+                {
+                    return;
+                }
+
+                var sourcePath = dialog.FileName;
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                {
+                    return;
+                }
+
+                var folder = GetCustomSplashImagesFolder();
+                var extension = Path.GetExtension(sourcePath);
+                var destPath = Path.Combine(folder, $"{game.Id}{extension}");
+
+                RemoveExistingCustomSplashFiles(game.Id);
+                File.Copy(sourcePath, destPath, true);
+
+                if (Settings.CustomGameLaunchSplashImages == null)
+                {
+                    Settings.CustomGameLaunchSplashImages = new Dictionary<Guid, string>();
+                }
+                Settings.CustomGameLaunchSplashImages[game.Id] = destPath;
+
+                SavePluginSettings(Settings);
+                UpdateCustomSplashTag(game, true);
+
+                PlayniteApi.Dialogs.ShowMessage(
+                    ResourceProvider.GetString("LOCAnikiHelperCustomSplashImageSaved")
+                    + Environment.NewLine
+                    + game.Name,
+                    "Aniki Helper");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to set custom splash image.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("LOCAnikiHelperSetCustomSplashImageFailed")
+                    + Environment.NewLine + Environment.NewLine
+                    + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+        private void RemoveCustomSplashImage(Game game)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var existing = GetStoredCustomSplashPath(game);
+                if (!string.IsNullOrWhiteSpace(existing) && File.Exists(existing))
+                {
+                    try
+                    {
+                        File.Delete(existing);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                Settings.CustomGameLaunchSplashImages?.Remove(game.Id);
+                SavePluginSettings(Settings);
+                UpdateCustomSplashTag(game, false);
+
+                PlayniteApi.Dialogs.ShowMessage(
+                    ResourceProvider.GetString("LOCAnikiHelperCustomSplashImageRemoved")
+                    + Environment.NewLine
+                    + game.Name,
+                    "Aniki Helper");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to remove custom splash image.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("LOCAnikiHelperRemoveCustomSplashImageFailed")
+                    + Environment.NewLine + Environment.NewLine
+                    + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+        private void PreviewCustomSplashImage(Game game)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            var path = GetStoredCustomSplashPath(game);
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                PlayniteApi.Dialogs.ShowMessage(
+                    ResourceProvider.GetString("LOCAnikiHelperNoCustomSplashImage"),
+                    "Aniki Helper");
+                return;
+            }
+
+            try
+            {
+                var workArea = SystemParameters.WorkArea;
+                var previewWidth = workArea.Width * 0.72;
+                var previewHeight = workArea.Height * 0.72;
+
+                var image = new System.Windows.Controls.Image
+                {
+                    Stretch = System.Windows.Media.Stretch.Uniform,
+                    Source = new System.Windows.Media.Imaging.BitmapImage(new Uri(path, UriKind.Absolute))
+                };
+
+                var imageBorder = new System.Windows.Controls.Border
+                {
+                    Background = System.Windows.Media.Brushes.Black,
+                    CornerRadius = new CornerRadius(10),
+                    Padding = new Thickness(10),
+                    Child = image
+                };
+
+                var outerBorder = new System.Windows.Controls.Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(18, 18, 18)),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(55, 55, 55)),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(14),
+                    CornerRadius = new CornerRadius(14),
+                    Child = imageBorder
+                };
+
+                var root = new System.Windows.Controls.Grid
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(12, 12, 12))
+                };
+
+                root.Children.Add(outerBorder);
+
+                var window = new System.Windows.Window
+                {
+                    Title = $"{ResourceProvider.GetString("LOCAnikiHelperPreviewTitle")} - {game.Name}",
+                    Width = previewWidth,
+                    Height = previewHeight,
+                    MinWidth = 700,
+                    MinHeight = 450,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                    ResizeMode = ResizeMode.CanResize,
+                    Background = new SolidColorBrush(Color.FromRgb(12, 12, 12)),
+                    Content = root
+                };
+
+                window.KeyDown += (s, e) =>
+                {
+                    if (e.Key == Key.Escape)
+                    {
+                        window.Close();
+                    }
+                };
+
+                window.MouseDown += (s, e) =>
+                {
+                    if (e.ChangedButton == MouseButton.Left && e.ClickCount == 2)
+                    {
+                        window.Close();
+                    }
+                };
+
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to preview splash image.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("LOCAnikiHelperPreviewSplashImageFailed")
+                    + Environment.NewLine + Environment.NewLine
+                    + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+        private void OpenCustomSplashImageFolder(Game game)
+        {
+            try
+            {
+                string folderPath = null;
+
+                var customPath = GetStoredCustomSplashPath(game);
+                if (!string.IsNullOrWhiteSpace(customPath) && File.Exists(customPath))
+                {
+                    folderPath = Path.GetDirectoryName(customPath);
+                }
+
+                if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+                {
+                    folderPath = GetCustomSplashImagesFolder();
+                }
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = folderPath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to open custom splash image folder.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("LOCAnikiHelperOpenCustomSplashFolderFailed")
+                    + Environment.NewLine + Environment.NewLine
+                    + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+
+        private void CloseCurrentGameLaunchSplash()
+        {
+            try
+            {
+                var dispatcher = System.Windows.Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    currentGameLaunchSplash = null;
+                    currentGameLaunchSplashShownAt = null;
+                    return;
+                }
+
+                dispatcher.Invoke(async () =>
+                {
+                    try
+                    {
+                        if (currentGameLaunchSplash != null)
+                        {
+
+                            var splash = currentGameLaunchSplash;
+                            currentGameLaunchSplash = null;
+                            currentGameLaunchSplashShownAt = null;
+
+                            await splash.BeginCloseAsync();
+                            splash.Close();
+                        }
+                    }
+                    catch
+                    {
+                        currentGameLaunchSplash = null;
+                        currentGameLaunchSplashShownAt = null;
+                    }
+                });
+            }
+            catch
+            {
+                currentGameLaunchSplash = null;
+                currentGameLaunchSplashShownAt = null;
+            }
+        }
 
         public override void OnGameStarted(OnGameStartedEventArgs args)
         {
             base.OnGameStarted(args);
+            eventSoundService.PlayGameStarted();
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    int remainingMinimumDelay = 0;
+
+                    if (currentGameLaunchSplashShownAt.HasValue)
+                    {
+                        var elapsed = (int)(DateTime.Now - currentGameLaunchSplashShownAt.Value).TotalMilliseconds;
+                        remainingMinimumDelay = Math.Max(0, GameLaunchSplashMinimumDurationMs - elapsed);
+                    }
+
+
+                    if (remainingMinimumDelay > 0)
+                    {
+                        await Task.Delay(remainingMinimumDelay);
+                    }
+
+                    int waitedAfterStarted = 0;
+
+                    while (waitedAfterStarted < GameLaunchSplashMaxWaitAfterGameStartedMs)
+                    {
+                        if (!IsPlayniteForegroundWindow())
+                        {
+
+                            await Task.Delay(GameLaunchSplashFocusLossStabilityMs);
+
+                            if (!IsPlayniteForegroundWindow())
+                            {
+                                await Task.Delay(GameLaunchSplashPostFocusLossDelayMs);
+
+                                CloseCurrentGameLaunchSplash();
+                                break;
+                            }
+                            else
+                            {
+                                logger.Info("[AnikiHelper] Playnite regained foreground during stability check. Keeping splash open.");
+                            }
+                        }
+
+                        await Task.Delay(GameLaunchSplashForegroundCheckIntervalMs);
+                        waitedAfterStarted += GameLaunchSplashForegroundCheckIntervalMs;
+                    }
+
+                    if (waitedAfterStarted >= GameLaunchSplashMaxWaitAfterGameStartedMs)
+                    {
+                        CloseCurrentGameLaunchSplash();
+                    }
+                }
+                catch (Exception)
+                {
+                    CloseCurrentGameLaunchSplash();
+                }
+            });
 
             var g = args?.Game;
             if (g == null) return;
 
             sessionStartAt[g.Id] = DateTime.Now;
             sessionStartPlaytimeMinutes[g.Id] = (g.Playtime / 60UL);
-
         }
+
 
         public override void OnGameStopped(OnGameStoppedEventArgs args)
         {
             base.OnGameStopped(args);
+            eventSoundService.PlayGameStopped();
+            CloseCurrentGameLaunchSplash();
 
             var g = args?.Game;
             if (g == null)
@@ -4464,6 +6020,7 @@ namespace AnikiHelper
             {
                 var s = Settings;
 
+                s.SessionGameId = g.Id;
                 s.SessionGameName = string.IsNullOrWhiteSpace(g.Name) ? "(Unnamed Game)" : g.Name;
                 s.SessionDurationString = FormatHhMmFromMinutes(sessionMinutes);
                 s.SessionTotalPlaytimeString = FormatHhMmFromMinutes(Math.Max(0, totalMinutes));
@@ -4692,6 +6249,7 @@ namespace AnikiHelper
                 {
                     var topGame = PlayniteApi.Database.Games[topGameId];
                     s.ThisMonthTopGameName = Safe(topGame?.Name);
+                    s.ThisMonthTopGameId = topGameId;
                     s.ThisMonthTopGamePlaytime = AnikiHelperSettings.PlaytimeToString(topMinutes, false);
 
                     string coverPath = null;
@@ -4730,6 +6288,7 @@ namespace AnikiHelper
                 }
                 else
                 {
+                    s.ThisMonthTopGameId = Guid.Empty;
                     s.ThisMonthTopGameName = string.Empty;
                     s.ThisMonthTopGamePlaytime = string.Empty;
                     s.ThisMonthTopGameCoverPath = string.Empty;
@@ -4741,6 +6300,7 @@ namespace AnikiHelper
                 logger.Warn(ex, "[AnikiHelper] Month snapshot calc failed; continuing with other sections.");
                 s.ThisMonthPlayedCount = 0;
                 s.ThisMonthPlayedTotalMinutes = 0;
+                s.ThisMonthTopGameId = Guid.Empty;
                 s.ThisMonthTopGameName = string.Empty;
                 s.ThisMonthTopGamePlaytime = string.Empty;
                 s.ThisMonthTopGameCoverPath = string.Empty;
@@ -4796,8 +6356,10 @@ namespace AnikiHelper
 
                     foreach (var g in games)
                     {
-                        ulong baseMinutes = 0;
-                        last.Minutes.TryGetValue(g.Id, out baseMinutes);
+                        if (!last.Minutes.TryGetValue(g.Id, out var baseMinutes))
+                        {
+                            continue;
+                        }
 
                         var currMinutes = ToMinutes(g.Playtime);
 
@@ -4823,6 +6385,7 @@ namespace AnikiHelper
                     var topMinutes = topYearEntry.Value;
 
                     s.ThisYearTopGameName = Safe(topGame?.Name);
+                    s.ThisYearTopGameId = topYearEntry.Key;
                     s.ThisYearTopGamePlaytime = AnikiHelperSettings.PlaytimeToString(topMinutes, false);
 
                     string coverPath = null;
@@ -4861,6 +6424,7 @@ namespace AnikiHelper
                 }
                 else
                 {
+                    s.ThisYearTopGameId = Guid.Empty;
                     s.ThisYearTopGameName = string.Empty;
                     s.ThisYearTopGamePlaytime = string.Empty;
                     s.ThisYearTopGameCoverPath = string.Empty;
@@ -4872,6 +6436,7 @@ namespace AnikiHelper
                 logger.Warn(ex, "[AnikiHelper] Year snapshot calc failed; continuing with other sections.");
                 s.ThisYearPlayedCount = 0;
                 s.ThisYearPlayedTotalMinutes = 0;
+                s.ThisYearTopGameId = Guid.Empty;
                 s.ThisYearTopGameName = string.Empty;
                 s.ThisYearTopGamePlaytime = string.Empty;
                 s.ThisYearTopGameCoverPath = string.Empty;
@@ -4999,6 +6564,7 @@ namespace AnikiHelper
                     var selectedRecent = recentAddedPool[hubRandom.Next(recentAddedPool.Count)];
 
                     s.HubRecentAddedName = SafeName(selectedRecent.Name);
+                    s.HubRecentAddedGameId = selectedRecent.Id;
                     s.HubRecentAddedDate = selectedRecent.Added.HasValue
                         ? selectedRecent.Added.Value.ToLocalTime().ToString("dd/MM/yyyy")
                         : string.Empty;
@@ -5006,6 +6572,7 @@ namespace AnikiHelper
                 }
                 else
                 {
+                    s.HubRecentAddedGameId = Guid.Empty;
                     s.HubRecentAddedName = string.Empty;
                     s.HubRecentAddedDate = string.Empty;
                     s.HubRecentAddedBackgroundPath = string.Empty;
@@ -5016,6 +6583,7 @@ namespace AnikiHelper
                     var selectedNeverPlayed = neverPlayedPool[hubRandom.Next(neverPlayedPool.Count)];
 
                     s.HubNeverPlayedName = SafeName(selectedNeverPlayed.Name);
+                    s.HubNeverPlayedGameId = selectedNeverPlayed.Id;
                     s.HubNeverPlayedDate = selectedNeverPlayed.Added.HasValue
                         ? selectedNeverPlayed.Added.Value.ToLocalTime().ToString("dd/MM/yyyy")
                         : string.Empty;
@@ -5023,6 +6591,7 @@ namespace AnikiHelper
                 }
                 else
                 {
+                    s.HubNeverPlayedGameId = Guid.Empty;
                     s.HubNeverPlayedName = string.Empty;
                     s.HubNeverPlayedDate = string.Empty;
                     s.HubNeverPlayedBackgroundPath = string.Empty;
@@ -5062,6 +6631,84 @@ namespace AnikiHelper
         }
 
         #region Menus
+
+        
+
+        public override void OnGameInstalled(OnGameInstalledEventArgs args)
+        {
+            base.OnGameInstalled(args);
+            eventSoundService.PlayGameInstalled();
+        }
+
+        public override void OnGameUninstalled(OnGameUninstalledEventArgs args)
+        {
+            base.OnGameUninstalled(args);
+            eventSoundService.PlayGameUninstalled();
+        }
+
+        public override void OnLibraryUpdated(OnLibraryUpdatedEventArgs args)
+        {
+            base.OnLibraryUpdated(args);
+            eventSoundService.PlayLibraryUpdated();
+        }
+
+        public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
+        {
+            var game = args?.Games?.FirstOrDefault();
+            if (game == null)
+            {
+                yield break;
+            }
+
+            var customPath = GetStoredCustomSplashPath(game);
+
+            if (string.IsNullOrWhiteSpace(customPath))
+            {
+                yield return new GameMenuItem
+                {
+                    MenuSection = "Aniki Helper",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperSetCustomSplashImage"),
+                    Action = (_) => SetCustomSplashImage(game)
+                };
+
+                yield return new GameMenuItem
+                {
+                    MenuSection = "Aniki Helper",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperOpenCustomSplashFolder"),
+                    Action = (_) => OpenCustomSplashImageFolder(game)
+                };
+            }
+            else
+            {
+                yield return new GameMenuItem
+                {
+                    MenuSection = "Aniki Helper",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperReplaceCustomSplashImage"),
+                    Action = (_) => SetCustomSplashImage(game)
+                };
+
+                yield return new GameMenuItem
+                {
+                    MenuSection = "Aniki Helper",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperPreviewCustomSplashImage"),
+                    Action = (_) => PreviewCustomSplashImage(game)
+                };
+
+                yield return new GameMenuItem
+                {
+                    MenuSection = "Aniki Helper",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperRemoveCustomSplashImage"),
+                    Action = (_) => RemoveCustomSplashImage(game)
+                };
+
+                yield return new GameMenuItem
+                {
+                    MenuSection = "Aniki Helper",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperOpenCustomSplashFolder"),
+                    Action = (_) => OpenCustomSplashImageFolder(game)
+                };
+            }
+        }
 
         public override IEnumerable<MainMenuItem> GetMainMenuItems(GetMainMenuItemsArgs args)
         {

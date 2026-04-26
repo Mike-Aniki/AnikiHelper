@@ -1,0 +1,221 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
+    <sys:String x:Key="AppSubtitle">Ajustes</sys:String>
+    <sys:String x:Key="AppInfo">Diseñado para el tema Aniki ReMake. Algunas funciones pueden requerir compatibilidad del tema para funcionar en otros temas.</sys:String>
+
+    <!-- ========= HUB FEATURES ========= -->
+    <sys:String x:Key="WelcomeHubStartup_Title">Pantalla de inicio</sys:String>
+    <sys:String x:Key="WelcomeHubStartup_Desc">Elige qué pantalla se muestra al iniciar Playnite: tu biblioteca o el Hub.</sys:String>
+    <sys:String x:Key="WelcomeHubStartup_Enable">Abrir el Hub al iniciar</sys:String>
+    <sys:String x:Key="WelcomeHubStartup_Help">Si está desactivado, Playnite se abrirá directamente en tu biblioteca.</sys:String>
+
+    <!-- ========= LIBRARY STAT FEATURES ========= -->
+    <sys:String x:Key="GroupLibraryStats">Estadísticas de la biblioteca</sys:String>
+    <sys:String x:Key="StatsHelp">Elige qué juegos se incluyen en las estadísticas que muestra el tema.</sys:String>
+    <sys:String x:Key="IncludeHidden">Incluir juegos ocultos</sys:String>
+    <sys:String x:Key="AutoUpdate">Las estadísticas se actualizan automáticamente cuando cambia tu biblioteca.</sys:String>
+    <sys:String x:Key="PreviewTotal">Vista previa — Total:</sys:String>
+    <sys:String x:Key="Installed">Instalados:</sys:String>
+    <sys:String x:Key="NotInstalled">No instalados:</sys:String>
+
+    <!-- ========= TRACK PLAYTIME FEATURES ========= -->
+    <sys:String x:Key="GroupMonthly">Historial mensual</sys:String>
+    <sys:String x:Key="ResetSectionTitle">Restablecer el seguimiento del mes actual</sys:String>
+    <sys:String x:Key="BackupSectionTitle">Guardar y restaurar tu historial</sys:String>
+
+    <sys:String x:Key="MonthlyHelp">Registra tu tiempo de juego cada mes para que el tema pueda mostrar estadísticas como el tiempo jugado este mes, los juegos jugados y tu juego más jugado.</sys:String>
+    <sys:String x:Key="CurrentMonthData">Mes actual:</sys:String>
+    <sys:String x:Key="SnapshotTooltip">Muestra cuándo comenzó el seguimiento del mes actual.</sys:String>
+
+    <sys:String x:Key="ResetWarningText">Advertencia: esto elimina los datos de seguimiento del mes actual.</sys:String>
+    <sys:String x:Key="ResetBtn">Restablecer seguimiento del mes actual</sys:String>
+    <sys:String x:Key="ResetBtnTooltip">Elimina los datos de seguimiento del mes actual y vuelve a empezar desde ahora.</sys:String>
+    <sys:String x:Key="ResetBtntip">No uses esto a menos que realmente quieras borrar el seguimiento de este mes. Las estadísticas mensuales del mes actual se reiniciarán desde cero después del restablecimiento.</sys:String>
+
+    <sys:String x:Key="ExportMonthlyBackupBtn">Exportar historial</sys:String>
+    <sys:String x:Key="ImportMonthlyBackupBtn">Importar historial</sys:String>
+    <sys:String x:Key="ExportMonthlyBackupTooltip">Exporta todos los datos de seguimiento mensual a un archivo de copia de seguridad.</sys:String>
+    <sys:String x:Key="ImportMonthlyBackupTooltip">Importa una copia de seguridad de seguimiento mensual guardada anteriormente.</sys:String>
+    <sys:String x:Key="MonthlyBackupHelp">Usa estos botones para hacer una copia de seguridad o restaurar todos los datos de seguimiento mensual. Esto resulta útil antes de reinstalar Playnite o restablecer tu biblioteca.</sys:String>
+
+    <!-- ========= VIDEO FEATURES ========= -->
+    <sys:String x:Key="Video">Vídeo</sys:String>
+
+    <sys:String x:Key="StartupIntro_Title">Vídeo de introducción al iniciar</sys:String>
+    <sys:String x:Key="StartupIntro_Desc">Reproduce un vídeo de introducción al iniciar Playnite.</sys:String>
+    <sys:String x:Key="StartupIntro_Enable">Activar vídeo de introducción al iniciar</sys:String>
+    <sys:String x:Key="IntroVideo_Help">Desactiva esto para iniciar Playnite sin el vídeo de introducción.</sys:String>
+
+    <sys:String x:Key="ShutdownVideo_Title">Vídeo de cierre</sys:String>
+    <sys:String x:Key="ShutdownVideo_Desc">Reproduce un vídeo de cierre al cerrar Playnite.</sys:String>
+    <sys:String x:Key="ShutdownVideo_Enable">Activar vídeo de cierre</sys:String>
+    <sys:String x:Key="ShutdownVideo_Help">Desactiva esto para cerrar Playnite sin el vídeo de cierre.</sys:String>
+
+    <!-- ========= SOUND FEATURES ========= -->
+    <sys:String x:Key="EventSounds_Title">Sonidos de eventos</sys:String>
+    <sys:String x:Key="EventSounds_Desc">Reproduce efectos de sonido para eventos como el inicio de juegos, el arranque/salida de Playnite y las actualizaciones de la biblioteca. Funciona con los sonidos incluidos en el tema.</sys:String>
+    <sys:String x:Key="EventSounds_Enable">Activar sonidos de eventos</sys:String>
+    <sys:String x:Key="EventSounds_Help">Si está activado, desactiva los sonidos de interfaz/eventos del plugin PlayniteSounds para evitar audio duplicado.</sys:String>
+
+    <!-- ========= SPLASH FEATURES ========= -->
+    <sys:String x:Key="SplashScreen">Pantalla de carga</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Title">Pantalla de carga al iniciar un juego</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Desc">Muestra una imagen de pantalla de carga cuando se inicia un juego. Puedes establecer una imagen personalizada en el modo Escritorio haciendo clic derecho sobre un juego.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Enable">Activar pantalla de carga al iniciar juegos</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Help">Desactiva esto si quieres que los juegos se inicien sin pantalla de carga.</sys:String>
+
+    <sys:String x:Key="LOCAnikiHelperSetCustomSplashImage">Establecer imagen de carga</sys:String>
+    <sys:String x:Key="LOCAnikiHelperReplaceCustomSplashImage">Cambiar imagen de carga</sys:String>
+    <sys:String x:Key="LOCAnikiHelperPreviewCustomSplashImage">Vista previa de la imagen de carga</sys:String>
+    <sys:String x:Key="LOCAnikiHelperRemoveCustomSplashImage">Eliminar imagen de carga</sys:String>
+    <sys:String x:Key="LOCAnikiHelperOpenCustomSplashFolder">Abrir carpeta de imágenes de carga</sys:String>
+
+    <sys:String x:Key="LOCAnikiHelperChooseSplashImageForGame">Elige una imagen de carga para {0}</sys:String>
+    <sys:String x:Key="LOCAnikiHelperNoCustomSplashImage">No se ha establecido ninguna imagen de carga personalizada para este juego.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperPreviewTitle">Vista previa de la imagen de carga</sys:String>
+
+    <sys:String x:Key="LOCAnikiHelperCustomSplashImageSaved">Imagen de carga guardada para:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperCustomSplashImageRemoved">Imagen de carga eliminada para:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetCustomSplashImageFailed">No se pudo establecer la imagen de carga.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperRemoveCustomSplashImageFailed">No se pudo eliminar la imagen de carga.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperPreviewSplashImageFailed">No se pudo mostrar la vista previa de la imagen.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperOpenCustomSplashFolderFailed">No se pudo abrir la carpeta de imágenes de carga.</sys:String>
+
+    <!-- ========= DYNAMIC COLORS FEATURES ========= -->
+    <sys:String x:Key="GroupDynColors">Colores dinámicos</sys:String>
+    <sys:String x:Key="DynColors_Help">Usa esto si los colores no coinciden con los fondos de tus juegos actuales.</sys:String>
+
+    <sys:String x:Key="L_ClearColorCache">Restablecer caché de colores</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Desc">Los colores se guardan según el fondo de cada juego. Si cambias los fondos, los colores almacenados pueden quedar desactualizados.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Tooltip">Borra todos los datos de color almacenados y vuelve a generarlos a partir de los fondos actuales.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Done_Title">Aniki Helper</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Done_Body">Caché de colores borrada. Los colores se reconstruirán automáticamente.</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Error_Title">Aniki Helper</sys:String>
+    <sys:String x:Key="L_ClearColorCache_Error_Body">Error al borrar la caché de colores:</sys:String>
+
+    <sys:String x:Key="L_DynAutoPrecache_Title">Procesamiento de colores de fondo</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache">Precargar colores en segundo plano</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache_Note">Mejora la fluidez de navegación. Puede afectar ligeramente al rendimiento en equipos poco potentes.</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache_Tooltip">Analiza tu biblioteca y prepara los datos de color automáticamente en segundo plano.</sys:String>
+    <sys:String x:Key="L_CacheManagement_Title">Gestión de caché</sys:String>
+    <sys:String x:Key="L_EnableDynamicAutoPrecache_Desc">Cuando está activado, los colores se generan automáticamente para tu biblioteca en lugar de crearse durante la navegación.</sys:String>
+
+    <sys:String x:Key="ConfirmClearCache">¿Restablecer la caché de colores? Los colores se regenerarán automáticamente.</sys:String>
+    <sys:String x:Key="CacheClearedMsg">Caché de colores borrada.</sys:String>
+
+    <!-- ========= STEAM FEATURES ========= -->
+    <sys:String x:Key="GroupSteamFeatures">Funciones de Steam</sys:String>
+
+    <!-- Steam updates -->
+    <sys:String x:Key="SteamUpdates_GroupTitle">Actualizaciones de Steam</sys:String>
+    <sys:String x:Key="SteamUpdates_GroupDesc">Cuando está activado, el plugin comprueba las actualizaciones de los juegos directamente desde Steam. Esto permite que el tema muestre tanto entradas de actualización nuevas como antiguas.</sys:String>
+
+    <sys:String x:Key="SteamUpdates_Title">Actualizaciones de juegos</sys:String>
+    <sys:String x:Key="SteamUpdates_Desc">Comprueba si tus juegos de Steam tienen actualizaciones recientes.</sys:String>
+    <sys:String x:Key="SteamUpdates_Enable">Activar comprobación de actualizaciones</sys:String>
+    <sys:String x:Key="SteamUpdates_Enable_Help">Activa o desactiva por completo la comprobación de actualizaciones.</sys:String>
+
+    <!-- Update data -->
+    <sys:String x:Key="SteamInitCache_ProgressTitle">Datos de actualizaciones</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressDesc">El plugin comprueba las actualizaciones de los juegos de Steam mientras navegas por tu biblioteca. Puedes ejecutar un análisis completo de la biblioteca para rellenar previamente los datos de actualización de todos tus juegos en lugar de esperar a navegar por ellos uno por uno. Esto ayuda a evitar notificaciones falsas de actualización y mejora el rendimiento durante la navegación.</sys:String>
+    <sys:String x:Key="SteamInitCache">Analizar biblioteca</sys:String>
+    <sys:String x:Key="SteamInitCache_Tooltip">Analiza tus juegos de Steam y prepara los datos de actualización.</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressNote">Se recomienda analizar la biblioteca para evitar notificaciones falsas y mejorar el rendimiento.</sys:String>
+    <sys:String x:Key="SteamInitCache_ProgressText">Analizando… {0}/{1}</sys:String>
+    <sys:String x:Key="LOCSteamLastScan">Último análisis:</sys:String>
+    <sys:String x:Key="ConfirmInitSteamCache">¿Analizar tu biblioteca ahora?</sys:String>
+    <sys:String x:Key="InitSteamCacheDoneMsg">Análisis completado.</sys:String>
+
+    <!-- Current players -->
+    <sys:String x:Key="SteamPlayers_GroupTitle">Jugadores actuales</sys:String>
+    <sys:String x:Key="SteamPlayers_GroupDesc">Muestra el número de jugadores en tiempo real para los juegos de Steam compatibles.</sys:String>
+
+    <sys:String x:Key="SteamPlayers_Title">Jugadores actuales</sys:String>
+    <sys:String x:Key="SteamPlayers_Desc">Muestra cuántas personas están jugando actualmente a un juego.</sys:String>
+    <sys:String x:Key="SteamPlayers_Enable">Activar contador de jugadores</sys:String>
+    <sys:String x:Key="SteamPlayers_Help">Activa o desactiva la visualización del número de jugadores en el tema.</sys:String>
+
+    <!-- Steam Store -->
+    <sys:String x:Key="SteamStore_GroupTitle">Steam Store</sys:String>
+    <sys:String x:Key="SteamStore_GroupDesc">Configura cómo se muestra el contenido de Steam Store en el tema.</sys:String>
+
+    <sys:String x:Key="SteamStore_Language_Title">Idioma de la tienda</sys:String>
+    <sys:String x:Key="SteamStore_Language_Desc">Elige el idioma usado para el contenido de Steam Store.</sys:String>
+    <sys:String x:Key="SteamStore_Language_Label">Idioma</sys:String>
+
+    <sys:String x:Key="SteamStore_Country_Title">País de la tienda</sys:String>
+    <sys:String x:Key="SteamStore_Country_Desc">Elige el país usado para los precios y la moneda.</sys:String>
+    <sys:String x:Key="SteamStore_Country_Label">País</sys:String>
+    <sys:String x:Key="SteamStore_Country_Help">Esto afecta a los precios regionales y a la moneda mostrada.</sys:String>
+
+    <sys:String x:Key="SteamStore_Enable_Title">Integración de Steam Store</sys:String>
+    <sys:String x:Key="SteamStore_Enable">Activar Steam Store</sys:String>
+    <sys:String x:Key="SteamStore_Enable_Desc">Activa las secciones de Steam Store dentro del tema.</sys:String>
+    <sys:String x:Key="SteamStore_Enable_Help">Si está desactivado, el botón Store dejará de mostrarse en el tema.</sys:String>
+
+    <!-- ========= News FEATURES ========= -->
+    <sys:String x:Key="GroupAnikiFeatures">Noticias de Aniki</sys:String>
+
+    <sys:String x:Key="AnikiNews_Title1">Ajustes de fuentes</sys:String>
+    <sys:String x:Key="AnikiNews_Title">Ajustes de noticias</sys:String>
+
+    <!-- SOURCE A -->
+    <sys:String x:Key="AnikiNews_SourceA_Title">Fuente A</sys:String>
+    <sys:String x:Key="AnikiNews_SourceA_Name">Nombre para mostrar</sys:String>
+    <sys:String x:Key="AnikiNews_SourceA_Url">URL del feed RSS</sys:String>
+
+    <sys:String x:Key="AnikiNews_SourceA_ClearCache">Restablecer caché de la fuente A</sys:String>
+    <sys:String x:Key="AnikiNews_SourceA_ClearCache_Tooltip">Usa esto solo si esta fuente deja de cargarse correctamente.</sys:String>
+    <sys:String x:Key="AnikiNews_SourceA_ClearCache_Confirm">¿Restablecer la caché de la fuente A?</sys:String>
+    <sys:String x:Key="AnikiNews_SourceA_ClearCache_Done">La caché de la fuente A se ha restablecido.</sys:String>
+
+    <!-- SOURCE B -->
+    <sys:String x:Key="AnikiNews_SourceB_Title">Fuente B</sys:String>
+    <sys:String x:Key="AnikiNews_SourceB_Name">Nombre para mostrar</sys:String>
+    <sys:String x:Key="AnikiNews_SourceB_Url">URL del feed RSS</sys:String>
+
+    <sys:String x:Key="AnikiNews_SourceB_ClearCache">Restablecer caché de la fuente B</sys:String>
+    <sys:String x:Key="AnikiNews_SourceB_ClearCache_Tooltip">Usa esto solo si esta fuente deja de cargarse correctamente.</sys:String>
+    <sys:String x:Key="AnikiNews_SourceB_ClearCache_Confirm">¿Restablecer la caché de la fuente B?</sys:String>
+    <sys:String x:Key="AnikiNews_SourceB_ClearCache_Done">La caché de la fuente B se ha restablecido.</sys:String>
+
+    <!-- DESCRIPTION -->
+    <sys:String x:Key="AnikiNews_CustomFeed_Desc">Activa o desactiva la función de noticias.</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Desc2">Usa las fuentes predeterminadas o configura las tuyas. Los feeds vacíos o no válidos cambiarán automáticamente a las fuentes predeterminadas.</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Help">Opcional: introduce una URL de feed RSS personalizada.</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Tooltip">Reemplaza el feed predeterminado.</sys:String>
+
+    <!-- GLOBAL CACHE -->
+    <sys:String x:Key="AnikiNews_ClearCache">Restablecer caché de noticias</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache_Tooltip">Fuerza la recarga de las noticias.</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache_Note">No necesitas usar esto después de cambiar la URL. La actualización es automática.</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache_Confirm">¿Restablecer caché de noticias?</sys:String>
+    <sys:String x:Key="AnikiNews_ClearCache_Done">Las noticias se han actualizado.</sys:String>
+
+    <!-- ENABLE -->
+    <sys:String x:Key="NewsScan_Enable">Activar noticias</sys:String>
+    <sys:String x:Key="NewsScan_Enable_Help">Desactiva completamente la carga de noticias al apagar esta opción.</sys:String>
+    <sys:String x:Key="NewsScan_Desc">Activa o desactiva la función de noticias.</sys:String>
+
+    <!-- EXPLANATIONS -->
+    <sys:String x:Key="AnikiNews_CustomFeed_Help2">Información adicional</sys:String>
+
+    <sys:String x:Key="NewsScan_Enable_Help2_Line1">Si el campo URL se deja vacío, se usará automáticamente un feed predeterminado.</sys:String>
+    <sys:String x:Key="NewsScan_Enable_Help2_Line2">Si cambias la URL, la caché se actualizará automáticamente.</sys:String>
+    <sys:String x:Key="NewsScan_Enable_Help2_Line3">No necesitas borrar la caché después de cambiar la URL.</sys:String>
+    <sys:String x:Key="NewsScan_Enable_Help2_Line4">El botón de caché solo es útil si la carga deja de funcionar correctamente.</sys:String>
+    <sys:String x:Key="NewsScan_Enable_Help2_Line5">Algunos feeds RSS pueden no ser compatibles.</sys:String>
+
+    <!-- EXAMPLES -->
+    <sys:String x:Key="AnikiNews_CustomFeed_Help3">Feeds de ejemplo</sys:String>
+
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple1">IGN Games: https://feeds.feedburner.com/ign/games-all</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple2">Steam News: https://store.steampowered.com/feeds/news/collection/featured</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple3">Eurogamer: https://www.eurogamer.net/feed</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple4">PC Gamer: https://www.pcgamer.com/rss</sys:String>
+    <sys:String x:Key="AnikiNews_CustomFeed_Exemple5">GameSpot: https://www.gamespot.com/feeds/mashup</sys:String>
+
+</ResourceDictionary>

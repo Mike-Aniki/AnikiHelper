@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
+using AnikiHelper.Services;
 
 namespace AnikiHelper
 {
@@ -177,6 +178,228 @@ namespace AnikiHelper
         [DontSerialize]
         public RelayCommand RefreshSuccessStoryCommand { get; }
 
+        [DontSerialize]
+        public RelayCommand<SteamStoreItem> OpenSteamStoreDetailsCommand { get; }
+        public RelayCommand<object> OpenGameDetailsCommand { get; }
+        public RelayCommand<object> ToggleWelcomeHubCommand { get; }
+        public RelayCommand<object> CloseWelcomeHubCommand { get; }
+        public RelayCommand<object> InitializeWelcomeHubCommand { get; }
+
+        [DontSerialize]
+        public AnikiWindowCommandProvider OpenWindow { get; }
+
+        [DontSerialize]
+        public AnikiWindowCommandProvider OpenChildWindow { get; }
+
+        private bool isWelcomeHubOpen = true;
+        public bool IsWelcomeHubOpen
+        {
+            get => isWelcomeHubOpen;
+            set => SetValue(ref isWelcomeHubOpen, value);
+        }
+
+        private bool isWelcomeHubClosing = false;
+        public bool IsWelcomeHubClosing
+        {
+            get => isWelcomeHubClosing;
+            set => SetValue(ref isWelcomeHubClosing, value);
+        }
+
+        private bool openWelcomeHubOnStartup = true;
+        public bool OpenWelcomeHubOnStartup
+        {
+            get => openWelcomeHubOnStartup;
+            set => SetValue(ref openWelcomeHubOnStartup, value);
+        }
+
+        [DontSerialize]
+        public RelayCommand CloseSteamStoreDetailsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenSteamStorePageExternalCommand { get; }
+
+        private bool steamStoreDetailsVisible;
+        public bool SteamStoreDetailsVisible
+        {
+            get => steamStoreDetailsVisible;
+            set => SetValue(ref steamStoreDetailsVisible, value);
+        }
+
+        private string steamStoreDetailsTitle;
+        public string SteamStoreDetailsTitle
+        {
+            get => steamStoreDetailsTitle;
+            set => SetValue(ref steamStoreDetailsTitle, value);
+        }
+
+        private string steamStoreDetailsImage;
+        public string SteamStoreDetailsImage
+        {
+            get => steamStoreDetailsImage;
+            set => SetValue(ref steamStoreDetailsImage, value);
+        }
+
+        private string steamStoreDetailsBackgroundImage;
+        public string SteamStoreDetailsBackgroundImage
+        {
+            get => steamStoreDetailsBackgroundImage;
+            set => SetValue(ref steamStoreDetailsBackgroundImage, value);
+        }
+
+        private string steamStoreDetailsDescription;
+        public string SteamStoreDetailsDescription
+        {
+            get => steamStoreDetailsDescription;
+            set => SetValue(ref steamStoreDetailsDescription, value);
+        }
+
+        private string steamStoreDetailsPrice;
+        public string SteamStoreDetailsPrice
+        {
+            get => steamStoreDetailsPrice;
+            set => SetValue(ref steamStoreDetailsPrice, value);
+        }
+
+        private string steamStoreDetailsDiscount;
+        public string SteamStoreDetailsDiscount
+        {
+            get => steamStoreDetailsDiscount;
+            set => SetValue(ref steamStoreDetailsDiscount, value);
+        }
+
+        private string steamStoreDetailsOriginalPrice;
+        public string SteamStoreDetailsOriginalPrice
+        {
+            get => steamStoreDetailsOriginalPrice;
+            set => SetValue(ref steamStoreDetailsOriginalPrice, value);
+        }
+
+        private string steamStoreDetailsMetacriticScore;
+        public string SteamStoreDetailsMetacriticScore
+        {
+            get => steamStoreDetailsMetacriticScore;
+            set => SetValue(ref steamStoreDetailsMetacriticScore, value);
+        }
+
+        private string steamStoreDetailsRecommendationsTotal;
+        public string SteamStoreDetailsRecommendationsTotal
+        {
+            get => steamStoreDetailsRecommendationsTotal;
+            set => SetValue(ref steamStoreDetailsRecommendationsTotal, value);
+        }
+
+        private string steamStoreDetailsAchievementsTotal;
+        public string SteamStoreDetailsAchievementsTotal
+        {
+            get => steamStoreDetailsAchievementsTotal;
+            set => SetValue(ref steamStoreDetailsAchievementsTotal, value);
+        }
+
+        private string steamStoreDetailsDlcCount;
+        public string SteamStoreDetailsDlcCount
+        {
+            get => steamStoreDetailsDlcCount;
+            set => SetValue(ref steamStoreDetailsDlcCount, value);
+        }
+
+        private string steamStoreDetailsScreenshot1;
+        public string SteamStoreDetailsScreenshot1
+        {
+            get => steamStoreDetailsScreenshot1;
+            set => SetValue(ref steamStoreDetailsScreenshot1, value);
+        }
+
+        private string steamStoreDetailsScreenshot2;
+        public string SteamStoreDetailsScreenshot2
+        {
+            get => steamStoreDetailsScreenshot2;
+            set => SetValue(ref steamStoreDetailsScreenshot2, value);
+        }
+
+        private string steamStoreDetailsScreenshot3;
+        public string SteamStoreDetailsScreenshot3
+        {
+            get => steamStoreDetailsScreenshot3;
+            set => SetValue(ref steamStoreDetailsScreenshot3, value);
+        }
+
+        private int steamStoreDetailsAppId;
+        public int SteamStoreDetailsAppId
+        {
+            get => steamStoreDetailsAppId;
+            set => SetValue(ref steamStoreDetailsAppId, value);
+        }
+
+        private string steamStoreDetailsStoreUrl;
+        public string SteamStoreDetailsStoreUrl
+        {
+            get => steamStoreDetailsStoreUrl;
+            set => SetValue(ref steamStoreDetailsStoreUrl, value);
+        }
+
+        private string steamStoreDetailsReleaseDate;
+        public string SteamStoreDetailsReleaseDate
+        {
+            get => steamStoreDetailsReleaseDate;
+            set => SetValue(ref steamStoreDetailsReleaseDate, value);
+        }
+
+        private bool steamStoreDetailsIsPreorder;
+        public bool SteamStoreDetailsIsPreorder
+        {
+            get => steamStoreDetailsIsPreorder;
+            set => SetValue(ref steamStoreDetailsIsPreorder, value);
+        }
+
+        private bool steamStoreDetailsLoading;
+        public bool SteamStoreDetailsLoading
+        {
+            get => steamStoreDetailsLoading;
+            set => SetValue(ref steamStoreDetailsLoading, value);
+        }
+
+        private string steamStoreDetailsDevelopers;
+        public string SteamStoreDetailsDevelopers
+        {
+            get => steamStoreDetailsDevelopers;
+            set => SetValue(ref steamStoreDetailsDevelopers, value);
+        }
+
+        private string steamStoreDetailsPublishers;
+        public string SteamStoreDetailsPublishers
+        {
+            get => steamStoreDetailsPublishers;
+            set => SetValue(ref steamStoreDetailsPublishers, value);
+        }
+
+        private string steamStoreDetailsGenres;
+        public string SteamStoreDetailsGenres
+        {
+            get => steamStoreDetailsGenres;
+            set => SetValue(ref steamStoreDetailsGenres, value);
+        }
+
+        private string steamStoreDetailsCategories;
+        public string SteamStoreDetailsCategories
+        {
+            get => steamStoreDetailsCategories;
+            set => SetValue(ref steamStoreDetailsCategories, value);
+        }
+
+        private string steamStoreDetailsSupportedLanguages;
+        public string SteamStoreDetailsSupportedLanguages
+        {
+            get => steamStoreDetailsSupportedLanguages;
+            set => SetValue(ref steamStoreDetailsSupportedLanguages, value);
+        }
+
+        private string steamStoreDetailsControllerSupport;
+        public string SteamStoreDetailsControllerSupport
+        {
+            get => steamStoreDetailsControllerSupport;
+            set => SetValue(ref steamStoreDetailsControllerSupport, value);
+        }
+
         // Info snapshot 
         private string snapshotDateString;
         public string SnapshotDateString { get => snapshotDateString; set => SetValue(ref snapshotDateString, value); }
@@ -304,6 +527,12 @@ namespace AnikiHelper
         public string ThisMonthTopGamePlaytime { get => thisMonthTopGamePlaytime; set => SetValue(ref thisMonthTopGamePlaytime, value); }
         public string ThisMonthTopGameCoverPath { get => thisMonthTopGameCoverPath; set => SetValue(ref thisMonthTopGameCoverPath, value); }
         public string ThisMonthTopGameBackgroundPath { get => thisMonthTopGameBackgroundPath; set => SetValue(ref thisMonthTopGameBackgroundPath, value); }
+        private Guid thisMonthTopGameId = Guid.Empty;
+        public Guid ThisMonthTopGameId
+        {
+            get => thisMonthTopGameId;
+            set => SetValue(ref thisMonthTopGameId, value);
+        }
 
         // This month's stats
         private int thisMonthPlayedCount;
@@ -328,6 +557,12 @@ namespace AnikiHelper
         public string ThisYearTopGamePlaytime { get => thisYearTopGamePlaytime; set => SetValue(ref thisYearTopGamePlaytime, value); }
         public string ThisYearTopGameCoverPath { get => thisYearTopGameCoverPath; set => SetValue(ref thisYearTopGameCoverPath, value); }
         public string ThisYearTopGameBackgroundPath { get => thisYearTopGameBackgroundPath; set => SetValue(ref thisYearTopGameBackgroundPath, value); }
+        private Guid thisYearTopGameId = Guid.Empty;
+        public Guid ThisYearTopGameId
+        {
+            get => thisYearTopGameId;
+            set => SetValue(ref thisYearTopGameId, value);
+        }
 
         // This year's stats
         private int thisYearPlayedCount;
@@ -379,6 +614,13 @@ namespace AnikiHelper
             set => SetValue(ref sessionGameBackgroundPath, value);
         }
 
+        private Guid sessionGameId = Guid.Empty;
+        public Guid SessionGameId
+        {
+            get => sessionGameId;
+            set => SetValue(ref sessionGameId, value);
+        }
+
         private string recentPlayedBackgroundPath;
         public string RecentPlayedBackgroundPath
         {
@@ -407,6 +649,13 @@ namespace AnikiHelper
             set => SetValue(ref hubRecentAddedBackgroundPath, value);
         }
 
+        private Guid hubRecentAddedGameId = Guid.Empty;
+        public Guid HubRecentAddedGameId
+        {
+            get => hubRecentAddedGameId;
+            set => SetValue(ref hubRecentAddedGameId, value);
+        }
+
         private string hubNeverPlayedName;
         public string HubNeverPlayedName
         {
@@ -426,6 +675,20 @@ namespace AnikiHelper
         {
             get => hubNeverPlayedBackgroundPath;
             set => SetValue(ref hubNeverPlayedBackgroundPath, value);
+        }
+
+        private Guid hubNeverPlayedGameId = Guid.Empty;
+        public Guid HubNeverPlayedGameId
+        {
+            get => hubNeverPlayedGameId;
+            set => SetValue(ref hubNeverPlayedGameId, value);
+        }
+
+        private Guid recentPlayedGameId = Guid.Empty;
+        public Guid RecentPlayedGameId
+        {
+            get => recentPlayedGameId;
+            set => SetValue(ref recentPlayedGameId, value);
         }
 
         // Unique stamp for each notification
@@ -536,9 +799,57 @@ namespace AnikiHelper
 
         // Global News Steam
 
-        public ObservableCollection<SteamGlobalNewsItem> SteamGlobalNews { get; set; }
+        public ObservableCollection<SteamGlobalNewsItem> SteamGlobalNewsA { get; set; }
+       = new ObservableCollection<SteamGlobalNewsItem>();
+        public ObservableCollection<SteamGlobalNewsItem> SteamGlobalNewsB { get; set; }
             = new ObservableCollection<SteamGlobalNewsItem>();
-        public DateTime? SteamGlobalNewsLastRefreshUtc { get; set; }
+
+        public DateTime? SteamGlobalNewsALastRefreshUtc { get; set; }
+        public DateTime? SteamGlobalNewsBLastRefreshUtc { get; set; }
+
+        // --- Custom News Sources ---
+
+        private string newsSourceATitle = "News";
+        public string NewsSourceATitle
+        {
+            get => newsSourceATitle;
+            set => SetValue(ref newsSourceATitle, value);
+        }
+
+        private string newsSourceBTitle = "Reviews";
+        public string NewsSourceBTitle
+        {
+            get => newsSourceBTitle;
+            set => SetValue(ref newsSourceBTitle, value);
+        }
+
+        private const string DefaultNewsSourceAUrl = "https://gameinformer.com/news.xml";
+        private const string DefaultNewsSourceBUrl = "https://gameinformer.com/reviews.xml";
+
+        private string newsSourceAUrl = DefaultNewsSourceAUrl;
+        public string NewsSourceAUrl
+        {
+            get => string.IsNullOrWhiteSpace(newsSourceAUrl) ? DefaultNewsSourceAUrl : newsSourceAUrl;
+            set
+            {
+                var finalValue = string.IsNullOrWhiteSpace(value) ? DefaultNewsSourceAUrl : value.Trim();
+                SetValue(ref newsSourceAUrl, finalValue);
+            }
+        }
+
+        private string newsSourceBUrl = DefaultNewsSourceBUrl;
+        public string NewsSourceBUrl
+        {
+            get => string.IsNullOrWhiteSpace(newsSourceBUrl) ? DefaultNewsSourceBUrl : newsSourceBUrl;
+            set
+            {
+                var finalValue = string.IsNullOrWhiteSpace(value) ? DefaultNewsSourceBUrl : value.Trim();
+                SetValue(ref newsSourceBUrl, finalValue);
+            }
+        }
+
+        public string LastCachedNewsSourceAUrl { get; set; }
+        public string LastCachedNewsSourceBUrl { get; set; }
 
         // Snapshot for Welcome Hub
 
@@ -598,25 +909,7 @@ namespace AnikiHelper
             set => SetValue(ref latestNewsShowLayerB, value);
         }
 
-        // URL RSS 
-        private string steamNewsCustomFeedUrl;
-        public string SteamNewsCustomFeedUrl
-        {
-            get => steamNewsCustomFeedUrl;
-            set
-            {
-                var old = steamNewsCustomFeedUrl;
 
-                SetValue(ref steamNewsCustomFeedUrl, value);
-
-                if (!string.Equals(old, value, StringComparison.OrdinalIgnoreCase))
-                {
-                    SteamGlobalNewsLastRefreshUtc = null;
-                    LastNewsScanUtc = DateTime.MinValue;  
-
-                }
-            }
-        }
 
         // Playnite News 
 
@@ -643,32 +936,89 @@ namespace AnikiHelper
             set => SetValue(ref playniteNewsHasNew, value);
         }
 
+        // Steam Store localization / pricing
 
-        // Steam Deals via game-deals.app
-
-        // Last 15 promotions (7 days max)
-        private ObservableCollection<SteamGlobalNewsItem> deals = new ObservableCollection<SteamGlobalNewsItem>();
-        public ObservableCollection<SteamGlobalNewsItem> Deals
+        private string steamStoreLanguage = "english";
+        public string SteamStoreLanguage
         {
-            get => deals;
-            set => SetValue(ref deals, value);
+            get => steamStoreLanguage;
+            set => SetValue(ref steamStoreLanguage, value);
         }
 
-        // Last scan date
-        private DateTime? lastDealsScanUtc;
-        public DateTime? LastDealsScanUtc
+        private string steamStoreRegion = "US";
+        public string SteamStoreRegion
         {
-            get => lastDealsScanUtc;
-            set => SetValue(ref lastDealsScanUtc, value);
+            get => steamStoreRegion;
+            set => SetValue(ref steamStoreRegion, value);
+        }
+
+        private bool steamStoreEnabled = true;
+        public bool SteamStoreEnabled
+        {
+            get => steamStoreEnabled;
+            set => SetValue(ref steamStoreEnabled, value);
+        }
+
+        private ObservableCollection<SteamStoreItem> steamStoreDeals = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreNewReleases = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreTopSellers = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreSpotlight = new ObservableCollection<SteamStoreItem>();
+
+        private void RequestSteamStoreLoad()
+        {
+            if (plugin?.Settings?.SteamStoreEnabled != true)
+            {
+                return;
+            }
+
+            _ = plugin?.OnSteamStoreViewOpenedAsync();
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreDeals
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreDeals;
+            }
+            set => SetValue(ref steamStoreDeals, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreNewReleases
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreNewReleases;
+            }
+            set => SetValue(ref steamStoreNewReleases, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreTopSellers
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreTopSellers;
+            }
+            set => SetValue(ref steamStoreTopSellers, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreSpotlight
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreSpotlight;
+            }
+            set => SetValue(ref steamStoreSpotlight, value);
         }
 
 
-        private bool steamNewsCustomFeedInvalid;
-        public bool SteamNewsCustomFeedInvalid
-        {
-            get => steamNewsCustomFeedInvalid;
-            set => SetValue(ref steamNewsCustomFeedInvalid, value);
-        }
 
         // Enable or disable scanning
         private bool newsScanEnabled = true;
@@ -681,13 +1031,11 @@ namespace AnikiHelper
 
                 SetValue(ref newsScanEnabled, value);
 
-                if (changed)
+                if (changed && !value)
                 {
-                    if (!value)
-                    {
-                        SteamGlobalNewsLastRefreshUtc = null;
-                        LastNewsScanUtc = DateTime.MinValue;
-                    }
+                    SteamGlobalNewsALastRefreshUtc = null;
+                    SteamGlobalNewsBLastRefreshUtc = null;
+                    LastNewsScanUtc = DateTime.MinValue;
                 }
             }
         }
@@ -804,7 +1152,7 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdatesScanEnabled, value);
         }
 
-        // Enables or disables video
+        // Enables or disables video/splash
         private bool startupIntroVideoEnabled = true;
         public bool StartupIntroVideoEnabled
         {
@@ -812,11 +1160,28 @@ namespace AnikiHelper
             set => SetValue(ref startupIntroVideoEnabled, value);
         }
 
+        private bool gameLaunchSplashEnabled = true;
+        public bool GameLaunchSplashEnabled
+        {
+            get => gameLaunchSplashEnabled;
+            set => SetValue(ref gameLaunchSplashEnabled, value);
+        }
+
+        public Dictionary<Guid, string> CustomGameLaunchSplashImages { get; set; }
+            = new Dictionary<Guid, string>();
+
         private bool shutdownVideoEnabled = true;
         public bool ShutdownVideoEnabled
         {
             get => shutdownVideoEnabled;
             set => SetValue(ref shutdownVideoEnabled, value);
+        }
+
+        private bool eventSoundsEnabled = true;
+        public bool EventSoundsEnabled
+        {
+            get => eventSoundsEnabled;
+            set => SetValue(ref eventSoundsEnabled, value);
         }
 
         // Enables the Steam cache creation prompt at startup
@@ -948,25 +1313,62 @@ namespace AnikiHelper
                 PlaytimeStoredInHours = saved.PlaytimeStoredInHours;
                 PlaytimeUseDaysFormat = saved.PlaytimeUseDaysFormat;
 
+                OpenWelcomeHubOnStartup = saved.OpenWelcomeHubOnStartup;
+
+                SteamStoreLanguage = string.IsNullOrWhiteSpace(saved.SteamStoreLanguage) ? "english" : saved.SteamStoreLanguage;
+                SteamStoreRegion = string.IsNullOrWhiteSpace(saved.SteamStoreRegion) ? "US" : saved.SteamStoreRegion;
+                SteamStoreEnabled = saved.SteamStoreEnabled;
+
                 LoginRandomIndex = saved.LoginRandomIndex;
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
 
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
                 StartupIntroVideoEnabled = saved.StartupIntroVideoEnabled;
+                GameLaunchSplashEnabled = saved.GameLaunchSplashEnabled;
+                CustomGameLaunchSplashImages = saved.CustomGameLaunchSplashImages
+                    ?? new Dictionary<Guid, string>();
                 ShutdownVideoEnabled = saved.ShutdownVideoEnabled;
                 LastSteamRecentCheckUtc = saved.LastSteamRecentCheckUtc;
+                EventSoundsEnabled = saved.EventSoundsEnabled;
 
                 NewsScanEnabled = saved.NewsScanEnabled;
                 LastNewsScanUtc = saved.LastNewsScanUtc;
 
+                NewsSourceATitle = string.IsNullOrWhiteSpace(saved.NewsSourceATitle) ? "News" : saved.NewsSourceATitle;
+                NewsSourceBTitle = string.IsNullOrWhiteSpace(saved.NewsSourceBTitle) ? "Reviews" : saved.NewsSourceBTitle;
+                NewsSourceAUrl = string.IsNullOrWhiteSpace(saved.NewsSourceAUrl)
+                    ? "https://gameinformer.com/news.xml"
+                    : saved.NewsSourceAUrl;
+                NewsSourceBUrl = string.IsNullOrWhiteSpace(saved.NewsSourceBUrl)
+                    ? "https://gameinformer.com/reviews.xml"
+                    : saved.NewsSourceBUrl;
+
+                LastCachedNewsSourceAUrl = saved.LastCachedNewsSourceAUrl ?? string.Empty;
+                LastCachedNewsSourceBUrl = saved.LastCachedNewsSourceBUrl ?? string.Empty;
 
                 DynamicAutoPrecacheUserEnabled = saved.DynamicAutoPrecacheUserEnabled;
 
-                SteamNewsCustomFeedUrl = saved?.SteamNewsCustomFeedUrl
-                                         ?? "https://store.steampowered.com/feeds/news/collection/featured";
-                SteamNewsCustomFeedInvalid = saved.SteamNewsCustomFeedInvalid;
-                SteamGlobalNewsLastRefreshUtc = saved.SteamGlobalNewsLastRefreshUtc;
+                SteamGlobalNewsALastRefreshUtc = saved.SteamGlobalNewsALastRefreshUtc;
+                SteamGlobalNewsBLastRefreshUtc = saved.SteamGlobalNewsBLastRefreshUtc;
+
+                if (saved.SteamGlobalNewsA != null && saved.SteamGlobalNewsA.Any())
+                {
+                    SteamGlobalNewsA.Clear();
+                    foreach (var it in saved.SteamGlobalNewsA)
+                    {
+                        SteamGlobalNewsA.Add(it);
+                    }
+                }
+
+                if (saved.SteamGlobalNewsB != null && saved.SteamGlobalNewsB.Any())
+                {
+                    SteamGlobalNewsB.Clear();
+                    foreach (var it in saved.SteamGlobalNewsB)
+                    {
+                        SteamGlobalNewsB.Add(it);
+                    }
+                }
 
                 PlayniteNewsLastRefreshUtc = saved.PlayniteNewsLastRefreshUtc;
                 PlayniteNewsLastKey = saved.PlayniteNewsLastKey;
@@ -985,20 +1387,143 @@ namespace AnikiHelper
                 SessionDurationString = saved.SessionDurationString ?? string.Empty;
                 SessionTotalPlaytimeString = saved.SessionTotalPlaytimeString ?? string.Empty;
                 SessionGameBackgroundPath = saved.SessionGameBackgroundPath ?? string.Empty;
+                SessionGameId = saved.SessionGameId;
+                ThisMonthTopGameId = saved.ThisMonthTopGameId;
+                ThisYearTopGameId = saved.ThisYearTopGameId;
+                SuggestedGameLastId = saved.SuggestedGameLastId;
                 RecentPlayedBackgroundPath = saved.RecentPlayedBackgroundPath ?? string.Empty;
                 HubRecentAddedName = saved.HubRecentAddedName ?? string.Empty;
                 HubRecentAddedDate = saved.HubRecentAddedDate ?? string.Empty;
                 HubRecentAddedBackgroundPath = saved.HubRecentAddedBackgroundPath ?? string.Empty;
+                HubRecentAddedGameId = saved.HubRecentAddedGameId;
+                RecentPlayedGameId = saved.RecentPlayedGameId;
 
                 HubNeverPlayedName = saved.HubNeverPlayedName ?? string.Empty;
                 HubNeverPlayedDate = saved.HubNeverPlayedDate ?? string.Empty;
                 HubNeverPlayedBackgroundPath = saved.HubNeverPlayedBackgroundPath ?? string.Empty;
+                HubNeverPlayedGameId = saved.HubNeverPlayedGameId;
+                IsWelcomeHubOpen = saved.IsWelcomeHubOpen;
+            }
+
+            if (CustomGameLaunchSplashImages == null)
+            {
+                CustomGameLaunchSplashImages = new Dictionary<Guid, string>();
             }
 
             // Bouton "Refresh SuccessStory"
             RefreshSuccessStoryCommand = new RelayCommand(
                 async () => await SuccessStoryBridge.RefreshSelectedGameAsync(plugin.PlayniteApi),
                 () => plugin?.PlayniteApi?.MainView?.SelectedGames?.Any() == true
+            );
+
+            OpenGameDetailsCommand = new RelayCommand<object>(
+                gameObj =>
+                {
+                    if (gameObj is Guid gameId && gameId != Guid.Empty)
+                    {
+                        plugin?.OpenGameDetails(gameId);
+                    }
+                },
+                gameObj => gameObj is Guid gameId && gameId != Guid.Empty
+            );
+
+            ToggleWelcomeHubCommand = new RelayCommand<object>(
+                _ =>
+                {
+                    if (IsWelcomeHubOpen)
+                    {
+                        plugin?.CloseWelcomeHub();
+                    }
+                    else
+                    {
+                        plugin?.OpenWelcomeHub();
+                    }
+                }
+            );
+
+            OpenWindow = new AnikiWindowCommandProvider(
+                styleKey => new RelayCommand(() => plugin?.OpenWindow(styleKey))
+            );
+
+            OpenChildWindow = new AnikiWindowCommandProvider(
+                styleKey => new RelayCommand(() => plugin?.OpenChildWindow(styleKey))
+            );
+
+            InitializeWelcomeHubCommand = new RelayCommand<object>(
+                param =>
+                {
+                    if (param is bool openAtStartup)
+                    {
+                        plugin?.InitializeWelcomeHubState(openAtStartup);
+                    }
+                }
+            );
+
+            CloseWelcomeHubCommand = new RelayCommand<object>(
+                _ =>
+                {
+                    plugin?.CloseWelcomeHub();
+                }
+            );
+
+            OpenSteamStoreDetailsCommand = new RelayCommand<SteamStoreItem>(
+                item => plugin?.OpenSteamStoreDetails(item),
+                item => item != null
+            );
+
+            CloseSteamStoreDetailsCommand = new RelayCommand(
+                () =>
+                {
+                    plugin.Settings.SteamStoreDetailsVisible = false;
+                    plugin.Settings.SteamStoreDetailsLoading = false;
+                    plugin.Settings.SteamStoreDetailsTitle = string.Empty;
+                    plugin.Settings.SteamStoreDetailsImage = string.Empty;
+                    plugin.Settings.SteamStoreDetailsBackgroundImage = string.Empty;
+                    plugin.Settings.SteamStoreDetailsDescription = string.Empty;
+                    plugin.Settings.SteamStoreDetailsPrice = string.Empty;
+                    plugin.Settings.SteamStoreDetailsDiscount = string.Empty;
+                    plugin.Settings.SteamStoreDetailsOriginalPrice = string.Empty;
+                    plugin.Settings.SteamStoreDetailsMetacriticScore = string.Empty;
+                    plugin.Settings.SteamStoreDetailsRecommendationsTotal = string.Empty;
+                    plugin.Settings.SteamStoreDetailsAchievementsTotal = string.Empty;
+                    plugin.Settings.SteamStoreDetailsDlcCount = string.Empty;
+                    plugin.Settings.SteamStoreDetailsScreenshot1 = string.Empty;
+                    plugin.Settings.SteamStoreDetailsScreenshot2 = string.Empty;
+                    plugin.Settings.SteamStoreDetailsScreenshot3 = string.Empty;
+                    plugin.Settings.SteamStoreDetailsReleaseDate = string.Empty;
+                    plugin.Settings.SteamStoreDetailsSupportedLanguages = string.Empty;
+                    plugin.Settings.SteamStoreDetailsIsPreorder = false;
+                    plugin.Settings.SteamStoreDetailsDevelopers = string.Empty;
+                    plugin.Settings.SteamStoreDetailsPublishers = string.Empty;
+                    plugin.Settings.SteamStoreDetailsGenres = string.Empty;
+                    plugin.Settings.SteamStoreDetailsCategories = string.Empty;
+                    plugin.Settings.SteamStoreDetailsControllerSupport = string.Empty;
+                    plugin.Settings.SteamStoreDetailsAppId = 0;
+                    plugin.Settings.SteamStoreDetailsStoreUrl = string.Empty;
+                }
+            );
+
+            OpenSteamStorePageExternalCommand = new RelayCommand(
+                () =>
+                {
+                    try
+                    {
+                        var url = plugin?.Settings?.SteamStoreDetailsStoreUrl;
+
+                        if (!string.IsNullOrWhiteSpace(url))
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = url,
+                                UseShellExecute = true
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to open Steam Store page.");
+                    }
+                }
             );
 
             // Recent Trophy + watcher
@@ -1490,15 +2015,6 @@ namespace AnikiHelper
         public void CancelEdit() { }
         public void EndEdit()
         {
-            try
-            {
-                logger?.Debug("[AnikiHelper] Settings saved.");
-            }
-            catch
-            {
-                // On évite de casser la sauvegarde à cause du log
-            }
-
             plugin.SavePluginSettings(this);
         }
 
@@ -1625,16 +2141,7 @@ namespace AnikiHelper
         public void BeginEdit() { }
         public void CancelEdit() { }
         public void EndEdit()
-        {
-            try
-            {
-                LogManager.GetLogger().Debug("[AnikiHelper] Settings (ViewModel) saved.");
-            }
-            catch
-            {
-
-            }
-
+        {     
             plugin.SavePluginSettings(Settings);
         }
 
@@ -1648,6 +2155,32 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ResetMonthlySnapshot failed: " + ex.Message);
+            }
+        }
+
+        public void ExportMonthlyBackup(string exportFilePath)
+        {
+            try
+            {
+                plugin?.ExportMonthlyBackup(exportFilePath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ExportMonthlyBackup failed: " + ex.Message);
+                throw;
+            }
+        }
+
+        public void ImportMonthlyBackup(string importFilePath)
+        {
+            try
+            {
+                plugin?.ImportMonthlyBackup(importFilePath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ImportMonthlyBackup failed: " + ex.Message);
+                throw;
             }
         }
 
@@ -1666,15 +2199,29 @@ namespace AnikiHelper
         }
 
         // Clears the news cache
-        public void ClearNewsCache()
+
+        public void ClearNewsCacheA()
         {
             try
             {
-                plugin?.ClearNewsCache();
+                plugin?.ClearNewsCacheA();
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[AnikiHelperSettingsViewModel] ClearNewsCache failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[AnikiHelperSettingsViewModel] ClearNewsCacheA failed: {ex.Message}");
+                throw;
+            }
+        }
+
+        public void ClearNewsCacheB()
+        {
+            try
+            {
+                plugin?.ClearNewsCacheB();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AnikiHelperSettingsViewModel] ClearNewsCacheB failed: {ex.Message}");
                 throw;
             }
         }
