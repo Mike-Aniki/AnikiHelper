@@ -1300,12 +1300,47 @@ namespace AnikiHelper
 
         public AnikiHelperSettings() { }
 
+        private AnikiHelperSettings LoadSettingsSafe(global::AnikiHelper.AnikiHelper plugin)
+        {
+            try
+            {
+                return plugin.LoadPluginSettings<AnikiHelperSettings>();
+            }
+            catch (Exception ex)
+            {
+                logger?.Error(ex, "[AnikiHelper] Failed to load config.json. The file is probably corrupted. A new one will be created.");
+
+                try
+                {
+                    var configPath = Path.Combine(plugin.GetPluginUserDataPath(), "config.json");
+
+                    if (File.Exists(configPath))
+                    {
+                        var backupPath = Path.Combine(
+                            plugin.GetPluginUserDataPath(),
+                            $"config.corrupted.{DateTime.Now:yyyyMMdd_HHmmss}.json"
+                        );
+
+                        File.Move(configPath, backupPath);
+
+                        logger?.Warn($"[AnikiHelper] Corrupted config.json moved to: {backupPath}");
+                    }
+                }
+                catch (Exception backupEx)
+                {
+                    logger?.Error(backupEx, "[AnikiHelper] Failed to backup corrupted config.json.");
+                }
+
+                return null;
+            }
+        }
+
         public AnikiHelperSettings(global::AnikiHelper.AnikiHelper plugin)
         {
             this.plugin = plugin;
             logger = LogManager.GetLogger();
 
-            var saved = plugin.LoadPluginSettings<AnikiHelperSettings>();
+            var saved = LoadSettingsSafe(plugin);
             if (saved != null)
             {
                 IncludeHidden = saved.IncludeHidden;
@@ -1408,6 +1443,19 @@ namespace AnikiHelper
             if (CustomGameLaunchSplashImages == null)
             {
                 CustomGameLaunchSplashImages = new Dictionary<Guid, string>();
+            }
+
+            if (saved == null)
+            {
+                try
+                {
+                    plugin.SavePluginSettings(this);
+                    logger?.Info("[AnikiHelper] A new clean config.json has been created.");
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to create a new clean config.json.");
+                }
             }
 
             // Bouton "Refresh SuccessStory"
