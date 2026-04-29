@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace AnikiHelper.Services
 {
@@ -113,6 +115,13 @@ namespace AnikiHelper.Services
                 window.WindowState = WindowState.Maximized;
                 window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
+                var parent = playniteApi.Dialogs.GetCurrentAppWindow();
+                if (parent != null)
+                {
+                    window.Width = parent.Width;
+                    window.Height = parent.Height;
+                }
+
                 if (forceChild)
                 {
                     window.AllowsTransparency = true;
@@ -122,12 +131,28 @@ namespace AnikiHelper.Services
                 var style = Application.Current.TryFindResource(styleKey) as Style;
                 if (style != null)
                 {
-                    window.Style = style;
+                    window.Content = new Viewbox
+                    {
+                        Stretch = Stretch.Uniform,
+                        Child = new Grid
+                        {
+                            Width = 1920,
+                            Height = 1080,
+                            Children =
+            {
+                new ContentControl
+                {
+                    Focusable = false,
+                    Style = style
+                }
+            }
+                        }
+                    };
                 }
 
                 window.Owner = forceChild && windows.Any()
                     ? windows.Peek()
-                    : playniteApi.Dialogs.GetCurrentAppWindow();
+                    : parent;
 
                 window.PreviewKeyDown += (s, e) =>
                 {

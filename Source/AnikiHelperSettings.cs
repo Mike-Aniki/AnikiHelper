@@ -412,6 +412,7 @@ namespace AnikiHelper
 
         // Dynamic colors / precache 
         private bool dynamicAutoPrecacheUserEnabled = true;
+        public string DynamicColorCacheVersion { get; set; } = "";
 
         // Storage 
         private readonly ObservableCollection<DiskUsageItem> diskUsages = new ObservableCollection<DiskUsageItem>();
@@ -1383,6 +1384,7 @@ namespace AnikiHelper
                 LastCachedNewsSourceBUrl = saved.LastCachedNewsSourceBUrl ?? string.Empty;
 
                 DynamicAutoPrecacheUserEnabled = saved.DynamicAutoPrecacheUserEnabled;
+                DynamicColorCacheVersion = saved.DynamicColorCacheVersion ?? string.Empty;
 
                 SteamGlobalNewsALastRefreshUtc = saved.SteamGlobalNewsALastRefreshUtc;
                 SteamGlobalNewsBLastRefreshUtc = saved.SteamGlobalNewsBLastRefreshUtc;

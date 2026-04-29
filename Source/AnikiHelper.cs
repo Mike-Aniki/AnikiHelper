@@ -52,11 +52,11 @@ namespace AnikiHelper
 
         private GameLaunchSplashWindow currentGameLaunchSplash;
         private DateTime? currentGameLaunchSplashShownAt;
-        private const int GameLaunchSplashMinimumDurationMs = 4000;
-        private const int GameLaunchSplashForegroundCheckIntervalMs = 250;
-        private const int GameLaunchSplashMaxWaitAfterGameStartedMs = 12000;
-        private const int GameLaunchSplashPostFocusLossDelayMs = 1300;
-        private const int GameLaunchSplashFocusLossStabilityMs = 500;
+        private const int GameLaunchSplashMinimumDurationMs = 2000;
+        private const int GameLaunchSplashForegroundCheckIntervalMs = 200;
+        private const int GameLaunchSplashMaxWaitAfterGameStartedMs = 6000;
+        private const int GameLaunchSplashPostFocusLossDelayMs = 1000;
+        private const int GameLaunchSplashFocusLossStabilityMs = 400;
         private const string CustomSplashTagName = "[Aniki] Custom Splash";
 
         private readonly System.Threading.SemaphoreSlim steamStoreOpenLock = new System.Threading.SemaphoreSlim(1, 1);
@@ -470,6 +470,9 @@ namespace AnikiHelper
             public string GameName { get; set; }
             public DateTime LastPublishedUtc { get; set; }
             public string Html { get; set; }
+
+            // True once this Steam game has already been checked at least once.
+            public bool HasBeenScanned { get; set; }
         }
 
         private static string MakePlayniteNewsKey(SteamGlobalNewsItem item)
@@ -523,7 +526,8 @@ namespace AnikiHelper
                         {
                             Title = kv.Value,
                             GameName = null,
-                            LastPublishedUtc = DateTime.UtcNow
+                            LastPublishedUtc = DateTime.UtcNow,
+                            HasBeenScanned = true
                         };
                     }
                     return converted;
@@ -899,6 +903,9 @@ namespace AnikiHelper
         // Anti-freeze: 1 update à la fois + annulation si navigation rapide
         private readonly SemaphoreSlim steamUpdateGate = new SemaphoreSlim(1, 1);
         private CancellationTokenSource steamUpdateCts;
+
+        // Used to pause background Steam update scans while the user is navigating.
+        private long lastSteamUpdateUserActivityTicks = 0;
 
 
         // Steam current players
@@ -1405,8 +1412,8 @@ namespace AnikiHelper
                     steamUpdatesCache.TryGetValue(steamId, out cachedEntry);
                 }
 
-                // Si pas d'entrée : on crée, mais pas de notification "new"
-                if (cachedEntry == null)
+                // First scan: create baseline, no notification
+                if (cachedEntry == null || !cachedEntry.HasBeenScanned)
                 {
                     lock (steamUpdatesCacheLock)
                     {
@@ -1415,7 +1422,8 @@ namespace AnikiHelper
                             Title = result.Title,
                             GameName = Safe(game.Name),
                             LastPublishedUtc = published,
-                            Html = cleanedHtml
+                            Html = cleanedHtml,
+                            HasBeenScanned = true
                         };
                         steamUpdatesCacheDirty = true;
                     }
@@ -1436,6 +1444,7 @@ namespace AnikiHelper
                         cachedEntry.GameName = Safe(game.Name);
                         cachedEntry.LastPublishedUtc = published;
                         cachedEntry.Html = cleanedHtml;
+                        cachedEntry.HasBeenScanned = true;
 
                         steamUpdatesCache[steamId] = cachedEntry;
                         steamUpdatesCacheDirty = true;
@@ -1512,6 +1521,7 @@ namespace AnikiHelper
 
             try
             {
+                logger.Info("[SteamUpdates] Recent games scan started.");
                 // 1) Check mode + focus
                 if (!IsSteamRecentScanAllowed())
                 {
@@ -1560,6 +1570,13 @@ namespace AnikiHelper
                     if (!IsSteamRecentScanAllowed())
                     {
                         break;
+                    }
+
+                    // Pause background scan while the user is navigating.
+                    if ((Environment.TickCount - Interlocked.Read(ref lastSteamUpdateUserActivityTicks)) < 3000)
+                    {
+                        await Task.Delay(1000, ct);
+                        continue;
                     }
 
                     var steamId = GetSteamGameId(g);
@@ -1671,6 +1688,27 @@ namespace AnikiHelper
                     hadUsableCache = true;
                 }
 
+                // Navigation path: do not call Steam here.
+                // Network scans are handled by background scan methods.
+                if (!hadUsableCache)
+                {
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        Settings.SteamUpdateError = "No update available";
+                        Settings.SteamUpdateAvailable = false;
+                        Settings.SteamUpdateIsNew = false;
+                    });
+                }
+
+                // If we already have cache, don't refresh from Steam during navigation.
+                // Background scans will refresh it later.
+                if (hadUsableCache)
+                {
+                    RefreshSteamRecentUpdatesFromCache();
+                    return;
+                }
+
+
                 // 2) Then we try to call Steam to refresh
                 ct.ThrowIfCancellationRequested();
                 var result = await steamUpdateService.GetLatestUpdateAsync(steamId, ct);
@@ -1709,10 +1747,10 @@ namespace AnikiHelper
                 {
                     published = DateTime.UtcNow;
                 }
-                
 
-                // No cache for this game yet
-                if (string.IsNullOrWhiteSpace(lastTitle))
+
+                // First scan: create baseline, no notification
+                if (cachedEntry == null || !cachedEntry.HasBeenScanned)
                 {
                     lock (steamUpdatesCacheLock)
                     {
@@ -1721,12 +1759,12 @@ namespace AnikiHelper
                             Title = result.Title,
                             GameName = Safe(game.Name),
                             LastPublishedUtc = published,
-                            Html = cleanedHtml
+                            Html = cleanedHtml,
+                            HasBeenScanned = true
                         };
 
                         steamUpdatesCacheDirty = true;
                     }
-
 
                     isNew = false;
                     steamUpdateNewThisSession.Remove(sessionKey);
@@ -1753,7 +1791,8 @@ namespace AnikiHelper
                                 Title = result.Title,
                                 GameName = Safe(game.Name),
                                 LastPublishedUtc = published,
-                                Html = cleanedHtml
+                                Html = cleanedHtml,
+                                HasBeenScanned = true
                             };
 
                             steamUpdatesCacheDirty = true;
@@ -1976,7 +2015,8 @@ namespace AnikiHelper
                                 LastPublishedUtc = result.Published == DateTime.MinValue
                                     ? DateTime.UtcNow
                                     : result.Published.ToUniversalTime(),
-                                Html = cleanedHtml
+                                Html = cleanedHtml,
+                                HasBeenScanned = true
                             };
 
 
@@ -3694,14 +3734,27 @@ namespace AnikiHelper
                 DynamicAuto.ClearPersistentCache(alsoRam: true);
 
                 var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString());
-                var fileNew = Path.Combine(dir, "palette_cache.json");
-                var fileTmp = fileNew + ".tmp";
-                var fileOld = Path.Combine(dir, "palette_cache_v1.json"); 
+
+                var files = new[]
+                {
+            Path.Combine(dir, "palette_cache_v2.json"),
+            Path.Combine(dir, "palette_cache_v2.json.tmp"),
+            Path.Combine(dir, "palette_cache.json"),
+            Path.Combine(dir, "palette_cache.json.tmp"),
+            Path.Combine(dir, "palette_cache_v1.json"),
+            Path.Combine(dir, "palette_cache_v1.json.tmp")
+        };
 
                 int deleted = 0;
-                if (File.Exists(fileNew)) { File.Delete(fileNew); deleted++; }
-                if (File.Exists(fileTmp)) { File.Delete(fileTmp); deleted++; }
-                if (File.Exists(fileOld)) { File.Delete(fileOld); deleted++; }
+
+                foreach (var file in files)
+                {
+                    if (File.Exists(file))
+                    {
+                        File.Delete(file);
+                        deleted++;
+                    }
+                }
 
                 logger.Info($"[AnikiHelper] Cleared dynamic color cache. Files deleted: {deleted}");
             }
@@ -3709,6 +3762,32 @@ namespace AnikiHelper
             {
                 logger.Warn(ex, "[AnikiHelper] ClearDynamicColorCache failed.");
                 throw;
+            }
+        }
+
+        private void EnsureDynamicColorCacheVersion()
+        {
+            try
+            {
+                const string RequiredCacheVersion = "1.3.3";
+
+                var current = Settings?.DynamicColorCacheVersion;
+
+                if (string.IsNullOrWhiteSpace(current) ||
+                    !Version.TryParse(current, out var currentVersion) ||
+                    currentVersion < new Version(1, 3, 3))
+                {
+                    logger.Info($"[AnikiHelper] Dynamic color cache is older than {RequiredCacheVersion}. Clearing cache.");
+
+                    ClearDynamicColorCache();
+
+                    Settings.DynamicColorCacheVersion = RequiredCacheVersion;
+                    SavePluginSettings(Settings);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to check dynamic color cache version.");
             }
         }
 
@@ -4911,6 +4990,23 @@ namespace AnikiHelper
             }
         }
 
+        private async Task<bool> WaitForPlayniteForegroundAsync(TimeSpan timeout)
+        {
+            var start = DateTime.Now;
+
+            while (DateTime.Now - start < timeout)
+            {
+                if (IsPlayniteForegroundWindow())
+                {
+                    return true;
+                }
+
+                await Task.Delay(100);
+            }
+
+            return false;
+        }
+
         internal async Task ShowStartupVideoAsync()
         {
             if (startupVideoSequenceRunning)
@@ -4923,7 +5019,7 @@ namespace AnikiHelper
                 return;
             }
 
-            if (!IsPlayniteForegroundWindow())
+            if (!await WaitForPlayniteForegroundAsync(TimeSpan.FromSeconds(2)))
             {
                 return;
             }
@@ -4957,6 +5053,8 @@ namespace AnikiHelper
                     overlay = null;
                 }
                 catch { }
+
+                await RestorePlayniteWindowsAfterStartupAsync();
 
                 await Task.Delay(100);
 
@@ -5221,7 +5319,11 @@ namespace AnikiHelper
             }
 
             System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                () => DynamicAuto.Init(PlayniteApi),
+                () =>
+                {
+                    EnsureDynamicColorCacheVersion();
+                    DynamicAuto.Init(PlayniteApi);
+                },
                 System.Windows.Threading.DispatcherPriority.Loaded
             );
 
@@ -5389,6 +5491,7 @@ namespace AnikiHelper
         {
             try
             {
+                logger.Info("[SteamUpdates] Background scan scheduled.");
                 await Task.Delay(TimeSpan.FromSeconds(9));
 
                 if (!IsSteamRecentScanAllowed())
@@ -5442,6 +5545,8 @@ namespace AnikiHelper
         public override void OnGameSelected(OnGameSelectedEventArgs args)
         {
             base.OnGameSelected(args);
+
+            Interlocked.Exchange(ref lastSteamUpdateUserActivityTicks, Environment.TickCount);
 
             var g = args?.NewValue?.FirstOrDefault();
             if (g == null)

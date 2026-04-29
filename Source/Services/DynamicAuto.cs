@@ -22,17 +22,18 @@ namespace AnikiHelper
 
         private static DispatcherTimer timer;
         private static Guid? lastGameId;
+        private static Guid? pendingGameId;
 
         private static CancellationTokenSource debounceCts;
         private static CancellationTokenSource animCts;
 
-        private const int DebounceMs = 180;          // decrease = more reactive
-        private const int TransitionMs = 140;        // total fade time
-        private const int TransitionSteps = 3;      // + more steps = smoother
+        private const int DebounceMs = 300;          // decrease = more reactive
+        private const int TransitionMs = 150;        // total fade time
+        private const int TransitionSteps = 4;      // + more steps = smoother
 
         // Precache optionnel
         private const int PrecacheDelayMs = 20000;   // attendre après le boot
-        private const int PrecacheGapMs = 600;    // 1 image / 600 ms
+        private const int PrecacheGapMs = 1000;    // 1 image / 600 ms
         private const int PrecacheMax = 100;    // cap par session
 
         // stopper le precache dès qu'on bouge
@@ -410,6 +411,10 @@ namespace AnikiHelper
                     var initialGame = api.MainView?.SelectedGames?.FirstOrDefault();
                     if (initialGame is null) return;
                     if (lastGameId == initialGame.Id) return;
+                    if (pendingGameId == initialGame.Id)
+                        return;
+
+                    pendingGameId = initialGame.Id;
 
                     // === Debounce: swap propre  ===
                     var prev = Interlocked.Exchange(ref debounceCts, null);
@@ -425,9 +430,14 @@ namespace AnikiHelper
                         try { await Task.Delay(DebounceMs, ct); } catch { return; }
                         if (ct.IsCancellationRequested) return;
 
-                        var current = api.MainView?.SelectedGames?.FirstOrDefault();
-                        if (current is null) return;
+                        var current = initialGame;
                         if (lastGameId == current.Id) return;
+
+                        var selectedNow = api.MainView?.SelectedGames?.FirstOrDefault();
+                        if (selectedNow == null || selectedNow.Id != current.Id)
+                        {
+                            return;
+                        }
 
                         Interlocked.Exchange(ref lastUserActivityTicks, (long)Environment.TickCount);
 
@@ -435,50 +445,43 @@ namespace AnikiHelper
                         // --- Resolve usable image + build palette HORS UI THREAD ---
                         var target = await Task.Run(() =>
                         {
-                            string source = "NONE";
-
                             try
                             {
-                                if (!TryGetImageFor(current, out var src, out var used, out var ext, out var key))
-                                {
-                                    source = "NO_IMAGE";
-                                    return (Palette)null;
-                                }
+                                string key = null;
 
-                                // 1) RAM cache
-                                if (!string.IsNullOrEmpty(key))
+                                // 1) Cache sans décoder l'image
+                                if (TryGetImageKeyOnly(current, out key) && !string.IsNullOrEmpty(key))
                                 {
                                     Palette cachedPal;
                                     lock (paletteLock)
                                     {
                                         paletteCache.TryGetValue(key, out cachedPal);
                                     }
+
                                     if (cachedPal != null)
                                     {
-                                        source = "RAM";
                                         return cachedPal;
                                     }
-                                }
 
-                                // 2) DISK cache 
-                                if (!string.IsNullOrEmpty(key))
-                                {
-                                    PaletteDto dto = null;
+                                    PaletteDto dto;
                                     lock (cacheLock)
                                     {
                                         paletteCacheDisk.TryGetValue(key, out dto);
                                     }
+
                                     if (dto != null)
                                     {
                                         var palFromDisk = FromDto(dto);
                                         PutCache(key, palFromDisk);
-                                        source = "DISK";
                                         return palFromDisk;
                                     }
                                 }
 
-                                // 3) Décodage + calcul
-                                source = $"DECODE_{used ?? "unknown"}";
+                                // 2) Seulement si pas de cache : charger/décoder l'image
+                                if (!TryGetImageFor(current, out var src, out var used, out var ext, out key))
+                                {
+                                    return (Palette)null;
+                                }
 
                                 var pf = PixelFormats.Bgra32;
                                 if (src.Format != pf)
@@ -512,7 +515,6 @@ namespace AnikiHelper
                             {
                                 return null;
                             }
-
                         }, ct);
 
 
@@ -530,6 +532,8 @@ namespace AnikiHelper
                     }
                     finally
                     {
+                        pendingGameId = null;
+
                         var oldCts = Interlocked.Exchange(ref debounceCts, null);
                         oldCts?.Dispose();
                     }
@@ -543,13 +547,18 @@ namespace AnikiHelper
             // 4) Start the timer
             timer.Start();
             // Optionnel : precache goutte-à-goutte, ne démarre que si activé via ressource
-            if (IsPrecacheEnabled())
+            _ = Task.Run(async () =>
             {
-                _ = RunPrecacheTrickleAsync();
-            }
+                await Task.Delay(PrecacheDelayMs);
+
+                if (IsPrecacheEnabled())
+                {
+                    await RunPrecacheTrickleAsync(skipInitialDelay: true);
+                }
+            });
 
 
-          
+
 
         }
 
@@ -823,7 +832,7 @@ namespace AnikiHelper
             int y0 = (int)(h * 0.12);
             int y1 = (int)(h * 0.88);
 
-            int[] hist = new int[4096];
+            double[] hist = new double[4096];
             int considered = 0;
             int brightCount = 0;
             int colorful = 0;
@@ -883,14 +892,18 @@ namespace AnikiHelper
                     int rq = r >> 4;
                     int gq = g >> 4;
                     int bq = b >> 4;
-                    hist[(rq << 8) | (gq << 4) | bq]++;
+                    int chromaPixel = Math.Max(r, Math.Max(g, b)) - Math.Min(r, Math.Min(g, b));
+                    double saturationWeight = 1.0 + (chromaPixel / 255.0) * 1.8;
+                    double brightnessWeight = lum > 205 ? 0.75 : 1.0;
+
+                    hist[(rq << 8) | (gq << 4) | bq] += saturationWeight * brightnessWeight;
                 }
             }
 
             if (considered == 0)
                 return MediaColor.FromRgb(31, 35, 45);
 
-            int peakCount = 0;
+            double peakCount = 0;
             int peakIdx = -1;
 
             for (int k = 0; k < hist.Length; k++)
@@ -902,7 +915,7 @@ namespace AnikiHelper
                 }
             }
 
-            bool tooSmallPeak = peakCount < Math.Max(50, considered / 300);
+            bool tooSmallPeak = peakCount < Math.Max(50.0, considered / 300.0);
             bool veryBrightBg = (brightCount / (double)considered) > 0.55;
 
             if ((peakIdx < 0 || tooSmallPeak) && veryBrightBg)
@@ -916,7 +929,7 @@ namespace AnikiHelper
 
                     for (int k = 0; k < hist.Length; k++)
                     {
-                        int count = hist[k];
+                        double count = hist[k];
                         if (count <= 0)
                             continue;
 
@@ -963,7 +976,7 @@ namespace AnikiHelper
 
             for (int k = 0; k < hist.Length; k++)
             {
-                int count = hist[k];
+                double count = hist[k];
                 if (count <= 0)
                     continue;
 
@@ -1024,7 +1037,44 @@ namespace AnikiHelper
             byte finalG = (byte)(gg * 16 + 8);
             byte finalB = (byte)(bb * 16 + 8);
 
-            return MediaColor.FromRgb(finalR, finalG, finalB);
+            var finalColor = MediaColor.FromRgb(finalR, finalG, finalB);
+
+            double brightRatio = brightCount / (double)considered;
+
+            // Cas fonds très clairs : éviter les couleurs trop ternes/pastel
+            if (brightRatio > 0.55)
+            {
+                finalColor = Saturate(finalColor, 0.25);
+            }
+
+            // Cas jaune/vert sale : pousser vers un or plus propre
+            double finalHue = Hue360(finalColor);
+            int finalChroma = Chroma(finalColor);
+
+            if (finalHue >= 50 && finalHue <= 105 && finalChroma < 95)
+            {
+                var gold = MediaColor.FromRgb(210, 170, 70);
+                finalColor = Mix(finalColor, gold, 0.30);
+                finalColor = Saturate(finalColor, 0.20);
+            }
+
+            // Recalcule après modification
+            finalHue = Hue360(finalColor);
+            finalChroma = Chroma(finalColor);
+
+            // Évite les thèmes trop plats sur les fonds très lumineux
+            if (brightRatio > 0.55 && finalChroma > 80)
+            {
+                finalColor = Darken(finalColor, 0.10);
+            }
+
+            // Boost léger des couleurs chaudes pour un rendu plus cinématique
+            if (finalHue >= 0 && finalHue <= 40 && finalChroma > 60)
+            {
+                finalColor = Saturate(finalColor, 0.10);
+            }
+
+            return finalColor;
         }
 
         private static int Lum255(byte r, byte g, byte b) => (54 * r + 183 * g + 18 * b) / 255; // 0..255
@@ -1191,13 +1241,7 @@ namespace AnikiHelper
             var ct = animCts.Token;
 
             var current = SnapshotCurrentPalette(target);
-            if (IsClose(current.OverlayTop, target.OverlayTop) &&
-                IsClose(current.OverlayMid, target.OverlayMid) &&
-                IsClose(current.MenuBorderSecondary, target.MenuBorderSecondary))
-            {
-                ApplyPalette_NoShade(target, includeHeavyBrushes: true);
-                return;
-            }
+            
 
             var from = SnapshotCurrentPalette(target);
 
@@ -1899,11 +1943,14 @@ namespace AnikiHelper
 
         private static double Luminance(MediaColor c) => (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
 
-        private static async Task RunPrecacheTrickleAsync()
+        private static async Task RunPrecacheTrickleAsync(bool skipInitialDelay = false)
         {
             try
             {
-                await Task.Delay(PrecacheDelayMs);
+                if (!skipInitialDelay)
+                {
+                    await Task.Delay(PrecacheDelayMs);
+                }
 
                 var games = api.Database.Games?.ToList() ?? new List<Game>();
                 int total = games.Count;
@@ -1917,6 +1964,12 @@ namespace AnikiHelper
                     // Stop si Playnite n'est plus actif OU si l'option s'est désactivée
                     if (!IsAppActive() || !IsPrecacheEnabled())
                         break;
+
+                    if (!IsIdleForMs(3000))
+                    {
+                        await Task.Delay(1000);
+                        continue;
+                    }
 
                     // 1) On récupère uniquement la clé sans décoder
                     if (!TryGetImageKeyOnly(g, out var key) || string.IsNullOrEmpty(key))
@@ -1970,9 +2023,9 @@ namespace AnikiHelper
 
                     added++;
 
-                    await Task.Delay(PrecacheGapMs);
+                    ArmSaveAccentCache();
 
-                    SaveAccentCacheNow(null, EventArgs.Empty);
+                    await Task.Delay(PrecacheGapMs);
                 }
             }
             catch (Exception ex)
