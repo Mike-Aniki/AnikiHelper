@@ -198,3 +198,19 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.3.2/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_3_2.pext
     Changelog:
       - Improved Aniki Helper stability by automatically recovering from corrupted config.json files instead of failing to load.
+  - Version: 1.3.3
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-04-29
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.3.3/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_3_3.pext
+    Changelog:
+      - Improved custom window scaling behavior on Windows DPI scaling / high-DPI displays.
+      - Improved startup intro video reliability by waiting briefly for Playnite to regain focus.
+      - Improved focus restoration after the startup intro video closes.
+      - Improved Dynamic Colors performance by using the color cache before decoding images.
+      - Improved Dynamic Colors preload behavior, it now starts more reliably and pauses while the user is navigating.
+      - Improved Dynamic Colors transitions for smoother and more consistent color changes.
+      - Improved automatic color selection for brighter and more visually coherent palettes.
+      - Improved Steam update detection logic to reduce false new update notifications.
+      - Improved Steam update background scanning, scans now pause while navigating to reduce stutter.
+      - Fixed the dynamic color cache clear button not deleting the current cache file.
+      - Added automatic Dynamic Colors cache reset for users updating from older plugin versions.
