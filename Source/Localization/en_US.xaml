@@ -6,6 +6,9 @@
     <sys:String x:Key="AppSubtitle">Settings</sys:String>
     <sys:String x:Key="AppInfo">Designed for the Aniki ReMake theme. Some features may require theme support to work in other themes.</sys:String>
 
+    <sys:String x:Key="MoreOptionsDesktop">More options are available in the plugin settings from Playnite desktop mode.</sys:String>
+    <sys:String x:Key="GroupAdditionalFeatures">Additional features</sys:String>
+
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Home screen</sys:String>
     <sys:String x:Key="WelcomeHubStartup_Desc">Choose which screen is shown when Playnite starts: your library or the Hub.</sys:String>

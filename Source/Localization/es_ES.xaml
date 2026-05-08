@@ -5,6 +5,8 @@
     <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
     <sys:String x:Key="AppSubtitle">Ajustes</sys:String>
     <sys:String x:Key="AppInfo">Diseñado para el tema Aniki ReMake. Algunas funciones pueden requerir compatibilidad del tema para funcionar en otros temas.</sys:String>
+    <sys:String x:Key="GroupAdditionalFeatures">Funciones adicionales</sys:String>
+    <sys:String x:Key="MoreOptionsDesktop">Hay más opciones disponibles en la configuración del plugin desde el modo escritorio de Playnite.</sys:String>
 
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Pantalla de inicio</sys:String>

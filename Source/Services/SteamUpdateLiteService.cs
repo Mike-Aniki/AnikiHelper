@@ -7,6 +7,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace AnikiHelper
 {
@@ -34,6 +36,32 @@ namespace AnikiHelper
             return client;
         }
 
+        private static string ExtractFirstImageUrl(string html)
+        {
+            if (string.IsNullOrWhiteSpace(html))
+                return string.Empty;
+
+            var decoded = WebUtility.HtmlDecode(html);
+
+            var imgMatch = Regex.Match(
+                decoded,
+                "<img[^>]+src=[\"']([^\"']+)[\"']",
+                RegexOptions.IgnoreCase);
+
+            if (imgMatch.Success)
+                return WebUtility.HtmlDecode(imgMatch.Groups[1].Value);
+
+            var directImageMatch = Regex.Match(
+                decoded,
+                @"https?://[^\s""'<>]+?\.(jpg|jpeg|png|webp|gif)(\?[^\s""'<>]*)?",
+                RegexOptions.IgnoreCase);
+
+            if (directImageMatch.Success)
+                return WebUtility.HtmlDecode(directImageMatch.Value);
+
+            return string.Empty;
+        }
+
         // PUBLIC: retrieves the latest update (Update/Patch Notes)
         public async Task<SteamUpdateLiteResult> GetLatestUpdateAsync(string steamId, CancellationToken ct)
         {
@@ -57,6 +85,26 @@ namespace AnikiHelper
         // Backward compatibility (si tu as encore des appels sans ct quelque part)
         public Task<SteamUpdateLiteResult> GetLatestUpdateAsync(string steamId)
             => GetLatestUpdateAsync(steamId, CancellationToken.None);
+
+        public async Task<List<SteamGameNewsItem>> GetLatestNewsAsync(string steamId, int count, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(steamId))
+                return new List<SteamGameNewsItem>();
+
+            var result = await GetLatestNewsForLanguageAsync(steamId, steamLanguage, count, ct)
+                .ConfigureAwait(false);
+
+            if (result != null && result.Count > 0)
+                return result;
+
+            if (!string.Equals(steamLanguage, "english", StringComparison.OrdinalIgnoreCase))
+            {
+                return await GetLatestNewsForLanguageAsync(steamId, "english", count, ct)
+                    .ConfigureAwait(false);
+            }
+
+            return new List<SteamGameNewsItem>();
+        }
 
         private async Task<SteamUpdateLiteResult> GetLatestUpdateForLanguageAsync(string steamId, string language, CancellationToken ct)
         {
@@ -175,6 +223,121 @@ namespace AnikiHelper
             {
                 return null;
             }
+        }
+
+        private async Task<List<SteamGameNewsItem>> GetLatestNewsForLanguageAsync(
+            string steamId,
+            string language,
+            int count,
+            CancellationToken ct)
+              {
+                try
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    var url = string.Format(FeedTemplate, steamId, language);
+
+                    using (var resp = await http.GetAsync(url, ct).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return new List<SteamGameNewsItem>();
+
+                        var xml = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (string.IsNullOrWhiteSpace(xml))
+                            return new List<SteamGameNewsItem>();
+
+                        var doc = XDocument.Parse(xml);
+
+                        DateTime ParseDateUtc(string raw)
+                        {
+                            if (DateTime.TryParse(
+                                raw,
+                                CultureInfo.InvariantCulture,
+                                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                                out var dt))
+                            {
+                                return dt.ToUniversalTime();
+                            }
+
+                            return DateTime.MinValue;
+                        }
+
+                        return doc.Descendants("item")
+                            .Select(x =>
+                            {
+                                var pub = ParseDateUtc((string)x.Element("pubDate") ?? "");
+
+                                var descRaw = (string)x.Element("description") ?? "";
+                                var desc = FixSteamEncoding(WebUtility.HtmlDecode(descRaw));
+
+                                var enclosureUrl = WebUtility.HtmlDecode(
+                                    (string)x.Element("enclosure")?.Attribute("url") ?? string.Empty);
+
+                                var imageUrl = string.Empty;
+
+                                // 1) Priorité à l'image RSS officielle
+                                if (!string.IsNullOrWhiteSpace(enclosureUrl))
+                                {
+                                    imageUrl = enclosureUrl;
+                                }
+
+                                // 2) Sinon on cherche dans le HTML
+                                if (string.IsNullOrWhiteSpace(imageUrl))
+                                {
+                                    imageUrl = ExtractFirstImageUrl(descRaw);
+                                }
+
+                                if (string.IsNullOrWhiteSpace(imageUrl))
+                                {
+                                    imageUrl = ExtractFirstImageUrl(desc);
+                                }
+
+                                // 3) On ignore les placeholders YouTube
+                                if (!string.IsNullOrWhiteSpace(imageUrl) &&
+                                    imageUrl.IndexOf("youtube_16x9_placeholder.gif", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    imageUrl = string.Empty;
+                                }
+
+                                // 4) Fallback final : header Steam du jeu
+                                if (string.IsNullOrWhiteSpace(imageUrl))
+                                {
+                                    imageUrl = $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{steamId}/header.jpg";
+                                }
+
+                                return new
+                                {
+                                    Title = FixSteamEncoding(WebUtility.HtmlDecode((string)x.Element("title") ?? "")),
+                                    Desc = desc,
+                                    ImageUrl = imageUrl,
+                                    Link = WebUtility.HtmlDecode((string)x.Element("link") ?? ""),
+                                    Published = pub
+                                };
+                            })
+                            .Where(x => !string.IsNullOrWhiteSpace(x.Title))
+                            .OrderByDescending(x => x.Published)
+                            .Take(Math.Max(1, count))
+                            .Select(x => new SteamGameNewsItem
+                            {
+                                Title = x.Title,
+                                Html = x.Desc,
+                                Url = x.Link,
+                                ImageUrl = x.ImageUrl,
+                                DateString = x.Published == DateTime.MinValue
+                                    ? string.Empty
+                                    : x.Published.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                            })
+                            .ToList();
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    return new List<SteamGameNewsItem>();
+                }
         }
 
         // CONVERTIT Playnite → Steam (fr_FR → french)

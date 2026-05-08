@@ -43,6 +43,7 @@ namespace AnikiHelper.Services
     {
         private readonly IPlayniteAPI playniteApi;
         private readonly Stack<Window> windows = new Stack<Window>();
+        private const string QuickAccessWindowStyleName = "QuickAccessWindowStyle";
 
         public AnikiWindowManager(IPlayniteAPI playniteApi)
         {
@@ -105,10 +106,18 @@ namespace AnikiHelper.Services
             {
                 CleanupClosedWindows();
 
+                if (!string.Equals(styleKey, QuickAccessWindowStyleName, StringComparison.OrdinalIgnoreCase))
+                {
+                    CloseWindowByStyleKey(QuickAccessWindowStyleName);
+                    CleanupClosedWindows();
+                }
+
                 var window = playniteApi.Dialogs.CreateWindow(new WindowCreationOptions
                 {
                     ShowMinimizeButton = false
                 });
+
+                window.Tag = styleKey;
 
                 window.WindowStyle = WindowStyle.None;
                 window.ResizeMode = ResizeMode.NoResize;
@@ -174,6 +183,26 @@ namespace AnikiHelper.Services
                 window.Activate();
                 window.Focus();
             });
+        }
+
+        private void CloseWindowByStyleKey(string styleKey)
+        {
+            if (string.IsNullOrWhiteSpace(styleKey))
+            {
+                return;
+            }
+
+            var windowsToClose = windows
+                .Where(w =>
+                    w != null &&
+                    w.IsVisible &&
+                    string.Equals(w.Tag as string, styleKey, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var window in windowsToClose)
+            {
+                window.Close();
+            }
         }
 
         private void RemoveWindow(Window window)

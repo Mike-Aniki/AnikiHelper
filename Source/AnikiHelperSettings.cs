@@ -1,19 +1,20 @@
-﻿using Playnite.SDK;
+﻿using AnikiHelper.Services;
+using Playnite.SDK;
 using Playnite.SDK.Data;
 using Playnite.SDK.Events;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
-using System.Collections.ObjectModel;
-using System.Timers;
-using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
+using System.Timers;
 using System.Windows;
-using AnikiHelper.Services;
+using System.Windows.Input;
 
 namespace AnikiHelper
 {
@@ -166,7 +167,112 @@ namespace AnikiHelper
         }
     }
 
+    public class SteamGameNewsItem : ObservableObject
+    {
+        private string title;
+        public string Title
+        {
+            get => title;
+            set => SetValue(ref title, value);
+        }
 
+        private string dateString;
+        public string DateString
+        {
+            get => dateString;
+            set => SetValue(ref dateString, value);
+        }
+
+        private string html;
+        public string Html
+        {
+            get => html;
+            set => SetValue(ref html, value);
+        }
+
+        private string url;
+        public string Url
+        {
+            get => url;
+            set => SetValue(ref url, value);
+        }
+
+        private string imageUrl;
+        public string ImageUrl
+        {
+            get => imageUrl;
+            set => SetValue(ref imageUrl, value);
+        }
+
+        private string localImagePath;
+        public string LocalImagePath
+        {
+            get => localImagePath;
+            set => SetValue(ref localImagePath, value);
+        }
+    }
+
+    public class AnikiNotificationItem : ObservableObject
+    {
+        private string title;
+        public string Title
+        {
+            get => title;
+            set => SetValue(ref title, value);
+        }
+
+        private string message;
+        public string Message
+        {
+            get => message;
+            set => SetValue(ref message, value);
+        }
+
+        private string type;
+        public string Type
+        {
+            get => type;
+            set => SetValue(ref type, value);
+        }
+
+        private string dateString;
+        public string DateString
+        {
+            get => dateString;
+            set => SetValue(ref dateString, value);
+        }
+
+        private string imagePath;
+        public string ImagePath
+        {
+            get => imagePath;
+            set => SetValue(ref imagePath, value);
+        }
+    }
+
+    public class WhatsNewSlideItem : ObservableObject
+    {
+        private string title;
+        public string Title
+        {
+            get => title;
+            set => SetValue(ref title, value);
+        }
+
+        private string text;
+        public string Text
+        {
+            get => text;
+            set => SetValue(ref text, value);
+        }
+
+        private string imagePath;
+        public string ImagePath
+        {
+            get => imagePath;
+            set => SetValue(ref imagePath, value);
+        }
+    }
 
     public class AnikiHelperSettings : ObservableObject, ISettings, System.ComponentModel.INotifyPropertyChanged
     {
@@ -190,6 +296,31 @@ namespace AnikiHelper
 
         [DontSerialize]
         public AnikiWindowCommandProvider OpenChildWindow { get; }
+        public ICommand OpenSteamGameNewsWindowCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand CloseTopWindowCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenWhatsNewCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenNotificationsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenLockScreenCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenPowerMenuCommand { get; }
+
+        [DontSerialize]
+        public AnikiWindowCommandProvider OpenHelpLink { get; }
+
+        [DontSerialize]
+        public RelayCommand CloseHubToLibraryCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenPlayniteMainMenuCommand { get; }
 
         private bool isWelcomeHubOpen = true;
         public bool IsWelcomeHubOpen
@@ -399,6 +530,11 @@ namespace AnikiHelper
             get => steamStoreDetailsControllerSupport;
             set => SetValue(ref steamStoreDetailsControllerSupport, value);
         }
+
+        public string InstalledPluginVersion { get; set; } = "";
+        public bool VersionCheckReady { get; set; } = true;
+        public bool IsPluginUpdateRequired { get; set; } = false;
+        public string RequiredAnikiHelperVersion { get; set; } = "";
 
         // Info snapshot 
         private string snapshotDateString;
@@ -744,6 +880,8 @@ namespace AnikiHelper
             set => SetValue(ref steamUpdateIsNew, value);
         }
 
+
+
         // Date 
         private string steamUpdateDate;
         public string SteamUpdateDate
@@ -774,6 +912,29 @@ namespace AnikiHelper
             get => steamUpdateError;
             set => SetValue(ref steamUpdateError, value);
         }
+
+        // === Steam Game News ===
+        private bool steamGameNewsLoading;
+        public bool SteamGameNewsLoading
+        {
+            get => steamGameNewsLoading;
+            set => SetValue(ref steamGameNewsLoading, value);
+        }
+
+        private bool steamGameNewsAvailable;
+        public bool SteamGameNewsAvailable
+        {
+            get => steamGameNewsAvailable;
+            set => SetValue(ref steamGameNewsAvailable, value);
+        }
+
+        private string steamGameNewsError;
+        public string SteamGameNewsError
+        {
+            get => steamGameNewsError;
+            set => SetValue(ref steamGameNewsError, value);
+        }
+
 
         // Steam Current Players (nombre de joueurs connectés)
 
@@ -960,6 +1121,27 @@ namespace AnikiHelper
             set => SetValue(ref steamStoreEnabled, value);
         }
 
+        private bool steamStoreLoading;
+        public bool SteamStoreLoading
+        {
+            get => steamStoreLoading;
+            set => SetValue(ref steamStoreLoading, value);
+        }
+
+        private bool steamStoreAvailable;
+        public bool SteamStoreAvailable
+        {
+            get => steamStoreAvailable;
+            set => SetValue(ref steamStoreAvailable, value);
+        }
+
+        private string steamStoreError;
+        public string SteamStoreError
+        {
+            get => steamStoreError;
+            set => SetValue(ref steamStoreError, value);
+        }
+
         private ObservableCollection<SteamStoreItem> steamStoreDeals = new ObservableCollection<SteamStoreItem>();
         private ObservableCollection<SteamStoreItem> steamStoreNewReleases = new ObservableCollection<SteamStoreItem>();
         private ObservableCollection<SteamStoreItem> steamStoreTopSellers = new ObservableCollection<SteamStoreItem>();
@@ -1090,7 +1272,15 @@ namespace AnikiHelper
 
         // Latest Steam game updates (Top 10)
         public ObservableCollection<SteamRecentUpdateItem> SteamRecentUpdates { get; } = new ObservableCollection<SteamRecentUpdateItem>();
+        public ObservableCollection<SteamGameNewsItem> SteamGameNews { get; } = new ObservableCollection<SteamGameNewsItem>();
 
+        // Last notifications generated by Aniki Helper
+        private ObservableCollection<AnikiNotificationItem> lastNotifications = new ObservableCollection<AnikiNotificationItem>();
+        public ObservableCollection<AnikiNotificationItem> LastNotifications
+        {
+            get => lastNotifications;
+            set => SetValue(ref lastNotifications, value ?? new ObservableCollection<AnikiNotificationItem>());
+        }
 
         // Watcher SuccessStory
         private FileSystemWatcher achievementsWatcher;
@@ -1288,6 +1478,40 @@ namespace AnikiHelper
 
         #endregion
 
+        // --- What's New ---
+        public string LastSeenWhatsNewVersion { get; set; } = string.Empty;
+
+        [DontSerialize]
+        private string whatsNewVersion;
+        [DontSerialize]
+        public string WhatsNewVersion
+        {
+            get => whatsNewVersion;
+            set => SetValue(ref whatsNewVersion, value);
+        }
+
+        [DontSerialize]
+        private string whatsNewTitle;
+        [DontSerialize]
+        public string WhatsNewTitle
+        {
+            get => whatsNewTitle;
+            set => SetValue(ref whatsNewTitle, value);
+        }
+
+        [DontSerialize]
+        private string whatsNewSubtitle;
+        [DontSerialize]
+        public string WhatsNewSubtitle
+        {
+            get => whatsNewSubtitle;
+            set => SetValue(ref whatsNewSubtitle, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<WhatsNewSlideItem> WhatsNewSlides { get; set; }
+            = new ObservableCollection<WhatsNewSlideItem>();
+
         // --- Random login screen ---
         private int loginRandomIndex;
         public int LoginRandomIndex
@@ -1357,6 +1581,7 @@ namespace AnikiHelper
 
                 LoginRandomIndex = saved.LoginRandomIndex;
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
+                LastSeenWhatsNewVersion = saved.LastSeenWhatsNewVersion ?? string.Empty;
 
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
@@ -1417,6 +1642,16 @@ namespace AnikiHelper
                     foreach (var it in saved.PlayniteNews)
                     {
                         PlayniteNews.Add(it);
+                    }
+                }
+
+                if (saved.LastNotifications != null && saved.LastNotifications.Any())
+                {
+                    LastNotifications.Clear();
+
+                    foreach (var it in saved.LastNotifications.Take(20))
+                    {
+                        LastNotifications.Add(it);
                     }
                 }
 
@@ -1499,6 +1734,12 @@ namespace AnikiHelper
                 styleKey => new RelayCommand(() => plugin?.OpenChildWindow(styleKey))
             );
 
+            OpenHelpLink = new AnikiWindowCommandProvider(
+                linkKey => new RelayCommand(() => plugin?.OpenHelpLink(linkKey))
+            );
+
+            OpenSteamGameNewsWindowCommand = new RelayCommand(() => plugin?.OpenSteamGameNewsWindow());
+
             InitializeWelcomeHubCommand = new RelayCommand<object>(
                 param =>
                 {
@@ -1508,6 +1749,20 @@ namespace AnikiHelper
                     }
                 }
             );
+
+            CloseTopWindowCommand = new RelayCommand(() => plugin?.CloseTopWindow());
+
+            OpenWhatsNewCommand = new RelayCommand(() => plugin?.OpenWhatsNewFromMenu());
+
+            OpenNotificationsCommand = new RelayCommand(() => plugin?.OpenNotificationsMenuFromQuickAccess());
+
+            OpenLockScreenCommand = new RelayCommand(() => plugin?.OpenLockScreenFromQuickAccess());
+
+            OpenPowerMenuCommand = new RelayCommand(() => plugin?.OpenPowerMenuFromQuickAccess());
+
+            CloseHubToLibraryCommand = new RelayCommand(() => plugin?.CloseHubToLibraryFromShortcut());
+
+            OpenPlayniteMainMenuCommand = new RelayCommand(() => plugin?.OpenPlayniteMainMenuFromShortcut());
 
             CloseWelcomeHubCommand = new RelayCommand<object>(
                 _ =>

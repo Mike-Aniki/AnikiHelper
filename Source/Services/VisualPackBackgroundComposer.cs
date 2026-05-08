@@ -38,7 +38,7 @@ namespace AnikiHelper
 
             timer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(300)
+                Interval = TimeSpan.FromMilliseconds(1000)
             };
 
             timer.Tick += Timer_Tick;

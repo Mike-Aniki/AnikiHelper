@@ -1,0 +1,200 @@
+﻿<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:pctrls="clr-namespace:Playnite.FullscreenApp.Controls;assembly=Playnite.FullscreenApp"
+             KeyboardNavigation.TabNavigation="Cycle"
+             KeyboardNavigation.DirectionalNavigation="Cycle">
+
+    <ScrollViewer Style="{DynamicResource AnikiHelperSettingsScrollViewerStyle}">
+        <StackPanel Margin="40,20,40,40"
+                    KeyboardNavigation.TabNavigation="Cycle"
+                    KeyboardNavigation.DirectionalNavigation="Cycle">
+
+            <StackPanel Margin="0,0,0,40"
+                        Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+
+                <DockPanel Style="{DynamicResource AnikiHelperSettingsHeaderDockPanelStyle}">
+                    <TextBlock Text="{DynamicResource AppTitle}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyle}" />
+                </DockPanel>
+
+                <TextBlock Text="{DynamicResource MoreOptionsDesktop}"
+                           Style="{DynamicResource TextAnikiHelperSettingsStyleSousTitre}" />
+
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <pctrls:CheckBoxEx Content="{DynamicResource WelcomeHubStartup_Enable}"
+                                IsChecked="{Binding Settings.OpenWelcomeHubOnStartup}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource WelcomeHubStartup_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource GameLaunchSplash_Enable}"
+                                IsChecked="{Binding Settings.GameLaunchSplashEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource EventSounds_Enable}"
+                                IsChecked="{Binding Settings.EventSoundsEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource EventSounds_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <!-- Video -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource Video}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
+
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <pctrls:CheckBoxEx Content="{DynamicResource StartupIntro_Enable}"
+                                IsChecked="{Binding Settings.StartupIntroVideoEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource IntroVideo_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource ShutdownVideo_Enable}"
+                                IsChecked="{Binding Settings.ShutdownVideoEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource ShutdownVideo_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <!-- Steam -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource GroupSteamFeatures}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
+
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <pctrls:CheckBoxEx Content="{DynamicResource SteamUpdates_Enable}"
+                                IsChecked="{Binding Settings.SteamUpdatesScanEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource SteamUpdates_Enable_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource SteamPlayers_Enable}"
+                                IsChecked="{Binding Settings.SteamPlayerCountEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource SteamPlayers_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource SteamStore_Enable}"
+                                IsChecked="{Binding Settings.SteamStoreEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource SteamStore_Enable_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,30,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{DynamicResource SteamStore_Language_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                           Margin="0"/>
+
+                <pctrls:ComboBoxEx Grid.Column="1"
+                                    SelectedValue="{Binding Settings.SteamStoreLanguage, UpdateSourceTrigger=PropertyChanged}"
+                                    SelectedValuePath="Tag"
+                                    Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+                    <ComboBoxItem Content="English" Tag="english"/>
+                    <ComboBoxItem Content="French" Tag="french"/>
+                    <ComboBoxItem Content="German" Tag="german"/>
+                    <ComboBoxItem Content="Spanish" Tag="spanish"/>
+                    <ComboBoxItem Content="Italian" Tag="italian"/>
+                    <ComboBoxItem Content="Portuguese" Tag="portuguese"/>
+                    <ComboBoxItem Content="Brazilian Portuguese" Tag="brazilian"/>
+                    <ComboBoxItem Content="Russian" Tag="russian"/>
+                    <ComboBoxItem Content="Polish" Tag="polish"/>
+                    <ComboBoxItem Content="Czech" Tag="czech"/>
+                    <ComboBoxItem Content="Japanese" Tag="japanese"/>
+                    <ComboBoxItem Content="Korean" Tag="koreana"/>
+                    <ComboBoxItem Content="Simplified Chinese" Tag="schinese"/>
+                    <ComboBoxItem Content="Traditional Chinese" Tag="tchinese"/>
+                </pctrls:ComboBoxEx>
+            </Grid>
+
+            <TextBlock Text="{DynamicResource SteamStore_Language_Desc}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,30,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{DynamicResource SteamStore_Country_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                           Margin="0"/>
+
+                <pctrls:ComboBoxEx Grid.Column="1"
+                                    SelectedValue="{Binding Settings.SteamStoreRegion, UpdateSourceTrigger=PropertyChanged}"
+                                    SelectedValuePath="Tag"
+                                    Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+                    <ComboBoxItem Content="United States (USD)" Tag="US"/>
+                    <ComboBoxItem Content="France (EUR)" Tag="FR"/>
+                    <ComboBoxItem Content="Belgium (EUR)" Tag="BE"/>
+                    <ComboBoxItem Content="Germany (EUR)" Tag="DE"/>
+                    <ComboBoxItem Content="Spain (EUR)" Tag="ES"/>
+                    <ComboBoxItem Content="Italy (EUR)" Tag="IT"/>
+                    <ComboBoxItem Content="United Kingdom (GBP)" Tag="GB"/>
+                    <ComboBoxItem Content="Canada (CAD)" Tag="CA"/>
+                    <ComboBoxItem Content="Japan (JPY)" Tag="JP"/>
+                    <ComboBoxItem Content="Brazil (BRL)" Tag="BR"/>
+                    <ComboBoxItem Content="Poland (PLN)" Tag="PL"/>
+                    <ComboBoxItem Content="Russia" Tag="RU"/>
+                </pctrls:ComboBoxEx>
+            </Grid>
+
+            <TextBlock Text="{DynamicResource SteamStore_Country_Desc}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <!-- Other -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource GroupAdditionalFeatures}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
+
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <pctrls:CheckBoxEx Content="{DynamicResource NewsScan_Enable}"
+                                IsChecked="{Binding Settings.NewsScanEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource NewsScan_Enable_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource IncludeHidden}"
+                                IsChecked="{Binding Settings.IncludeHidden}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource StatsHelp}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource L_EnableDynamicAutoPrecache}"
+                                IsChecked="{Binding Settings.DynamicAutoPrecacheUserEnabled}"
+                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource L_EnableDynamicAutoPrecache_Note}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

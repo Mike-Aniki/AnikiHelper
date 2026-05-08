@@ -5,6 +5,8 @@
     <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
     <sys:String x:Key="AppSubtitle">Paramètres</sys:String>
     <sys:String x:Key="AppInfo">Conçu pour le thème Aniki ReMake. Certaines fonctionnalités nécessitent un thème compatible pour fonctionner.</sys:String>
+    <sys:String x:Key="GroupAdditionalFeatures">Fonctionnalités supplémentaires</sys:String>
+    <sys:String x:Key="MoreOptionsDesktop">Plus d’options sont disponibles dans les paramètres du plugin en mode bureau.</sys:String>
 
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Écran d’accueil</sys:String>
