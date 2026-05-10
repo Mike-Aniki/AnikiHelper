@@ -5515,6 +5515,294 @@ namespace AnikiHelper
             }
         }
 
+        public void OpenAchievementsFromQuickAccess()
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        // Ferme la fenêtre Quick Access avant d’ouvrir Achievements
+                        CloseTopWindow();
+
+                        dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try
+                            {
+                                var app = Application.Current;
+                                if (app == null)
+                                {
+                                    return;
+                                }
+
+                                var button = app.Windows
+                                    .OfType<Window>()
+                                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                                    .FirstOrDefault(x => x.Name == "HiddenOpenAchievementsButton") as System.Windows.Controls.Primitives.ButtonBase;
+
+                                if (button == null)
+                                {
+                                    logger.Warn("[AnikiHelper] HiddenOpenAchievementsButton was not found.");
+                                    return;
+                                }
+
+                                if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
+                                {
+                                    button.Command.Execute(button.CommandParameter);
+                                    return;
+                                }
+
+                                button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Failed to trigger HiddenOpenAchievementsButton.");
+                            }
+                        }), DispatcherPriority.Background);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] OpenAchievementsFromQuickAccess inner failed.");
+                    }
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] OpenAchievementsFromQuickAccess failed.");
+            }
+        }
+
+        public void SwitchNewsTab(bool next)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var app = Application.Current;
+                        if (app == null)
+                        {
+                            return;
+                        }
+
+                        var elements = app.Windows
+                            .OfType<Window>()
+                            .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                            .ToList();
+
+                        var modeNews = elements.FirstOrDefault(x => x.Name == "ModeNewsInternal") as ToggleButton;
+                        var modeDeals = elements.FirstOrDefault(x => x.Name == "ModeDealsInternal") as ToggleButton;
+                        var modeUpdates = elements.FirstOrDefault(x => x.Name == "ModeUpdatesInternal") as ToggleButton;
+                        var modePlaynite = elements.FirstOrDefault(x => x.Name == "ModePlayniteInternal") as ToggleButton;
+
+                        if (modeNews == null || modeDeals == null || modeUpdates == null || modePlaynite == null)
+                        {
+                            logger.Warn("[AnikiHelper] News tab toggles were not found.");
+                            return;
+                        }
+
+                        var tabs = new[]
+                        {
+                    modeNews,
+                    modeDeals,
+                    modeUpdates,
+                    modePlaynite
+                };
+
+                        int currentIndex = 0;
+
+                        for (int i = 0; i < tabs.Length; i++)
+                        {
+                            if (tabs[i].IsChecked == true)
+                            {
+                                currentIndex = i;
+                                break;
+                            }
+                        }
+
+                        int newIndex;
+
+                        if (next)
+                        {
+                            newIndex = currentIndex + 1;
+                            if (newIndex >= tabs.Length)
+                            {
+                                newIndex = 0;
+                            }
+                        }
+                        else
+                        {
+                            newIndex = currentIndex - 1;
+                            if (newIndex < 0)
+                            {
+                                newIndex = tabs.Length - 1;
+                            }
+                        }
+
+                        for (int i = 0; i < tabs.Length; i++)
+                        {
+                            tabs[i].IsChecked = i == newIndex;
+                        }
+
+                        // Focus optionnel sur le bouton d'onglet correspondant
+                        string focusName = "NewsTabBtn";
+
+                        if (newIndex == 1)
+                        {
+                            focusName = "DealsTabBtn";
+                        }
+                        else if (newIndex == 2)
+                        {
+                            focusName = "UpdatesTabBtn";
+                        }
+                        else if (newIndex == 3)
+                        {
+                            focusName = "PlayniteTabBtn";
+                        }
+
+                        var focusTarget = elements.FirstOrDefault(x => x.Name == focusName);
+                        if (focusTarget != null)
+                        {
+                            focusTarget.Focus();
+                            Keyboard.Focus(focusTarget);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to switch news tab.");
+                    }
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] SwitchNewsTab failed.");
+            }
+        }
+
+        public void SwitchQuickOptionsSection(int direction)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var app = Application.Current;
+                        if (app == null)
+                        {
+                            return;
+                        }
+
+                        var elements = app.Windows
+                            .OfType<Window>()
+                            .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                            .ToList();
+
+                        // Ordre réel de tes sections dans QuickOptionsView.xaml
+                        string[] modeNames =
+                        {
+                    "ModeSystemInternal",
+                    "ModeThemeInternal",
+                    "ModeDetailsInternal",
+                    "ModeDataInternal",
+                    "ModeVisualInternal",
+                    "ModeTrailerInternal",
+                    "ModeAudioInternal",
+                    "ModeLayoutInternal"
+                };
+
+                        string[] buttonNames =
+                        {
+                    "ButtonSystem",
+                    "ButtonThemeOption",
+                    "ButtonThemeOptionDetails",
+                    "ButtonData",
+                    "ButtonVisual",
+                    "ButtonTrailer",
+                    "ButtonAudio",
+                    "ButtonLayout"
+                };
+
+                        int currentIndex = -1;
+
+                        for (int i = 0; i < modeNames.Length; i++)
+                        {
+                            var mode = elements
+                                .FirstOrDefault(x => x.Name == modeNames[i]) as ToggleButton;
+
+                            if (mode != null && mode.IsChecked == true)
+                            {
+                                currentIndex = i;
+                                break;
+                            }
+                        }
+
+                        if (currentIndex < 0)
+                        {
+                            currentIndex = 0;
+                        }
+
+                        int nextIndex = currentIndex + direction;
+
+                        if (nextIndex < 0)
+                        {
+                            nextIndex = modeNames.Length - 1;
+                        }
+                        else if (nextIndex >= modeNames.Length)
+                        {
+                            nextIndex = 0;
+                        }
+
+                        string nextButtonName = buttonNames[nextIndex];
+
+                        var button = elements
+                            .FirstOrDefault(x => x.Name == nextButtonName) as ButtonBase;
+
+                        if (button == null)
+                        {
+                            logger.Warn("[AnikiHelper] Quick Options section button not found: " + nextButtonName);
+                            return;
+                        }
+
+                        button.Focus();
+                        Keyboard.Focus(button);
+
+                        // Tes sections changent via EventTrigger ButtonBase.Click,
+                        // donc on simule le clic.
+                        button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to switch Quick Options section.");
+                    }
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] SwitchQuickOptionsSection failed.");
+            }
+        }
+
         public void OpenLockScreenFromQuickAccess()
         {
             try

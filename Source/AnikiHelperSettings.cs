@@ -308,6 +308,9 @@ namespace AnikiHelper
         public RelayCommand OpenNotificationsCommand { get; }
 
         [DontSerialize]
+        public RelayCommand OpenAchievementsCommand { get; }
+
+        [DontSerialize]
         public RelayCommand OpenLockScreenCommand { get; }
 
         [DontSerialize]
@@ -315,6 +318,18 @@ namespace AnikiHelper
 
         [DontSerialize]
         public AnikiWindowCommandProvider OpenHelpLink { get; }
+
+        [DontSerialize]
+        public RelayCommand NextNewsTabCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand PreviousNewsTabCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand QuickOptionsPreviousSectionCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand QuickOptionsNextSectionCommand { get; }
 
         [DontSerialize]
         public RelayCommand CloseHubToLibraryCommand { get; }
@@ -1760,7 +1775,17 @@ namespace AnikiHelper
 
             OpenPowerMenuCommand = new RelayCommand(() => plugin?.OpenPowerMenuFromQuickAccess());
 
+            OpenAchievementsCommand = new RelayCommand(() => plugin?.OpenAchievementsFromQuickAccess());
+
+            NextNewsTabCommand = new RelayCommand(() => plugin?.SwitchNewsTab(true));
+
+            PreviousNewsTabCommand = new RelayCommand(() => plugin?.SwitchNewsTab(false));
+
             CloseHubToLibraryCommand = new RelayCommand(() => plugin?.CloseHubToLibraryFromShortcut());
+
+            QuickOptionsPreviousSectionCommand = new RelayCommand(() => plugin?.SwitchQuickOptionsSection(-1));
+
+            QuickOptionsNextSectionCommand = new RelayCommand(() => plugin?.SwitchQuickOptionsSection(1));
 
             OpenPlayniteMainMenuCommand = new RelayCommand(() => plugin?.OpenPlayniteMainMenuFromShortcut());
 
