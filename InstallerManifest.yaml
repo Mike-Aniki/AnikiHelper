@@ -231,3 +231,9 @@ Packages:
       - Added a system to save the current theme version in a JSON file located inside the theme folder.
       - Added a system to display a window only on the first launch after a new theme version is detected, meaning when the current theme version is higher than the version saved by the plugin.
       - Added commands for buttons redirecting users to external links.
+  - Version: 1.3.5
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-05-10
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.3.5/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_3_5.pext
+    Changelog:
+      - Patch for Aniki ReMAke 3.1.1
