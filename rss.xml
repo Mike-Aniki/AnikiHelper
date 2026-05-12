@@ -14,10 +14,6 @@
       <guid isPermaLink="false">Aniki-Bulletin-SplashScreen-System-2026-05-12</guid>
       <pubDate>Tue, 12 May 2026 14:00:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/SplashScreenV2.png"
-             alt="Aniki Helper Splash Screen system" />
-        <br/>
-
         <p><b>The Splash Screen feature has been improved in Aniki Helper.</b></p>
 
         <p>This system is designed to make game launches feel closer to a real console experience inside Playnite Fullscreen.</p>
@@ -78,10 +74,6 @@
       <guid isPermaLink="false">Aniki-Bulletin-SplashScreen-Configuration-Guide-2026-05-10</guid>
       <pubDate>Sun, 10 May 2026 13:00:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/ReMake.png"
-             alt="Aniki Helper Splash Screen configuration" />
-        <br/>
-
         <p><b>Splash images and videos are configured from Playnite Desktop mode.</b></p>
 
         <p>There are two main ways to manage splash screens:</p>
@@ -104,10 +96,6 @@
       <guid isPermaLink="false">Aniki-Bulletin-Notifications-Integration-2026-05-09</guid>
       <pubDate>Sat, 09 May 2026 12:30:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/ReMake.png"
-             alt="Aniki Helper notifications and integration" />
-        <br/>
-
         <p><b>Aniki Helper now handles more theme-related systems directly.</b></p>
 
         <p>The goal is to improve the overall Aniki ReMake experience and make Playnite Fullscreen feel more consistent when using custom views, panels and controller navigation.</p>
@@ -134,10 +122,6 @@
       <guid isPermaLink="false">Aniki-Bulletin-Interface-Highlights-2026-05-08</guid>
       <pubDate>Fri, 08 May 2026 12:00:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/NewsFeatures.png"
-             alt="Aniki ReMake interface preview" />
-        <br/>
-
         <p><b>Aniki ReMake continues to move toward a more complete console-like interface for Playnite Fullscreen.</b></p>
 
         <p>Recent interface improvements focus on easier access to important views, better update communication, and more useful game detail pages.</p>
@@ -166,10 +150,6 @@
       <guid isPermaLink="false">Aniki-Bulletin-Community-Highlight-2026-05-07</guid>
       <pubDate>Thu, 07 May 2026 11:30:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/IRIS.png"
-             alt="Aniki ReMake Iris color theme" />
-        <br/>
-
         <p><b>Some recent Aniki ReMake additions were made possible thanks to the community.</b></p>
 
         <ul>
@@ -272,10 +252,6 @@
       <guid isPermaLink="false">Aniki-Bulletin-Playnite-Phishing-Warning-2026-01-01</guid>
       <pubDate>Thu, 01 Jan 2026 10:00:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/WarningNews.png"
-             alt="Warning" />
-        <br/>
-
         <p><b>Be careful with emails or websites pretending to represent Playnite.</b></p>
 
         <p>Some users have reported emails offering paid promotion for Playnite. These messages should be treated as suspicious unless they come from an official and verified source.</p>
