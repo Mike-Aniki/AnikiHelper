@@ -1,33 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
-    <title>Aniki News</title>
+    <title>Aniki Bulletin</title>
     <link>https://github.com/Mike-Aniki</link>
-    <description>Personal news feed for Aniki ReMake and Aniki Helper</description>
+    <description>Important notices, tips, feature spotlights and community news for Aniki ReMake and Aniki Helper</description>
     <language>en-us</language>
     <lastBuildDate>Tue, 12 May 2026 14:00:00 GMT</lastBuildDate>
 
-    <!-- Aniki Helper -->
+    <!-- Feature Spotlight -->
     <item>
-      <title>Aniki Helper – Splash Screen V2 is now available</title>
+      <title>Feature Spotlight – New Splash Screen system</title>
       <link>https://github.com/Mike-Aniki/AnikiHelper</link>
-      <guid isPermaLink="false">AnikiHelper-SplashScreen-V2-2026-05-12</guid>
+      <guid isPermaLink="false">Aniki-Bulletin-SplashScreen-System-2026-05-12</guid>
       <pubDate>Tue, 12 May 2026 14:00:00 GMT</pubDate>
       <description><![CDATA[
         <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/SplashScreenV2.png"
-             alt="Aniki Helper Splash Screen V2" />
+             alt="Aniki Helper Splash Screen system" />
         <br/>
 
-        <p><b>Splash Screen V2</b> has been added to Aniki Helper.</p>
+        <p><b>The Splash Screen feature has been improved in Aniki Helper.</b></p>
 
-        <p>This new system gives users much more control over game launch splash screens and makes the feature easier to manage directly from Playnite.</p>
+        <p>This system is designed to make game launches feel closer to a real console experience inside Playnite Fullscreen.</p>
+
+        <p>Splash images and videos are configured in <b>Desktop mode</b>. You can manage them either from the Aniki Helper plugin settings, or by right-clicking a game and selecting <b>Aniki Helper → Manage Splash Screen</b>.</p>
 
         <ul>
           <li>Video splash screens are now supported.</li>
-          <li>Added a new management window for a better user experience.</li>
-          <li>Multiple splash files can now be added for the same game.</li>
+          <li>A new management window has been added for easier setup.</li>
+          <li>Multiple splash files can be added for the same game.</li>
           <li>If several files are available, Aniki Helper can randomly select one.</li>
-          <li>A splash file can now be marked as the main splash with a star.</li>
+          <li>A splash file can be marked as the main splash with a star, so it will always be used instead of random selection.</li>
           <li>Users can switch back to random selection at any time.</li>
           <li>Splash screens can be managed per game, globally, by source, or by platform.</li>
           <li>Several priority modes are available.</li>
@@ -36,102 +38,257 @@
           <li>Logo position can be customized: left, center, right, top, middle, or bottom.</li>
           <li>Video splash screens can play with or without sound.</li>
           <li>Video volume can be adjusted directly from the plugin settings.</li>
-          <li>Added a global minimum display timer slider.</li>
+          <li>When a video splash ends before the minimum display timer, users can choose whether to show the game background or keep the last frame of the video until the timer finishes.</li>
+          <li>A global minimum display timer slider has been added.</li>
           <li>A custom minimum display timer can also be set per game.</li>
           <li>Splash files are now organized into clean folders for Global, Sources, Platforms, and Games.</li>
         </ul>
 
-        <p>This is a major upgrade for users who want a more console-like launch experience in Playnite Fullscreen.</p>
+        <p>If you want a cleaner and more cinematic launch experience, this is one of the main features to configure.</p>
       ]]></description>
     </item>
 
-    <!-- Aniki ReMake -->
+    <!-- Important Notice -->
     <item>
-      <title>Aniki ReMake – New features and interface improvements</title>
-      <link>https://github.com/Mike-Aniki/Aniki-ReMake</link>
-      <guid isPermaLink="false">AnikiReMake-NewFeatures-2026-05-12</guid>
-      <pubDate>Tue, 12 May 2026 13:30:00 GMT</pubDate>
-      <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/MainViewSquare.png"
-             alt="Aniki ReMake Preview" />
-        <br/>
-
-        <p><b>Aniki ReMake</b> continues to evolve with new interface features, better controller navigation, and deeper integration with Aniki Helper.</p>
-
-        <ul>
-          <li>Added a new <b>What&apos;s New</b> view to show important update information directly inside the theme.</li>
-          <li>Added a Quick Access menu opened from the avatar.</li>
-          <li>The Quick Access menu gives access to views, power options, notifications, help, resources, and update information.</li>
-          <li>Added an Aniki Helper tab inside Playnite&apos;s settings menu.</li>
-          <li>Added a warning message when Aniki Helper is outdated.</li>
-          <li>Added support for Steam news in the game details view.</li>
-          <li>The previous per-game update button has been replaced by a News button.</li>
-          <li>The game details page can now show up to 8 latest Steam news entries.</li>
-          <li>Added an option to hide the central top bar buttons.</li>
-          <li>Added controller mapping improvements so the same button can open and close the Hub.</li>
-          <li>Added new avatar assets.</li>
-          <li>Added new filter images.</li>
-          <li>Added the new Iris color theme.</li>
-        </ul>
-
-        <p>The goal is still the same: make Playnite Fullscreen feel closer to a real premium console interface for PC.</p>
-      ]]></description>
-    </item>
-
-    <!-- Aniki Helper -->
-    <item>
-      <title>Aniki Helper – News, notifications and system integration improvements</title>
+      <title>Important Notice – ThemeOptions menu may close unexpectedly</title>
       <link>https://github.com/Mike-Aniki/AnikiHelper</link>
-      <guid isPermaLink="false">AnikiHelper-NewsNotifications-2026-05-12</guid>
-      <pubDate>Tue, 12 May 2026 13:00:00 GMT</pubDate>
+      <guid isPermaLink="false">Aniki-Bulletin-ThemeOptions-Navigation-Issue-2026-05-11</guid>
+      <pubDate>Mon, 11 May 2026 13:30:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/AnikiHelperNews.png"
-             alt="Aniki Helper News" />
-        <br/>
+        <p><b>A controller navigation issue was found in Aniki Helper v1.3.5.</b></p>
 
-        <p><b>Aniki Helper</b> now handles more theme-related systems directly, improving the overall experience inside Aniki ReMake.</p>
+        <p>When navigating inside the <b>ThemeOptions</b> menu, opening some ComboBox options could accidentally close the entire ThemeOptions window when pressing <b>D-Pad Up</b>.</p>
+
+        <p>This could happen with options such as <b>Theme Color</b>, <b>Avatar</b>, and other settings that use ComboBox menus.</p>
 
         <ul>
-          <li>Added support for a dedicated Aniki notification history.</li>
-          <li>Theme and plugin notifications can now be separated from default Playnite notifications.</li>
-          <li>Added support for game session notifications.</li>
-          <li>Added support for Steam update notifications.</li>
-          <li>Added the system used by the theme to display the What&apos;s New window only when needed.</li>
-          <li>Added better integration for opening Playnite menus from custom theme views.</li>
-          <li>Improved handling of custom windows and child overlays for controller navigation.</li>
-          <li>Improved fullscreen menu styling for a more consistent Aniki interface.</li>
+          <li>The issue was introduced with Aniki Helper v1.3.5.</li>
+          <li>The issue has been fixed in Aniki Helper v1.3.6.</li>
+          <li>If your ThemeOptions menu closes unexpectedly when using D-Pad Up, please update Aniki Helper.</li>
         </ul>
 
-        <p>These changes make Aniki Helper more important for the theme, especially for users who want the full console-style experience.</p>
+        <p>This is especially recommended for users who customize the theme directly from Playnite Fullscreen with a controller.</p>
       ]]></description>
     </item>
 
-    <!-- Fixes -->
+    <!-- Quick Guide -->
     <item>
-      <title>Aniki ReMake / Aniki Helper – Recent fixes</title>
-      <link>https://github.com/Mike-Aniki</link>
-      <guid isPermaLink="false">Aniki-Fixes-2026-05-12</guid>
-      <pubDate>Tue, 12 May 2026 12:30:00 GMT</pubDate>
+      <title>Quick Guide – Where to configure splash images and videos</title>
+      <link>https://github.com/Mike-Aniki/AnikiHelper</link>
+      <guid isPermaLink="false">Aniki-Bulletin-SplashScreen-Configuration-Guide-2026-05-10</guid>
+      <pubDate>Sun, 10 May 2026 13:00:00 GMT</pubDate>
       <description><![CDATA[
-        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/FixNews.png"
-             alt="Aniki Fixes" />
+        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/ReMake.png"
+             alt="Aniki Helper Splash Screen configuration" />
         <br/>
 
-        <p>Several fixes and quality-of-life improvements have been added recently.</p>
+        <p><b>Splash images and videos are configured from Playnite Desktop mode.</b></p>
+
+        <p>There are two main ways to manage splash screens:</p>
 
         <ul>
-          <li>Fixed Playnite notifications menu not opening correctly from the theme.</li>
-          <li>Fixed focus not being set correctly on the What&apos;s New window.</li>
-          <li>Fixed controller navigation on the screenshot view.</li>
-          <li>Controller input can now open screenshots in fullscreen more reliably.</li>
-          <li>Separated Cinematic Focus options for top and bottom overlays.</li>
-          <li>Fixed the Achievements view being vertically offset.</li>
-          <li>News view tabs can now be changed with LB/L1 and RB/R1.</li>
-          <li>Fixed slow scrolling in the Aniki Helper settings menu.</li>
-          <li>Improved controller and keyboard navigation in several custom views.</li>
+          <li>Open the <b>Aniki Helper plugin settings</b> to configure global, source, platform and default splash behavior.</li>
+          <li>Right-click a game, then choose <b>Aniki Helper → Manage Splash Screen</b> to configure splash files for that specific game.</li>
         </ul>
 
-        <p>Recommended update for all users using the latest Aniki ReMake and Aniki Helper features.</p>
+        <p>Per-game splash screens are useful for games you are currently playing, while global, source and platform splash screens are better for creating a consistent style across your library.</p>
+
+        <p>For the most console-like result, you can combine a custom splash image or video with the game logo display option.</p>
+      ]]></description>
+    </item>
+
+    <!-- Feature Spotlight -->
+    <item>
+      <title>Feature Spotlight – Aniki notifications and Playnite integration</title>
+      <link>https://github.com/Mike-Aniki/AnikiHelper</link>
+      <guid isPermaLink="false">Aniki-Bulletin-Notifications-Integration-2026-05-09</guid>
+      <pubDate>Sat, 09 May 2026 12:30:00 GMT</pubDate>
+      <description><![CDATA[
+        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/ReMake.png"
+             alt="Aniki Helper notifications and integration" />
+        <br/>
+
+        <p><b>Aniki Helper now handles more theme-related systems directly.</b></p>
+
+        <p>The goal is to improve the overall Aniki ReMake experience and make Playnite Fullscreen feel more consistent when using custom views, panels and controller navigation.</p>
+
+        <ul>
+          <li>Aniki Helper can keep a dedicated Aniki notification history.</li>
+          <li>Theme and plugin notifications can be separated from default Playnite notifications.</li>
+          <li>Game session notifications can be displayed after closing a game.</li>
+          <li>Steam update notifications can be shown when updates are detected.</li>
+          <li>The What&apos;s New window can be shown only when needed after a theme update.</li>
+          <li>Custom Aniki views can open some Playnite menus more reliably.</li>
+          <li>Custom windows and child overlays have better controller navigation behavior.</li>
+          <li>Fullscreen menus are styled more consistently with the Aniki interface.</li>
+        </ul>
+
+        <p>These systems are part of what makes Aniki Helper important for the full Aniki ReMake experience.</p>
+      ]]></description>
+    </item>
+
+    <!-- Interface Highlight -->
+    <item>
+      <title>Interface Highlight – What&apos;s New, Quick Access and Steam news</title>
+      <link>https://github.com/Mike-Aniki/Aniki-ReMake</link>
+      <guid isPermaLink="false">Aniki-Bulletin-Interface-Highlights-2026-05-08</guid>
+      <pubDate>Fri, 08 May 2026 12:00:00 GMT</pubDate>
+      <description><![CDATA[
+        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/NewsFeatures.png"
+             alt="Aniki ReMake interface preview" />
+        <br/>
+
+        <p><b>Aniki ReMake continues to move toward a more complete console-like interface for Playnite Fullscreen.</b></p>
+
+        <p>Recent interface improvements focus on easier access to important views, better update communication, and more useful game detail pages.</p>
+
+        <ul>
+          <li>A <b>What&apos;s New</b> view can show important update information directly inside the theme.</li>
+          <li>The avatar can open a Quick Access menu.</li>
+          <li>The Quick Access menu gives access to views, power options, notifications, help, resources and update information.</li>
+          <li>An Aniki Helper tab is available inside Playnite&apos;s settings menu.</li>
+          <li>A warning message can appear when Aniki Helper is outdated.</li>
+          <li>The game details view can show Steam news for the selected game.</li>
+          <li>The previous per-game update button has been replaced by a News button.</li>
+          <li>The game details page can show up to 8 latest Steam news entries.</li>
+          <li>An option is available to hide the central top bar buttons.</li>
+          <li>Controller mapping has been improved so the same button can open and close the Hub.</li>
+        </ul>
+
+        <p>The goal is to make Playnite on PC feel less like a launcher and more like a dedicated living-room console interface.</p>
+      ]]></description>
+    </item>
+
+    <!-- Community Highlight -->
+    <item>
+      <title>Community Highlight – New avatars, filters and Iris color theme</title>
+      <link>https://github.com/Mike-Aniki/Aniki-ReMake</link>
+      <guid isPermaLink="false">Aniki-Bulletin-Community-Highlight-2026-05-07</guid>
+      <pubDate>Thu, 07 May 2026 11:30:00 GMT</pubDate>
+      <description><![CDATA[
+        <img src="https://raw.githubusercontent.com/Mike-Aniki/Aniki-ReMake/refs/heads/main/Images/IRIS.png"
+             alt="Aniki ReMake Iris color theme" />
+        <br/>
+
+        <p><b>Some recent Aniki ReMake additions were made possible thanks to the community.</b></p>
+
+        <ul>
+          <li>New avatar assets have been added.</li>
+          <li>New filter images have been added.</li>
+          <li>A new <b>Iris</b> color theme has been added.</li>
+        </ul>
+
+        <p>Thanks to the users who contributed assets, ideas and feedback for the theme.</p>
+
+        <p>Community contributions help make Aniki ReMake more complete, more personal and more fun to use.</p>
+      ]]></description>
+    </item>
+
+    <!-- Recommended Plugin -->
+    <item>
+      <title>Recommended Setup – Optional add-ons for the full Aniki experience</title>
+      <link>https://github.com/Mike-Aniki/Aniki-ReMake/wiki/Guide#optional-add-ons</link>
+      <guid isPermaLink="false">Aniki-Bulletin-Optional-Addons-2026-05-06</guid>
+      <pubDate>Wed, 06 May 2026 10:00:00 GMT</pubDate>
+      <description><![CDATA[
+        <p><b>Aniki ReMake can be used with only the required add-ons, but several optional add-ons are supported for a richer experience.</b></p>
+
+        <ul>
+          <li><b>PlayniteAchievements</b> is recommended if you want achievements directly inside Playnite Fullscreen.</li>
+          <li><b>Steam Friends Fullscreen</b> can display your Steam friends presence inside the fullscreen interface.</li>
+          <li><b>NowPlaying</b> helps you quickly return to or exit currently running games from the Playnite interface.</li>
+          <li><b>BackgroundChanger</b> can randomize covers and wallpapers for a more dynamic library.</li>
+          <li><b>Screenshot Visualizer</b> can display your screenshots and video captures.</li>
+          <li><b>Screenshot Utilities</b> can display screenshots from different stores.</li>
+          <li><b>HowLongToBeat</b> can show estimated completion times for your games.</li>
+          <li><b>UniPlaySong</b> is recommended for background music and per-game music if you want a more console-like audio experience.</li>
+          <li><b>Friends Achievement Feed</b> is recommended to display a feed of achievements from your friends.</li>
+          <li><b>Friends Achievement Feed – Fullscreen Companion</b> displays the Friends Achievement Feed plugin in fullscreen mode.</li>
+          <li><b>Custom Fade Animations</b> is recommended to make background image transitions smoother and more pleasant.</li>
+        </ul>
+
+        <p>You do not need to install every optional add-on. Install only the features you actually want to use.</p>
+      ]]></description>
+    </item>
+
+    <!-- Performance Tip -->
+    <item>
+      <title>Performance Tip – Recommended settings to reduce stuttering</title>
+      <link>https://github.com/Mike-Aniki/Aniki-ReMake/wiki/Guide#stuttering-lag-in-remake</link>
+      <guid isPermaLink="false">Aniki-Bulletin-Performance-Tips-2026-05-05</guid>
+      <pubDate>Tue, 05 May 2026 09:45:00 GMT</pubDate>
+      <description><![CDATA[
+        <p><b>If Aniki ReMake feels laggy or stutters while navigating, check these settings first.</b></p>
+
+        <p>Most stuttering issues are usually caused by heavy media loading, video streaming, animated backgrounds, logo effects, blur effects, GPU drivers, or VRR behavior.</p>
+
+        <p>Even if your PC can play 4K videos easily, rendering trailers or animated wallpapers inside a fullscreen WPF interface is different. Playnite has to render the video together with the full UI, animations, overlays and background effects, which can be heavier on some systems, especially laptops or older GPU drivers.</p>
+
+        <ul>
+          <li>In <b>ExtraMetadataLoader</b>, disable video streaming and prefer downloaded trailers instead.</li>
+          <li>If navigation feels slower, try disabling <b>trailers</b> or <b>animated background wallpapers</b> in ThemeOptions to check if they are causing the stutter.</li>
+          <li>Animated backgrounds, video trailers on main view, and Dynamic Colors can increase GPU/CPU usage and may create slowdowns or small stutters on some setups, even if the video resolution is low.</li>
+          <li>Update your GPU driver if you notice performance drops, stuttering, or unusual slowdown in Playnite Fullscreen.</li>
+          <li>In <b>ExtraMetadataLoader → Logo Settings</b>, disable logo shadow effects and opacity animations if navigation feels slow.</li>
+          <li>In Playnite Fullscreen, set <b>Blur Background</b> to <b>OFF</b>. Blur is expensive in Playnite&apos;s WPF interface.</li>
+          <li>Use the <b>Balanced</b> scaling mode in Playnite Fullscreen settings.</li>
+          <li>Enable <b>Asynchronous image loading</b> in Playnite Fullscreen settings.</li>
+          <li>Disable <b>Smooth Scrolling</b> if you want more responsive navigation.</li>
+          <li>On laptops, make sure Playnite is using the dedicated GPU instead of the integrated graphics.</li>
+          <li>If you use G-Sync, FreeSync or VRR, try disabling it specifically for Playnite.</li>
+        </ul>
+
+        <p>If disabling videos or animated wallpapers makes GPU usage drop back to normal or improves navigation, the issue is likely related to video rendering, animations, visual effects, or your GPU driver rather than a memory leak.</p>
+
+        <p>These settings can make a noticeable difference, especially on laptops, older GPU drivers, lower-end PCs, or very large libraries with many high-resolution images, trailers and animated backgrounds.</p>
+      ]]></description>
+    </item>
+
+    <!-- Audio Recommendation -->
+    <item>
+      <title>Recommended Audio Setup – Music and event sounds</title>
+      <link>https://github.com/Mike-Aniki/Aniki-ReMake/wiki/Guide#plugin-configurations</link>
+      <guid isPermaLink="false">Aniki-Bulletin-Audio-Recommendations-2026-05-04</guid>
+      <pubDate>Mon, 04 May 2026 09:30:00 GMT</pubDate>
+      <description><![CDATA[
+        <p><b>For the best audio experience with Aniki ReMake, use the right tool for the right purpose.</b></p>
+
+        <ul>
+          <li><b>UniPlaySong</b> is recommended for background music, per-game music, audio normalization, fade transitions and a more console-like music experience.</li>
+          <li><b>Aniki Helper</b> includes its own event sounds feature for theme-related actions and fullscreen feedback.</li>
+          <li>If you enable event sounds in Aniki Helper, it is recommended to disable UI/event sounds in <b>Playnite Sound Mod</b> to avoid duplicated audio feedback.</li>
+          <li>If you prefer using Playnite Sound Mod for event sounds, keep Aniki Helper event sounds disabled.</li>
+          <li>To avoid audio conflicts with videos, disable the <b>Pause music during video trailer</b> option in Playnite Sound Mod.</li>
+        </ul>
+
+        <p>The goal is to avoid overlapping audio systems and keep the fullscreen experience clean, consistent and free from duplicate sound effects.</p>
+      ]]></description>
+    </item>
+
+    <!-- Security / Community Notice -->
+    <item>
+      <title>Security Reminder – Be careful with unofficial Playnite downloads and sponsorship emails</title>
+      <link>https://github.com/JosefNemec/Playnite</link>
+      <guid isPermaLink="false">Aniki-Bulletin-Playnite-Phishing-Warning-2026-01-01</guid>
+      <pubDate>Thu, 01 Jan 2026 10:00:00 GMT</pubDate>
+      <description><![CDATA[
+        <img src="https://raw.githubusercontent.com/Mike-Aniki/AnikiHelper/refs/heads/main/ImagesRSS/WarningNews.png"
+             alt="Warning" />
+        <br/>
+
+        <p><b>Be careful with emails or websites pretending to represent Playnite.</b></p>
+
+        <p>Some users have reported emails offering paid promotion for Playnite. These messages should be treated as suspicious unless they come from an official and verified source.</p>
+
+        <p>Only download Playnite from the official website or the official GitHub page.</p>
+
+        <ul>
+          <li>Do not trust unofficial Playnite installers from random websites.</li>
+          <li>Do not trust sponsorship emails claiming to represent Playnite without verification.</li>
+          <li>When in doubt, check the official Playnite sources first.</li>
+        </ul>
+
+        <p>This warning is included here because it can affect Playnite users in general, not only Aniki users.</p>
       ]]></description>
     </item>
 
