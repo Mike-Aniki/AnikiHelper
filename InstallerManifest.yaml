@@ -237,3 +237,23 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.3.5/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_3_5.pext
     Changelog:
       - Patch for Aniki ReMAke 3.1.1
+  - Version: 1.3.6
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-05-15
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.3.6/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_3_6.pext
+    Changelog:
+      - Fixed a navigation issue with ComboBoxes in the Aniki Helper menu inside Aniki ReMake Options.
+      - Improvements to the splash screen function
+      - Video splash screens are now supported.
+      - A new splash screen manager window has been added in desktop mode to make setup and customization much easier.
+      - You can now assign multiple splash files to the same game instead of being limited to one image.
+      - When multiple splash files are available, the plugin can randomly select one.
+      - You can choose a specific file as the main splash screen, or switch back to random selection at any time.
+      - Splash screens can now be configured globally, per game, by source, or by platform.
+      - Image splash screens can now display the game logo.
+      - The logo position on image splash screens can now be customized.
+      - Video splash screens can be played with or without sound.
+      - Video volume can be controlled directly from the plugin settings.
+      - A global minimum splash display timer has been added in the plugin settings and can be adjusted.
+      - A custom minimum splash display timer can now be set per game.
+      - Splash files are now organized into cleaner dedicated folders.
