@@ -199,6 +199,52 @@ namespace AnikiHelper
             }
         }
 
+        private void ResetSplashMinDuration_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is AnikiHelperSettingsViewModel vm)
+            {
+                vm.Settings.GameLaunchSplashMinimumDurationMs = 2400;
+            }
+        }
+
+        private void ManageSourceSplash_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+            vm?.OpenSourceSplashScreenManager();
+        }
+
+        private void ManagePlatformSplash_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+            vm?.OpenPlatformSplashScreenManager();
+        }
+
+        private void ManageGlobalSplash_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                if (vm == null)
+                {
+                    return;
+                }
+
+                vm.OpenGlobalSplashScreenManager();
+            }
+            catch (Exception ex)
+            {
+                var api = (DataContext as AnikiHelperSettingsViewModel)?.Api;
+                if (api != null)
+                {
+                    api.Dialogs.ShowErrorMessage("Error while opening global splash manager:\n" + ex.Message, "Aniki Helper");
+                }
+                else
+                {
+                    MessageBox.Show("Error while opening global splash manager:\n" + ex.Message, "Aniki Helper");
+                }
+            }
+        }
+
         private void ClearNewsCacheA_Click(object sender, RoutedEventArgs e)
         {
             try

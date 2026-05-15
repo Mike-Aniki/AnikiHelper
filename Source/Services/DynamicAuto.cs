@@ -687,7 +687,7 @@ namespace AnikiHelper
         {
             if (string.IsNullOrEmpty(path)) return false;
             var ext = Path.GetExtension(path).ToLowerInvariant();
-            return ext == ".mp4" || ext == ".webm" || ext == ".avi" || ext == ".mkv";
+            return ext == ".mp4" || ext == ".avi" || ext == ".mkv";
         }
 
         private static string SafeFullPath(string dbPath)

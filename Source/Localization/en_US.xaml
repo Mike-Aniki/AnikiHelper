@@ -9,6 +9,11 @@
     <sys:String x:Key="MoreOptionsDesktop">More options are available in the plugin settings from Playnite desktop mode.</sys:String>
     <sys:String x:Key="GroupAdditionalFeatures">Additional features</sys:String>
 
+    <sys:String x:Key="GroupGeneral">General</sys:String>
+    <sys:String x:Key="GroupNews">News</sys:String>
+    <sys:String x:Key="GroupDynamicColors">Dynamic colors</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoVolume_Title">Video volume</sys:String>
+
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Home screen</sys:String>
     <sys:String x:Key="WelcomeHubStartup_Desc">Choose which screen is shown when Playnite starts: your library or the Hub.</sys:String>
@@ -65,10 +70,10 @@
 
     <!-- ========= SPLASH FEATURES ========= -->
     <sys:String x:Key="SplashScreen">Splash screen</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Title">Game launch splash screen</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Desc">Shows a splash screen image when a game starts. You can set a custom image in Desktop mode by right-clicking a game.</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Enable">Enable game launch splash screen</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Help">Turn this off if you want games to start without the splash screen.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Title">Game launch screen</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Desc">Shows a launch image or video when a game starts. You can manage custom splash screens from the right-click menu on a game.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Enable">Enable game launch screen</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Help">Turn this off if you want games to start without a splash screen.</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetCustomSplashImage">Set splash image</sys:String>
     <sys:String x:Key="LOCAnikiHelperReplaceCustomSplashImage">Change splash image</sys:String>
@@ -78,7 +83,7 @@
 
     <sys:String x:Key="LOCAnikiHelperChooseSplashImageForGame">Choose a splash image for {0}</sys:String>
     <sys:String x:Key="LOCAnikiHelperNoCustomSplashImage">No custom splash image has been set for this game.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperPreviewTitle">Splash Image Preview</sys:String>
+    <sys:String x:Key="LOCAnikiHelperPreviewTitle">Splash image preview</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperCustomSplashImageSaved">Splash image saved for:</sys:String>
     <sys:String x:Key="LOCAnikiHelperCustomSplashImageRemoved">Splash image removed for:</sys:String>
@@ -87,6 +92,86 @@
     <sys:String x:Key="LOCAnikiHelperPreviewSplashImageFailed">Couldn’t preview the image.</sys:String>
     <sys:String x:Key="LOCAnikiHelperOpenCustomSplashFolderFailed">Couldn’t open the splash image folder.</sys:String>
 
+    <sys:String x:Key="GameLaunchSplash_Mode_Title">Splash selection mode</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_Automatic">Automatic</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_CustomPriority">Custom priority</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysSource">Always use source</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysPlatform">Always use platform</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysGlobal">Always use global</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_Help">Choose the order used to display a launch image. In Automatic mode: custom game splash, Playnite background, source, platform, then global splash.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperOpenGameSplashFolder">Open game splash folder</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_Title">Logo position</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_Help">Choose where the game logo appears on the splash screen.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_LeftTop">Left top</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_LeftCenter">Left center</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_LeftBottom">Left bottom</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_CenterTop">Center top</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_Center">Center</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_CenterBottom">Center bottom</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_RightTop">Right top</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_RightCenter">Right center</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_RightBottom">Right bottom</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ShowLogo">Show game logo on the splash screen</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Global timers</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">These settings apply to all games by default. If a custom timer is set for a specific game, it will be used first.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Minimum display duration</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Sets the minimum time the splash stays visible. Increase this value if the splash disappears too quickly.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Automatic close safety timer</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Sets how long Aniki Helper waits for the game to take focus. If the game does not come to the foreground, the splash closes automatically after this delay.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ResetTimer">Reset</sys:String>
+
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Set minimum timer for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Reset minimum timer for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Minimum splash duration for this game, in seconds:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Invalid timer value.</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Enable splash video sound</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoSound_Help">Controls the audio volume only for video splash screens. Image splash screens are not affected.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperManageSplashScreens">Manage splash screens</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_Title">When a splash video ends early</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_Help">Choose what is shown if the video is shorter than the splash timer.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_ShowGameBackground">Show the game background</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_KeepLastFrame">Keep the last video frame</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_Library_Title">Splash management</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Library_Help">Manage the splash used for the selected level: global, source or platform.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ManageGlobal">Global splash</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ManageSources">Splashes by source</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ManagePlatforms">Splashes by platform</sys:String>
+
+    <sys:String x:Key="SplashManager_WindowTitle">Aniki Helper - Splash screens</sys:String>
+    <sys:String x:Key="SplashManager_AddLocalFiles">Add local files</sys:String>
+    <sys:String x:Key="SplashManager_SetAsMain">Always use this image</sys:String>
+    <sys:String x:Key="SplashManager_ClearMain">Return to random choice</sys:String>
+    <sys:String x:Key="SplashManager_DeleteSelected">Delete selected</sys:String>
+    <sys:String x:Key="SplashManager_OpenFolder">Open folder</sys:String>
+    <sys:String x:Key="SplashManager_Refresh">Refresh</sys:String>
+    <sys:String x:Key="SplashManager_Close">Close</sys:String>
+    <sys:String x:Key="SplashManager_NoSplashForGame">No launch image has been added for this game yet.</sys:String>
+    <sys:String x:Key="SplashManager_NoGlobalSplash">No global launch image has been added yet.</sys:String>
+    <sys:String x:Key="SplashManager_NoSplashForSource">No launch image has been added for this source yet.</sys:String>
+    <sys:String x:Key="SplashManager_NoSplashForPlatform">No launch image has been added for this platform yet.</sys:String>
+    <sys:String x:Key="SplashManager_UnablePreviewVideo">Unable to preview this video.</sys:String>
+    <sys:String x:Key="SplashManager_UnablePreviewFile">Unable to preview this file.</sys:String>
+    <sys:String x:Key="SplashManager_MainSplashSet">This image will now always be used for this folder.</sys:String>
+    <sys:String x:Key="SplashManager_RandomRestored">Random choice has been re-enabled for this folder.</sys:String>
+    <sys:String x:Key="SplashManager_SelectSplashFiles">Select splash files</sys:String>
+    <sys:String x:Key="SplashManager_DeleteConfirm">Delete this splash file?{0}{1}</sys:String>
+    <sys:String x:Key="SplashManager_SearchImages">Search Images</sys:String>
+    <sys:String x:Key="SplashManager_NoGameNameForSearch">No game name is available for this search.</sys:String>
+
+    <sys:String x:Key="SplashPicker_NoItemFound">No item found.</sys:String>
+    <sys:String x:Key="SplashPicker_OpenFailed">Couldn’t open the splash screen picker:</sys:String>
+    <sys:String x:Key="SplashPicker_SourceTitle">Splash screens by source</sys:String>
+    <sys:String x:Key="SplashPicker_SourceDescription">Select a source to manage its launch images. They will be used for games linked to that source, such as Steam, GOG, Epic, Xbox or other libraries.</sys:String>
+    <sys:String x:Key="SplashPicker_SourceOpenFailed">Couldn’t open the source splash screen manager:</sys:String>
+    <sys:String x:Key="SplashPicker_PlatformTitle">Splash screens by platform</sys:String>
+    <sys:String x:Key="SplashPicker_PlatformDescription">Select a platform to manage its launch images. They will be used for games linked to that platform.</sys:String>
+    <sys:String x:Key="SplashPicker_PlatformOpenFailed">Couldn’t open the platform splash screen manager:</sys:String>
+    <sys:String x:Key="SplashPicker_GlobalTitle">Global</sys:String>
+    <sys:String x:Key="SplashPicker_GlobalOpenFailed">Couldn’t open the global splash screen manager:</sys:String>
 
     <!-- ========= DYNAMIC COLORS FEATURES ========= -->
     <sys:String x:Key="GroupDynColors">Dynamic colors</sys:String>

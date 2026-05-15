@@ -132,6 +132,9 @@ namespace AnikiHelperFullscreen.Views
         {
             TryAddFallback("AppTitle", "Aniki Helper");
             TryAddFallback("AppInfo", "Quick settings for Aniki Helper.");
+            TryAddFallback("GroupGeneral", "General");
+            TryAddFallback("GroupNews", "News");
+            TryAddFallback("GroupDynamicColors", "Dynamic colors");
 
             TryAddFallback("WelcomeHubStartup_Title", "Home screen");
             TryAddFallback("WelcomeHubStartup_Enable", "Open the home screen on startup");
@@ -152,8 +155,44 @@ namespace AnikiHelperFullscreen.Views
             TryAddFallback("ShutdownVideo_Help", "Shows the shutdown video when leaving fullscreen or closing Playnite.");
 
             TryAddFallback("SplashScreen", "Splash screen");
+            TryAddFallback("GameLaunchSplash_Title", "Game launch screen");
             TryAddFallback("GameLaunchSplash_Enable", "Enable game splash screen");
             TryAddFallback("GameLaunchSplash_Help", "Shows a launch splash screen when starting a game.");
+
+            TryAddFallback("GameLaunchSplash_Mode_Title", "Splash selection mode");
+            TryAddFallback("GameLaunchSplash_Mode_Automatic", "Automatic");
+            TryAddFallback("GameLaunchSplash_Mode_CustomPriority", "Custom priority");
+            TryAddFallback("GameLaunchSplash_Mode_AlwaysSource", "Always use source");
+            TryAddFallback("GameLaunchSplash_Mode_AlwaysPlatform", "Always use platform");
+            TryAddFallback("GameLaunchSplash_Mode_AlwaysGlobal", "Always use global");
+            TryAddFallback("GameLaunchSplash_Mode_Help", "Choose which splash screen should be used when launching a game.");
+
+            TryAddFallback("GameLaunchSplash_ShowLogo", "Show game logo on splash screen");
+            TryAddFallback("GameLaunchSplash_LogoPosition_Title", "Logo position");
+            TryAddFallback("GameLaunchSplash_LogoPosition_Help", "Choose where the game logo appears on the splash screen.");
+            TryAddFallback("GameLaunchSplash_LogoPosition_LeftTop", "Left top");
+            TryAddFallback("GameLaunchSplash_LogoPosition_LeftCenter", "Left center");
+            TryAddFallback("GameLaunchSplash_LogoPosition_LeftBottom", "Left bottom");
+            TryAddFallback("GameLaunchSplash_LogoPosition_CenterTop", "Center top");
+            TryAddFallback("GameLaunchSplash_LogoPosition_Center", "Center");
+            TryAddFallback("GameLaunchSplash_LogoPosition_CenterBottom", "Center bottom");
+            TryAddFallback("GameLaunchSplash_LogoPosition_RightTop", "Right top");
+            TryAddFallback("GameLaunchSplash_LogoPosition_RightCenter", "Right center");
+            TryAddFallback("GameLaunchSplash_LogoPosition_RightBottom", "Right bottom");
+
+            TryAddFallback("GameLaunchSplash_MinDuration_Title", "Minimum display duration");
+            TryAddFallback("GameLaunchSplash_MinDuration_Help", "Defines how long the splash screen stays visible at minimum.");
+            TryAddFallback("GameLaunchSplash_MaxDuration_Title", "Auto-close safety timer");
+            TryAddFallback("GameLaunchSplash_MaxDuration_Help", "Defines the maximum time Aniki Helper waits before closing the splash screen automatically.");
+
+            TryAddFallback("GameLaunchSplash_VideoEndBehavior_Title", "When a splash video ends early");
+            TryAddFallback("GameLaunchSplash_VideoEndBehavior_Help", "Choose what is shown if the video is shorter than the splash timer.");
+            TryAddFallback("GameLaunchSplash_VideoEndBehavior_ShowGameBackground", "Show the game background");
+            TryAddFallback("GameLaunchSplash_VideoEndBehavior_KeepLastFrame", "Keep the last video frame");
+
+            TryAddFallback("GameLaunchSplash_VideoSound_Enable", "Enable splash video sound");
+            TryAddFallback("GameLaunchSplash_VideoSound_Help", "Controls audio only for video splash screens.");
+            TryAddFallback("GameLaunchSplash_VideoVolume_Title", "Video volume");
 
             TryAddFallback("EventSounds_Title", "Event sounds");
             TryAddFallback("EventSounds_Enable", "Enable event sounds");
@@ -277,6 +316,14 @@ namespace AnikiHelperFullscreen.Views
                 style.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch));
                 style.Setters.Add(new Setter(Control.FocusableProperty, true));
                 style.Setters.Add(new Setter(KeyboardNavigation.IsTabStopProperty, true));
+            });
+
+            TryAddDefaultStyle("AnikiHelperSettingsSliderStyle", typeof(Slider), style =>
+            {
+                style.BasedOn = Application.Current.TryFindResource(typeof(Slider)) as Style;
+                style.Setters.Add(new Setter(Control.FocusableProperty, true));
+                style.Setters.Add(new Setter(KeyboardNavigation.IsTabStopProperty, true));
+                style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0, 0, 10, 0)));
             });
 
             TryAddDefaultStyle("AnikiHelperSettingsSectionHeaderStyle", typeof(StackPanel), style =>

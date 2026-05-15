@@ -23,6 +23,7 @@ namespace AnikiHelper
             {
                 Interval = TimeSpan.FromMilliseconds(250)
             };
+
             timer.Tick += Tick;
             timer.Start();
 
@@ -32,6 +33,7 @@ namespace AnikiHelper
         public static void Stop()
         {
             try { timer?.Stop(); } catch { }
+
             timer = null;
             patchedThisOpen = false;
         }
@@ -48,7 +50,6 @@ namespace AnikiHelper
                 return t.IndexOf("Playnite.FullscreenApp.Windows.SettingsWindow", StringComparison.Ordinal) >= 0;
             });
 
-
             if (win == null)
             {
                 patchedThisOpen = false; // reset for next opening
@@ -58,6 +59,7 @@ namespace AnikiHelper
             if (!patchedThisOpen)
             {
                 patchedThisOpen = true;
+
                 win.Dispatcher.InvokeAsync(() =>
                 {
                     try { ApplyFix(win); } catch { /* best-effort */ }
@@ -65,7 +67,6 @@ namespace AnikiHelper
             }
         }
 
-        // Hides all TextBlocks whose Text is bound to OptionDescription
         private static void ApplyFix(Window settingsWindow)
         {
             // Hide all TextBlocks whose Text is bound to OptionDescription
@@ -103,6 +104,13 @@ namespace AnikiHelper
                 KeyboardNavigation.SetControlTabNavigation(panel, KeyboardNavigationMode.Continue);
             }
 
+            // Protect ComboBox navigation from the global Settings Up/Down handler.
+            foreach (var combo in VisualTreeHelpers.FindVisualChildren<ComboBox>(settingsWindow))
+            {
+                combo.PreviewKeyDown -= SettingsComboBox_PreviewKeyDown;
+                combo.PreviewKeyDown += SettingsComboBox_PreviewKeyDown;
+            }
+
             // Force Up/Down to jump to the next real focusable setting instead of scrolling line by line.
             settingsWindow.PreviewKeyDown -= SettingsWindow_PreviewKeyDown;
             settingsWindow.PreviewKeyDown += SettingsWindow_PreviewKeyDown;
@@ -115,20 +123,22 @@ namespace AnikiHelper
                 return;
             }
 
+            var window = sender as Window;
+            if (window == null)
+            {
+                return;
+            }
+
             // Do not hijack text editing.
             if (Keyboard.FocusedElement is TextBox)
             {
                 return;
             }
 
-            // Do not hijack an opened ComboBox.
-            if (Keyboard.FocusedElement is ComboBox comboBox && comboBox.IsDropDownOpen)
-            {
-                return;
-            }
-
-            var window = sender as Window;
-            if (window == null)
+            // Do not hijack ComboBox navigation.
+            // When a ComboBox dropdown is open, the focused element is often a ComboBoxItem,
+            // not the ComboBox itself.
+            if (IsComboBoxInteractionActive(window))
             {
                 return;
             }
@@ -139,6 +149,91 @@ namespace AnikiHelper
             {
                 e.Handled = true;
             }
+        }
+
+        private static void SettingsComboBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            var combo = sender as ComboBox;
+            if (combo == null)
+            {
+                return;
+            }
+
+            if (!combo.IsDropDownOpen)
+            {
+                return;
+            }
+
+            if (e.Key != Key.Up && e.Key != Key.Down)
+            {
+                return;
+            }
+
+            if (combo.Items == null || combo.Items.Count == 0)
+            {
+                return;
+            }
+
+            int index = combo.SelectedIndex;
+
+            if (index < 0)
+            {
+                index = 0;
+            }
+
+            if (e.Key == Key.Up)
+            {
+                index = Math.Max(0, index - 1);
+            }
+            else if (e.Key == Key.Down)
+            {
+                index = Math.Min(combo.Items.Count - 1, index + 1);
+            }
+
+            combo.SelectedIndex = index;
+            combo.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var item = combo.ItemContainerGenerator.ContainerFromItem(combo.SelectedItem) as ComboBoxItem;
+                item?.BringIntoView();
+            }), DispatcherPriority.Background);
+            // Prevent Playnite fullscreen settings from treating Up/Down as menu navigation.
+            e.Handled = true;
+        }
+
+        private static bool IsComboBoxInteractionActive(Window window)
+        {
+            var focused = Keyboard.FocusedElement as DependencyObject;
+
+            if (focused != null)
+            {
+                if (focused is ComboBox || focused is ComboBoxItem)
+                {
+                    return true;
+                }
+
+                if (FindParent<ComboBox>(focused) != null)
+                {
+                    return true;
+                }
+
+                if (FindParent<ComboBoxItem>(focused) != null)
+                {
+                    return true;
+                }
+            }
+
+            // Extra safety:
+            // if any ComboBox dropdown is open in the Settings window,
+            // do not let the global Up/Down handler take over.
+            foreach (var combo in VisualTreeHelpers.FindVisualChildren<ComboBox>(window))
+            {
+                if (combo.IsDropDownOpen)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool MoveFocusToNextSettingControl(Window window, int direction)
@@ -154,7 +249,8 @@ namespace AnikiHelper
                         c.IsTabStop &&
                         c.ActualWidth > 0 &&
                         c.ActualHeight > 0 &&
-                        !(c is ScrollViewer))
+                        !(c is ScrollViewer) &&
+                        !(c is ComboBoxItem))
                     .OrderBy(c => GetElementTop(c, window))
                     .ThenBy(c => GetElementLeft(c, window))
                     .ToList();

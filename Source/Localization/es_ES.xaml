@@ -8,6 +8,11 @@
     <sys:String x:Key="GroupAdditionalFeatures">Funciones adicionales</sys:String>
     <sys:String x:Key="MoreOptionsDesktop">Hay más opciones disponibles en la configuración del plugin desde el modo escritorio de Playnite.</sys:String>
 
+    <sys:String x:Key="GroupGeneral">General</sys:String>
+    <sys:String x:Key="GroupNews">Noticias</sys:String>
+    <sys:String x:Key="GroupDynamicColors">Colores dinámicos</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoVolume_Title">Volumen del vídeo</sys:String>
+
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Pantalla de inicio</sys:String>
     <sys:String x:Key="WelcomeHubStartup_Desc">Elige qué pantalla se muestra al iniciar Playnite: tu biblioteca o el Hub.</sys:String>
@@ -64,27 +69,108 @@
 
     <!-- ========= SPLASH FEATURES ========= -->
     <sys:String x:Key="SplashScreen">Pantalla de carga</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Title">Pantalla de carga al iniciar un juego</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Desc">Muestra una imagen de pantalla de carga cuando se inicia un juego. Puedes establecer una imagen personalizada en el modo Escritorio haciendo clic derecho sobre un juego.</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Enable">Activar pantalla de carga al iniciar juegos</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Help">Desactiva esto si quieres que los juegos se inicien sin pantalla de carga.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Title">Pantalla de inicio de los juegos</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Desc">Muestra una imagen o un vídeo de inicio cuando se lanza un juego. Puedes gestionar pantallas de carga personalizadas desde el menú de clic derecho de un juego.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Enable">Activar pantalla de inicio de los juegos</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Help">Desactiva esta opción si quieres iniciar los juegos sin pantalla de carga.</sys:String>
 
-    <sys:String x:Key="LOCAnikiHelperSetCustomSplashImage">Establecer imagen de carga</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetCustomSplashImage">Definir imagen de carga</sys:String>
     <sys:String x:Key="LOCAnikiHelperReplaceCustomSplashImage">Cambiar imagen de carga</sys:String>
-    <sys:String x:Key="LOCAnikiHelperPreviewCustomSplashImage">Vista previa de la imagen de carga</sys:String>
+    <sys:String x:Key="LOCAnikiHelperPreviewCustomSplashImage">Previsualizar imagen de carga</sys:String>
     <sys:String x:Key="LOCAnikiHelperRemoveCustomSplashImage">Eliminar imagen de carga</sys:String>
     <sys:String x:Key="LOCAnikiHelperOpenCustomSplashFolder">Abrir carpeta de imágenes de carga</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperChooseSplashImageForGame">Elige una imagen de carga para {0}</sys:String>
-    <sys:String x:Key="LOCAnikiHelperNoCustomSplashImage">No se ha establecido ninguna imagen de carga personalizada para este juego.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperPreviewTitle">Vista previa de la imagen de carga</sys:String>
+    <sys:String x:Key="LOCAnikiHelperNoCustomSplashImage">No se ha definido ninguna imagen de carga personalizada para este juego.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperPreviewTitle">Vista previa de imagen de carga</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperCustomSplashImageSaved">Imagen de carga guardada para:</sys:String>
     <sys:String x:Key="LOCAnikiHelperCustomSplashImageRemoved">Imagen de carga eliminada para:</sys:String>
-    <sys:String x:Key="LOCAnikiHelperSetCustomSplashImageFailed">No se pudo establecer la imagen de carga.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetCustomSplashImageFailed">No se pudo definir la imagen de carga.</sys:String>
     <sys:String x:Key="LOCAnikiHelperRemoveCustomSplashImageFailed">No se pudo eliminar la imagen de carga.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperPreviewSplashImageFailed">No se pudo mostrar la vista previa de la imagen.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperPreviewSplashImageFailed">No se pudo previsualizar la imagen.</sys:String>
     <sys:String x:Key="LOCAnikiHelperOpenCustomSplashFolderFailed">No se pudo abrir la carpeta de imágenes de carga.</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_Mode_Title">Modo de selección de pantalla de carga</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_Automatic">Automático</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_CustomPriority">Prioridad personalizada</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysSource">Usar siempre la fuente</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysPlatform">Usar siempre la plataforma</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysGlobal">Usar siempre la global</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_Help">Elige el orden utilizado para mostrar una imagen de inicio. En modo automático: imagen personalizada del juego, fondo de Playnite, fuente, plataforma y luego pantalla global.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperOpenGameSplashFolder">Abrir carpeta de carga del juego</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_Title">Posición del logo</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_Help">Elige dónde aparece el logo del juego en la pantalla de carga.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_LeftTop">Arriba a la izquierda</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_LeftCenter">Centro izquierda</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_LeftBottom">Abajo a la izquierda</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_CenterTop">Arriba al centro</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_Center">Centro</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_CenterBottom">Abajo al centro</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_RightTop">Arriba a la derecha</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_RightCenter">Centro derecha</sys:String>
+    <sys:String x:Key="GameLaunchSplash_LogoPosition_RightBottom">Abajo a la derecha</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ShowLogo">Mostrar el logo del juego en la pantalla de carga</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Temporizadores globales</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Estos ajustes se aplican por defecto a todos los juegos. Si se define un temporizador personalizado para un juego específico, tendrá prioridad.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Duración mínima de visualización</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Define el tiempo mínimo durante el cual la pantalla de carga permanece visible. Aumenta este valor si desaparece demasiado rápido.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Temporizador de cierre automático</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Define cuánto tiempo espera Aniki Helper a que el juego tome el foco. Si el juego no pasa al primer plano, la pantalla de carga se cierra automáticamente después de este plazo.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ResetTimer">Restablecer</sys:String>
+    <sys:String x:Key="SplashManager_SearchImages">Buscar imágenes</sys:String>
+    <sys:String x:Key="SplashManager_NoGameNameForSearch">No hay ningún nombre de juego disponible para esta búsqueda.</sys:String>
+
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Definir temporizador mínimo para este juego</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Restablecer temporizador mínimo de este juego</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Duración mínima de la pantalla de carga para este juego, en segundos:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Valor de temporizador no válido.</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Activar sonido en vídeos de carga</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoSound_Help">Controla el volumen de audio solo para pantallas de carga en vídeo. Las pantallas de carga con imagen no se ven afectadas.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperManageSplashScreens">Gestionar pantallas de carga</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_Title">Cuando un vídeo de carga termina antes</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_Help">Elige qué se muestra si el vídeo es más corto que el temporizador de la pantalla de carga.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_ShowGameBackground">Mostrar el fondo del juego</sys:String>
+    <sys:String x:Key="GameLaunchSplash_VideoEndBehavior_KeepLastFrame">Mantener el último fotograma del vídeo</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_Library_Title">Gestión de pantallas de carga</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Library_Help">Gestiona las imágenes de inicio usadas para el nivel seleccionado: global, fuente o plataforma.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ManageGlobal">Pantalla global</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ManageSources">Pantallas por fuente</sys:String>
+    <sys:String x:Key="GameLaunchSplash_ManagePlatforms">Pantallas por plataforma</sys:String>
+
+    <sys:String x:Key="SplashManager_WindowTitle">Aniki Helper - Pantallas de carga</sys:String>
+    <sys:String x:Key="SplashManager_AddLocalFiles">Añadir archivos locales</sys:String>
+    <sys:String x:Key="SplashManager_SetAsMain">Usar siempre esta imagen</sys:String>
+    <sys:String x:Key="SplashManager_ClearMain">Volver a la elección aleatoria</sys:String>
+    <sys:String x:Key="SplashManager_DeleteSelected">Eliminar selección</sys:String>
+    <sys:String x:Key="SplashManager_OpenFolder">Abrir carpeta</sys:String>
+    <sys:String x:Key="SplashManager_Refresh">Actualizar</sys:String>
+    <sys:String x:Key="SplashManager_Close">Cerrar</sys:String>
+    <sys:String x:Key="SplashManager_NoSplashForGame">Todavía no se ha añadido ninguna imagen de inicio para este juego.</sys:String>
+    <sys:String x:Key="SplashManager_NoGlobalSplash">Todavía no se ha añadido ninguna imagen de inicio global.</sys:String>
+    <sys:String x:Key="SplashManager_NoSplashForSource">Todavía no se ha añadido ninguna imagen de inicio para esta fuente.</sys:String>
+    <sys:String x:Key="SplashManager_NoSplashForPlatform">Todavía no se ha añadido ninguna imagen de inicio para esta plataforma.</sys:String>
+    <sys:String x:Key="SplashManager_UnablePreviewVideo">No se puede previsualizar este vídeo.</sys:String>
+    <sys:String x:Key="SplashManager_UnablePreviewFile">No se puede previsualizar este archivo.</sys:String>
+    <sys:String x:Key="SplashManager_MainSplashSet">Esta imagen se usará siempre para esta carpeta.</sys:String>
+    <sys:String x:Key="SplashManager_RandomRestored">La elección aleatoria se ha reactivado para esta carpeta.</sys:String>
+    <sys:String x:Key="SplashManager_SelectSplashFiles">Seleccionar archivos de pantalla de carga</sys:String>
+    <sys:String x:Key="SplashManager_DeleteConfirm">¿Eliminar este archivo de pantalla de carga?{0}{1}</sys:String>
+
+    <sys:String x:Key="SplashPicker_NoItemFound">No se encontró ningún elemento.</sys:String>
+    <sys:String x:Key="SplashPicker_OpenFailed">No se pudo abrir el selector de pantallas de carga:</sys:String>
+    <sys:String x:Key="SplashPicker_SourceTitle">Pantallas de carga por fuente</sys:String>
+    <sys:String x:Key="SplashPicker_SourceDescription">Selecciona una fuente para gestionar sus imágenes de inicio. Se usarán para los juegos vinculados a esa fuente, como Steam, GOG, Epic, Xbox u otras bibliotecas.</sys:String>
+    <sys:String x:Key="SplashPicker_SourceOpenFailed">No se pudo abrir el gestor de pantallas de carga por fuente:</sys:String>
+    <sys:String x:Key="SplashPicker_PlatformTitle">Pantallas de carga por plataforma</sys:String>
+    <sys:String x:Key="SplashPicker_PlatformDescription">Selecciona una plataforma para gestionar sus imágenes de inicio. Se usarán para los juegos vinculados a esa plataforma.</sys:String>
+    <sys:String x:Key="SplashPicker_PlatformOpenFailed">No se pudo abrir el gestor de pantallas de carga por plataforma:</sys:String>
+    <sys:String x:Key="SplashPicker_GlobalTitle">Global</sys:String>
+    <sys:String x:Key="SplashPicker_GlobalOpenFailed">No se pudo abrir el gestor de pantalla de carga global:</sys:String>
 
     <!-- ========= DYNAMIC COLORS FEATURES ========= -->
     <sys:String x:Key="GroupDynColors">Colores dinámicos</sys:String>

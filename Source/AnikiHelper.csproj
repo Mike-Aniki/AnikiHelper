@@ -62,9 +62,24 @@
     <Compile Include="Services\AnikiWindowManager.cs" />
     <Compile Include="Services\DynamicAuto.cs" />
     <Compile Include="Services\EventSoundService.cs" />
+    <Compile Include="Services\FastScrollViewerBehavior.cs" />
     <Compile Include="Services\FullscreenShutdownVideoHook.cs" />
-    <Compile Include="Services\GameLaunchSplashWindow.cs" />
+    <Compile Include="Services\SplashScreen\GameLaunchSplashWindow.cs" />
     <Compile Include="Services\SettingsWindowStyler.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenFolderService.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenGameSettings.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenLogoPosition.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenManagerWindow.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenMediaItem.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenMediaScanner.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenResolver.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenRuntimeService.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenScope.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenSelectionMode.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenService.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenTarget.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenTargetPickerWindow.cs" />
+    <Compile Include="Services\SplashScreen\SplashScreenVideoEndBehavior.cs" />
     <Compile Include="Services\SteamAppDetailsCacheEntry.cs" />
     <Compile Include="Services\SteamGlobalNewsService.cs" />
     <Compile Include="Services\SteamPlayerCountService.cs" />
@@ -106,7 +121,7 @@
       <SubType>Designer</SubType>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-	  <Resource Include="Views\AnikiHelperFullscreenSettingsView.xaml" />
+    <Resource Include="Views\AnikiHelperFullscreenSettingsView.xaml" />
     <Page Include="Views\AnikiHelperSettingsView.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>

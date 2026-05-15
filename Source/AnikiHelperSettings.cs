@@ -15,6 +15,9 @@ using System.Threading.Tasks;
 using System.Timers;
 using System.Windows;
 using System.Windows.Input;
+using AnikiHelper.Services.SplashScreen;
+using System.ComponentModel;
+using System.Windows.Threading;
 
 namespace AnikiHelper
 {
@@ -1373,8 +1376,94 @@ namespace AnikiHelper
             set => SetValue(ref gameLaunchSplashEnabled, value);
         }
 
+        private bool gameLaunchSplashShowLogo = true;
+        public bool GameLaunchSplashShowLogo
+        {
+            get => gameLaunchSplashShowLogo;
+            set => SetValue(ref gameLaunchSplashShowLogo, value);
+        }
+
+        private bool gameLaunchSplashVideoSoundEnabled = true;
+        public bool GameLaunchSplashVideoSoundEnabled
+        {
+            get => gameLaunchSplashVideoSoundEnabled;
+            set => SetValue(ref gameLaunchSplashVideoSoundEnabled, value);
+        }
+
+        private SplashScreenVideoEndBehavior gameLaunchSplashVideoEndBehavior = SplashScreenVideoEndBehavior.ShowGameBackground;
+        public SplashScreenVideoEndBehavior GameLaunchSplashVideoEndBehavior
+        {
+            get => gameLaunchSplashVideoEndBehavior;
+            set => SetValue(ref gameLaunchSplashVideoEndBehavior, value);
+        }
+
+        private double gameLaunchSplashVideoVolume = 0.5;
+        public double GameLaunchSplashVideoVolume
+        {
+            get => gameLaunchSplashVideoVolume;
+            set => SetValue(ref gameLaunchSplashVideoVolume, Math.Max(0, Math.Min(1, value)));
+        }
+
+        private SplashScreenLogoPosition gameLaunchSplashLogoPosition = SplashScreenLogoPosition.LeftCenter;
+        public SplashScreenLogoPosition GameLaunchSplashLogoPosition
+        {
+            get => gameLaunchSplashLogoPosition;
+            set => SetValue(ref gameLaunchSplashLogoPosition, value);
+        }
+
+        private SplashScreenSelectionMode gameLaunchSplashSelectionMode = SplashScreenSelectionMode.Automatic;
+        public SplashScreenSelectionMode GameLaunchSplashSelectionMode
+        {
+            get => gameLaunchSplashSelectionMode;
+            set => SetValue(ref gameLaunchSplashSelectionMode, value);
+        }
+
+        private int gameLaunchSplashMinimumDurationMs = 2400;
+        public int GameLaunchSplashMinimumDurationMs
+        {
+            get => gameLaunchSplashMinimumDurationMs;
+            set
+            {
+                SetValue(ref gameLaunchSplashMinimumDurationMs, Math.Max(500, Math.Min(600000, value)));
+                OnPropertyChanged(nameof(GameLaunchSplashMinimumDurationSeconds));
+                OnPropertyChanged(nameof(GameLaunchSplashMinimumDurationDisplay));
+            }
+        }
+
+        public double GameLaunchSplashMinimumDurationSeconds
+        {
+            get => GameLaunchSplashMinimumDurationMs / 1000.0;
+            set => GameLaunchSplashMinimumDurationMs = (int)Math.Round(Math.Max(0.5, Math.Min(600, value)) * 1000);
+        }
+
+        public string GameLaunchSplashMinimumDurationDisplay
+        {
+            get
+            {
+                var seconds = GameLaunchSplashMinimumDurationSeconds;
+
+                if (seconds >= 60)
+                {
+                    var minutes = seconds / 60.0;
+                    return $"{minutes:0.##} min";
+                }
+
+                return $"{seconds:0.##} sec";
+            }
+        }
+
+        private int gameLaunchSplashMaximumWaitMs = 6000;
+        public int GameLaunchSplashMaximumWaitMs
+        {
+            get => gameLaunchSplashMaximumWaitMs;
+            set => SetValue(ref gameLaunchSplashMaximumWaitMs, value);
+        }
+
         public Dictionary<Guid, string> CustomGameLaunchSplashImages { get; set; }
             = new Dictionary<Guid, string>();
+
+        public Dictionary<Guid, int> CustomGameLaunchSplashMinimumDurations { get; set; }
+            = new Dictionary<Guid, int>();
 
         private bool shutdownVideoEnabled = true;
         public bool ShutdownVideoEnabled
@@ -1602,8 +1691,18 @@ namespace AnikiHelper
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
                 StartupIntroVideoEnabled = saved.StartupIntroVideoEnabled;
                 GameLaunchSplashEnabled = saved.GameLaunchSplashEnabled;
+                GameLaunchSplashShowLogo = saved.GameLaunchSplashShowLogo;
+                GameLaunchSplashVideoSoundEnabled = saved.GameLaunchSplashVideoSoundEnabled;
+                GameLaunchSplashVideoEndBehavior = saved.GameLaunchSplashVideoEndBehavior;
+                GameLaunchSplashVideoVolume = saved.GameLaunchSplashVideoVolume;
+                GameLaunchSplashLogoPosition = saved.GameLaunchSplashLogoPosition;
+                GameLaunchSplashSelectionMode = saved.GameLaunchSplashSelectionMode;
+                GameLaunchSplashMinimumDurationMs = saved.GameLaunchSplashMinimumDurationMs;
+                GameLaunchSplashMaximumWaitMs = saved.GameLaunchSplashMaximumWaitMs;
                 CustomGameLaunchSplashImages = saved.CustomGameLaunchSplashImages
                     ?? new Dictionary<Guid, string>();
+                CustomGameLaunchSplashMinimumDurations = saved.CustomGameLaunchSplashMinimumDurations
+                    ?? new Dictionary<Guid, int>();
                 ShutdownVideoEnabled = saved.ShutdownVideoEnabled;
                 LastSteamRecentCheckUtc = saved.LastSteamRecentCheckUtc;
                 EventSoundsEnabled = saved.EventSoundsEnabled;
@@ -1695,6 +1794,11 @@ namespace AnikiHelper
             if (CustomGameLaunchSplashImages == null)
             {
                 CustomGameLaunchSplashImages = new Dictionary<Guid, string>();
+            }
+
+            if (CustomGameLaunchSplashMinimumDurations == null)
+            {
+                CustomGameLaunchSplashMinimumDurations = new Dictionary<Guid, int>();
             }
 
             if (saved == null)
@@ -2460,18 +2564,80 @@ namespace AnikiHelper
     {
         public AnikiHelperSettings Settings { get; set; }
         private readonly global::AnikiHelper.AnikiHelper plugin;
+        private readonly DispatcherTimer saveDebounceTimer;
+
         public IPlayniteAPI Api => plugin?.PlayniteApi;
+
+        private static readonly HashSet<string> AutoSaveSettingNames = new HashSet<string>
+        {
+            nameof(AnikiHelperSettings.OpenWelcomeHubOnStartup),
+            nameof(AnikiHelperSettings.EventSoundsEnabled),
+            nameof(AnikiHelperSettings.NewsScanEnabled),
+            nameof(AnikiHelperSettings.IncludeHidden),
+
+            nameof(AnikiHelperSettings.StartupIntroVideoEnabled),
+            nameof(AnikiHelperSettings.ShutdownVideoEnabled),
+
+            nameof(AnikiHelperSettings.SteamUpdatesScanEnabled),
+            nameof(AnikiHelperSettings.SteamPlayerCountEnabled),
+            nameof(AnikiHelperSettings.SteamStoreEnabled),
+            nameof(AnikiHelperSettings.SteamStoreLanguage),
+            nameof(AnikiHelperSettings.SteamStoreRegion),
+
+            nameof(AnikiHelperSettings.GameLaunchSplashEnabled),
+            nameof(AnikiHelperSettings.GameLaunchSplashSelectionMode),
+            nameof(AnikiHelperSettings.GameLaunchSplashShowLogo),
+            nameof(AnikiHelperSettings.GameLaunchSplashLogoPosition),
+            nameof(AnikiHelperSettings.GameLaunchSplashMinimumDurationMs),
+            nameof(AnikiHelperSettings.GameLaunchSplashMinimumDurationSeconds),
+            nameof(AnikiHelperSettings.GameLaunchSplashMaximumWaitMs),
+            nameof(AnikiHelperSettings.GameLaunchSplashVideoEndBehavior),
+            nameof(AnikiHelperSettings.GameLaunchSplashVideoSoundEnabled),
+            nameof(AnikiHelperSettings.GameLaunchSplashVideoVolume),
+
+            nameof(AnikiHelperSettings.DynamicAutoPrecacheUserEnabled)
+        };
 
         public AnikiHelperSettingsViewModel(global::AnikiHelper.AnikiHelper plugin)
         {
             this.plugin = plugin;
             Settings = new AnikiHelperSettings(plugin);
+
+            saveDebounceTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+
+            saveDebounceTimer.Tick += (s, e) =>
+            {
+                saveDebounceTimer.Stop();
+                plugin.SavePluginSettings(Settings);
+            };
+
+            Settings.PropertyChanged += Settings_PropertyChanged;
+        }
+
+        private void Settings_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(e.PropertyName))
+            {
+                return;
+            }
+
+            if (!AutoSaveSettingNames.Contains(e.PropertyName))
+            {
+                return;
+            }
+
+            saveDebounceTimer.Stop();
+            saveDebounceTimer.Start();
         }
 
         public void BeginEdit() { }
         public void CancelEdit() { }
         public void EndEdit()
-        {     
+        {
+            saveDebounceTimer?.Stop();
             plugin.SavePluginSettings(Settings);
         }
 
@@ -2552,6 +2718,29 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[AnikiHelperSettingsViewModel] ClearNewsCacheB failed: {ex.Message}");
+                throw;
+            }
+        }
+
+        public void OpenSourceSplashScreenManager()
+        {
+            plugin?.OpenSourceSplashScreenManager();
+        }
+
+        public void OpenPlatformSplashScreenManager()
+        {
+            plugin?.OpenPlatformSplashScreenManager();
+        }
+
+        public void OpenGlobalSplashScreenManager()
+        {
+            try
+            {
+                plugin?.OpenGlobalSplashScreenManager();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] OpenGlobalSplashScreenManager failed: " + ex.Message);
                 throw;
             }
         }

@@ -1,4 +1,5 @@
 ﻿using AnikiHelper.Services;
+using AnikiHelper.Services.SplashScreen;
 using Microsoft.Win32;
 using Playnite.SDK;
 using Playnite.SDK.Data;
@@ -10,6 +11,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Data;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -22,12 +24,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using System.Windows.Controls.Primitives;
 
 namespace AnikiHelper
 {
@@ -55,14 +57,14 @@ namespace AnikiHelper
         private const string ShutdownVideoFolderName = "Startup Video";
         private const string ShutdownVideoFileName = "Shutdown.mp4";
 
-        private GameLaunchSplashWindow currentGameLaunchSplash;
-        private DateTime? currentGameLaunchSplashShownAt;
+        private SplashScreenRuntimeService splashScreenRuntimeService;
         private const int GameLaunchSplashMinimumDurationMs = 2400;
-        private const int GameLaunchSplashForegroundCheckIntervalMs = 200;
         private const int GameLaunchSplashMaxWaitAfterGameStartedMs = 6000;
-        private const int GameLaunchSplashPostFocusLossDelayMs = 1000;
-        private const int GameLaunchSplashFocusLossStabilityMs = 400;
+        private const int GameLaunchSplashMaximumMinimumDurationMs = 600000;
         private const string CustomSplashTagName = "[Aniki] Custom Splash";
+
+        private bool uniPlaySongGameStartingPauseHeld;
+        private Guid? uniPlaySongGameStartingPauseGameId;
 
         private readonly System.Threading.SemaphoreSlim steamStoreOpenLock = new System.Threading.SemaphoreSlim(1, 1);
         private DateTime lastSteamStoreOpenRequestUtc = DateTime.MinValue;
@@ -1208,6 +1210,8 @@ namespace AnikiHelper
         // Games Update toast "new"
         private readonly HashSet<string> steamUpdateNewThisSession = new HashSet<string>();
         private readonly HashSet<string> steamUpdateToastShownThisSession = new HashSet<string>();
+
+        private readonly SplashScreenService splashScreenService;
 
         // Games Steam Update (RSS simplified)
         private readonly SteamUpdateLiteService steamUpdateService;
@@ -4722,6 +4726,8 @@ namespace AnikiHelper
             eventSoundService = new EventSoundService(api, Settings);
             anikiWindowManager = new AnikiWindowManager(api);
             steamStoreService = new SteamStoreService(api, GetPluginUserDataPath());
+            splashScreenService = new SplashScreenService(GetPluginUserDataPath());
+            splashScreenRuntimeService = new SplashScreenRuntimeService(IsPlayniteForegroundWindow);
 
             CleanupLegacyNewsCache();
 
@@ -6798,6 +6804,119 @@ namespace AnikiHelper
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
+        private bool TrySetUniPlaySongGameStartingPause(bool pause)
+        {
+            try
+            {
+                var app = Application.Current;
+
+                if (app == null || app.Properties == null || !app.Properties.Contains("UniPlaySongPlugin"))
+                {
+                    return false;
+                }
+
+                var uniPlaySongPlugin = app.Properties["UniPlaySongPlugin"];
+
+                if (uniPlaySongPlugin == null)
+                {
+                    return false;
+                }
+
+                var playbackServiceField = uniPlaySongPlugin.GetType().GetField(
+                    "_playbackService",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+                var playbackService = playbackServiceField?.GetValue(uniPlaySongPlugin);
+
+                if (playbackService == null)
+                {
+                    return false;
+                }
+
+                var methodName = pause ? "AddPauseSource" : "RemovePauseSource";
+
+                var method = playbackService.GetType().GetMethod(
+                    methodName,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+
+                if (method == null)
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+
+                if (parameters.Length != 1)
+                {
+                    return false;
+                }
+
+                var pauseSourceType = parameters[0].ParameterType;
+                var gameStartingSource = Enum.Parse(pauseSourceType, "GameStarting");
+
+                method.Invoke(playbackService, new object[] { gameStartingSource });
+
+                logger.Info($"[AnikiHelper] UniPlaySong GameStarting pause {(pause ? "enabled" : "disabled")}.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to control UniPlaySong GameStarting pause.");
+                return false;
+            }
+        }
+
+        private void HoldUniPlaySongGameStartingPause(Guid gameId)
+        {
+            if (TrySetUniPlaySongGameStartingPause(true))
+            {
+                uniPlaySongGameStartingPauseHeld = true;
+                uniPlaySongGameStartingPauseGameId = gameId;
+            }
+        }
+
+        private void ReleaseUniPlaySongGameStartingPause(Guid? gameId = null)
+        {
+            if (!uniPlaySongGameStartingPauseHeld)
+            {
+                return;
+            }
+
+            if (gameId.HasValue &&
+                uniPlaySongGameStartingPauseGameId.HasValue &&
+                uniPlaySongGameStartingPauseGameId.Value != gameId.Value)
+            {
+                return;
+            }
+
+            TrySetUniPlaySongGameStartingPause(false);
+
+            uniPlaySongGameStartingPauseHeld = false;
+            uniPlaySongGameStartingPauseGameId = null;
+        }
+
+        private void StartUniPlaySongLaunchFailureRelease(Guid gameId, int minimumDurationMs)
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(Math.Max(500, minimumDurationMs) + 2500);
+
+                    var game = PlayniteApi?.Database?.Games?.Get(gameId);
+
+                    if (game == null || (!game.IsRunning && !game.IsLaunching))
+                    {
+                        ReleaseUniPlaySongGameStartingPause(gameId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to release UniPlaySong launch failure pause.");
+                }
+            });
+        }
+
         private bool IsPlayniteForegroundWindow()
         {
             try
@@ -7165,6 +7284,14 @@ namespace AnikiHelper
             if (isAnikiThemeActive)
             {
                 System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                    () => FastScrollViewerService.Start(),
+                    System.Windows.Threading.DispatcherPriority.Loaded
+                );
+            }
+
+            if (isAnikiThemeActive)
+            {
+                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
                     () => VisualPackBackgroundComposer.Start(),
                     System.Windows.Threading.DispatcherPriority.Loaded
                 );
@@ -7496,30 +7623,31 @@ namespace AnikiHelper
                     return;
                 }
 
-                System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                HoldUniPlaySongGameStartingPause(game.Id);
+
+                var bgPath = GetBestGameLaunchSplashBackground(game);
+                var fallbackBackgroundPath = GetPlayniteGameBackground(game);
+
+                splashScreenRuntimeService.Show(
+                    game,
+                    bgPath,
+                    fallbackBackgroundPath,
+                    Settings?.GameLaunchSplashShowLogo ?? true,
+                    Settings?.GameLaunchSplashLogoPosition ?? SplashScreenLogoPosition.LeftCenter,
+                    Settings?.GameLaunchSplashVideoSoundEnabled ?? false,
+                    Settings?.GameLaunchSplashVideoEndBehavior ?? SplashScreenVideoEndBehavior.ShowGameBackground,
+                    Settings?.GameLaunchSplashVideoVolume ?? 0.5);
+
+                var minimumDuration = Settings?.GameLaunchSplashMinimumDurationMs ?? GameLaunchSplashMinimumDurationMs;
+
+                if (Settings?.CustomGameLaunchSplashMinimumDurations != null &&
+                    Settings.CustomGameLaunchSplashMinimumDurations.TryGetValue(game.Id, out var customDuration))
                 {
-                    CloseCurrentGameLaunchSplash();
+                    minimumDuration = customDuration;
+                }
 
-                    var bgPath = GetBestGameLaunchSplashBackground(game);
-                    currentGameLaunchSplash = new GameLaunchSplashWindow(game, bgPath);
-                    currentGameLaunchSplashShownAt = null;
-
-                    currentGameLaunchSplash.ContentRendered += (_, __) =>
-                    {
-                        currentGameLaunchSplashShownAt = DateTime.Now;
-                    };
-
-                    currentGameLaunchSplash.Show();
-
-                    // Fallback au cas où ContentRendered ne se déclenche pas comme prévu.
-                    System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        if (!currentGameLaunchSplashShownAt.HasValue)
-                        {
-                            currentGameLaunchSplashShownAt = DateTime.Now;
-                        }
-                    }), DispatcherPriority.Render);
-                });
+                splashScreenRuntimeService.StartLaunchFailureSafety(minimumDuration);
+                StartUniPlaySongLaunchFailureRelease(game.Id, minimumDuration);
             }
             catch (Exception ex)
             {
@@ -7527,37 +7655,128 @@ namespace AnikiHelper
             }
         }
 
+        private void MigrateLegacyCustomSplashToGameFolder(Game game)
+        {
+            try
+            {
+                var legacyPath = GetStoredCustomSplashPath(game);
+                if (string.IsNullOrWhiteSpace(legacyPath) || !File.Exists(legacyPath))
+                {
+                    return;
+                }
+
+                var gameFolder = splashScreenService?.Folders?.GetGameFolder(game);
+                if (string.IsNullOrWhiteSpace(gameFolder))
+                {
+                    return;
+                }
+
+                Directory.CreateDirectory(gameFolder);
+
+                var hasExistingSplash = Directory.EnumerateFiles(gameFolder, "*.*", SearchOption.TopDirectoryOnly)
+                    .Any(file =>
+                    {
+                        var ext = Path.GetExtension(file);
+                        return string.Equals(ext, ".jpg", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(ext, ".jpeg", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(ext, ".png", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(ext, ".bmp", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(ext, ".webp", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(ext, ".jfif", StringComparison.OrdinalIgnoreCase);
+                    });
+
+                if (hasExistingSplash)
+                {
+                    return;
+                }
+
+                var extension = Path.GetExtension(legacyPath);
+                var destinationPath = Path.Combine(gameFolder, $"legacy-custom-splash{extension}");
+
+                File.Copy(legacyPath, destinationPath, false);
+
+                logger.Info($"[AnikiHelper] Migrated legacy custom splash to game folder: {destinationPath}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to migrate legacy custom splash.");
+            }
+        }
+
         private string GetBestGameLaunchSplashBackground(Game game)
         {
             try
             {
-                var custom = GetStoredCustomSplashPath(game);
-                if (!string.IsNullOrWhiteSpace(custom) && File.Exists(custom))
+                MigrateLegacyCustomSplashToGameFolder(game);
+
+                var mode = Settings?.GameLaunchSplashSelectionMode ?? SplashScreenSelectionMode.Automatic;
+
+                if (mode == SplashScreenSelectionMode.Automatic)
                 {
-                    return custom;
+                    var gameSplash = splashScreenService?.ResolveSplash(game, SplashScreenSelectionMode.Automatic);
+
+                    if (!string.IsNullOrWhiteSpace(gameSplash?.FilePath) && File.Exists(gameSplash.FilePath))
+                    {
+                        return gameSplash.FilePath;
+                    }
+
+                    var custom = GetStoredCustomSplashPath(game);
+                    if (!string.IsNullOrWhiteSpace(custom) && File.Exists(custom))
+                    {
+                        return custom;
+                    }
+
+                    var playniteBackground = GetPlayniteGameBackground(game);
+                    if (!string.IsNullOrWhiteSpace(playniteBackground))
+                    {
+                        return playniteBackground;
+                    }
+
+                    var sharedFallback = splashScreenService?.ResolveSharedFallback(game);
+
+                    if (!string.IsNullOrWhiteSpace(sharedFallback?.FilePath) && File.Exists(sharedFallback.FilePath))
+                    {
+                        return sharedFallback.FilePath;
+                    }
+
+                    return null;
                 }
 
-                if (!string.IsNullOrWhiteSpace(game?.BackgroundImage))
+                var v2Splash = splashScreenService?.ResolveSplash(game, mode);
+
+                if (!string.IsNullOrWhiteSpace(v2Splash?.FilePath) && File.Exists(v2Splash.FilePath))
                 {
-                    var bg = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
-                    if (!string.IsNullOrWhiteSpace(bg) && File.Exists(bg))
-                    {
-                        return bg;
-                    }
+                    return v2Splash.FilePath;
                 }
 
-                if (!string.IsNullOrWhiteSpace(game?.CoverImage))
+                var legacyCustom = GetStoredCustomSplashPath(game);
+                if (!string.IsNullOrWhiteSpace(legacyCustom) && File.Exists(legacyCustom))
                 {
-                    var cover = PlayniteApi.Database.GetFullFilePath(game.CoverImage);
-                    if (!string.IsNullOrWhiteSpace(cover) && File.Exists(cover))
-                    {
-                        return cover;
-                    }
+                    return legacyCustom;
                 }
+
+                return GetPlayniteGameBackground(game);
             }
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] Failed to resolve splash background.");
+            }
+
+            return null;
+        }
+
+        private string GetPlayniteGameBackground(Game game)
+        {
+            if (game == null || string.IsNullOrWhiteSpace(game.BackgroundImage))
+            {
+                return null;
+            }
+
+            var bg = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
+
+            if (!string.IsNullOrWhiteSpace(bg) && File.Exists(bg))
+            {
+                return bg;
             }
 
             return null;
@@ -7900,46 +8119,340 @@ namespace AnikiHelper
             }
         }
 
-
-        private void CloseCurrentGameLaunchSplash()
+        private void OpenGameSplashFolder(Game game)
         {
             try
             {
-                var dispatcher = System.Windows.Application.Current?.Dispatcher;
-
-                if (dispatcher == null)
+                if (game == null)
                 {
-                    currentGameLaunchSplash = null;
-                    currentGameLaunchSplashShownAt = null;
                     return;
                 }
 
-                dispatcher.Invoke(async () =>
+                var folder = splashScreenService?.Folders?.GetGameFolder(game);
+                if (string.IsNullOrWhiteSpace(folder))
                 {
-                    try
-                    {
-                        if (currentGameLaunchSplash != null)
-                        {
+                    return;
+                }
 
-                            var splash = currentGameLaunchSplash;
-                            currentGameLaunchSplash = null;
-                            currentGameLaunchSplashShownAt = null;
-
-                            await splash.BeginCloseAsync();
-                            splash.Close();
-                        }
-                    }
-                    catch
-                    {
-                        currentGameLaunchSplash = null;
-                        currentGameLaunchSplashShownAt = null;
-                    }
-                });
+                Directory.CreateDirectory(folder);
+                Process.Start(folder);
             }
-            catch
+            catch (Exception ex)
             {
-                currentGameLaunchSplash = null;
-                currentGameLaunchSplashShownAt = null;
+                logger.Warn(ex, "[AnikiHelper] Failed to open game splash folder.");
+            }
+        }
+
+        private void OpenSplashScreenTargetPicker(
+    string title,
+    string description,
+    IEnumerable<SplashScreenTarget> targets)
+        {
+            try
+            {
+                var targetList = targets?
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.DisplayName))
+                    .OrderBy(x => x.DisplayName)
+                    .ToList();
+
+                if (targetList == null || targetList.Count == 0)
+                {
+                    PlayniteApi.Dialogs.ShowMessage(
+                        ResourceProvider.GetString("SplashPicker_NoItemFound"),
+                        "Aniki Helper");
+                    return;
+                }
+
+                var view = new SplashScreenTargetPickerWindow(
+                    title,
+                    description,
+                    targetList,
+                    target =>
+                    {
+                        OpenSplashScreenManager(target, target.DisplayName);
+                    });
+
+                var window = PlayniteApi.Dialogs.CreateWindow(new WindowCreationOptions
+                {
+                    ShowMinimizeButton = false,
+                    ShowMaximizeButton = true,
+                    ShowCloseButton = true
+                });
+
+                window.Title = "Aniki Helper - " + title;
+                window.Width = 620;
+                window.Height = 620;
+                window.MinWidth = 520;
+                window.MinHeight = 420;
+                window.Content = view;
+                window.Owner = PlayniteApi.Dialogs.GetCurrentAppWindow();
+                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open splash target picker.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("SplashPicker_OpenFailed") + "\n" + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+        public void OpenSourceSplashScreenManager()
+        {
+            try
+            {
+                var targets = PlayniteApi.Database.Sources
+                    .Where(source => source != null && !string.IsNullOrWhiteSpace(source.Name))
+                    .Select(source => SplashScreenTarget.FromSource(source.Name, splashScreenService.Folders))
+                    .ToList();
+
+                OpenSplashScreenTargetPicker(
+                    ResourceProvider.GetString("SplashPicker_SourceTitle"),
+                    ResourceProvider.GetString("SplashPicker_SourceDescription"),
+                    targets);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open source splash screen manager.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("SplashPicker_SourceOpenFailed") + "\n" + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+        public void OpenPlatformSplashScreenManager()
+        {
+            try
+            {
+                var targets = PlayniteApi.Database.Platforms
+                    .Where(platform => platform != null && !string.IsNullOrWhiteSpace(platform.Name))
+                    .Select(platform => SplashScreenTarget.FromPlatform(platform.Name, splashScreenService.Folders))
+                    .ToList();
+
+                OpenSplashScreenTargetPicker(
+                    ResourceProvider.GetString("SplashPicker_PlatformTitle"),
+                    ResourceProvider.GetString("SplashPicker_PlatformDescription"),
+                    targets);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open platform splash screen manager.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("SplashPicker_PlatformOpenFailed") + "\n" + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+        public void OpenGlobalSplashScreenManager()
+        {
+            try
+            {
+                var target = SplashScreenTarget.FromGlobal(splashScreenService.Folders);
+                OpenSplashScreenManager(target, ResourceProvider.GetString("SplashPicker_GlobalTitle"));
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open global splash screen manager.");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    ResourceProvider.GetString("SplashPicker_GlobalOpenFailed") + "\n" + ex.Message,
+                    "Aniki Helper");
+            }
+        }
+
+        private void OpenSplashScreenManager(Game game)
+        {
+            try
+            {
+                if (game == null)
+                {
+                    return;
+                }
+
+                var target = SplashScreenTarget.FromGame(game, splashScreenService.Folders);
+                OpenSplashScreenManager(target, game.Name);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open splash screen manager.");
+            }
+        }
+
+        private void OpenSplashScreenManager(SplashScreenTarget target, string title)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            var view = new SplashScreenManagerWindow(target);
+
+            var window = PlayniteApi.Dialogs.CreateWindow(new WindowCreationOptions
+            {
+                ShowMinimizeButton = false,
+                ShowMaximizeButton = true,
+                ShowCloseButton = true
+            });
+
+            window.Title = $"{ResourceProvider.GetString("SplashManager_WindowTitle")} - {title}";
+            window.Width = 1100;
+            window.Height = 720;
+            window.MinWidth = 900;
+            window.MinHeight = 560;
+            window.Content = view;
+            window.Owner = PlayniteApi.Dialogs.GetCurrentAppWindow();
+            window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+            window.ShowDialog();
+        }
+
+        private void SetGameSplashMinimumTimer(Game game)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var currentValueMs = Settings?.CustomGameLaunchSplashMinimumDurations != null &&
+                                     Settings.CustomGameLaunchSplashMinimumDurations.TryGetValue(game.Id, out var customValue)
+                    ? customValue
+                    : Settings?.GameLaunchSplashMinimumDurationMs ?? GameLaunchSplashMinimumDurationMs;
+
+                var currentValueSeconds = currentValueMs / 1000.0;
+
+                var result = PlayniteApi.Dialogs.SelectString(
+                    ResourceProvider.GetString("LOCAnikiHelperSetGameSplashMinimumTimerPrompt"),
+                    ResourceProvider.GetString("LOCAnikiHelperSetGameSplashMinimumTimerPrompt"),
+                    currentValueSeconds.ToString("0.##", CultureInfo.InvariantCulture));
+
+                if (!result.Result)
+                {
+                    return;
+                }
+
+                var input = result.SelectedString;
+
+                if (string.IsNullOrWhiteSpace(input))
+                {
+                    return;
+                }
+
+                input = input.Replace(',', '.');
+
+                if (!double.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var valueSeconds))
+                {
+                    PlayniteApi.Dialogs.ShowErrorMessage(
+                        ResourceProvider.GetString("LOCAnikiHelperInvalidTimerValue"),
+                        "Aniki Helper");
+                    return;
+                }
+
+                var value = (int)Math.Round(Math.Max(0.5, Math.Min(600, valueSeconds)) * 1000);
+                if (Settings.CustomGameLaunchSplashMinimumDurations == null)
+                {
+                    Settings.CustomGameLaunchSplashMinimumDurations = new Dictionary<Guid, int>();
+                }
+
+                Settings.CustomGameLaunchSplashMinimumDurations[game.Id] = value;
+                SavePluginSettings(Settings);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to set game splash minimum timer.");
+            }
+        }
+
+        private void SetGameSplashMinimumTimerValue(Game game, int value)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            try
+            {
+                value = Math.Max(500, Math.Min(GameLaunchSplashMaximumMinimumDurationMs, value));
+
+                if (Settings.CustomGameLaunchSplashMinimumDurations == null)
+                {
+                    Settings.CustomGameLaunchSplashMinimumDurations = new Dictionary<Guid, int>();
+                }
+
+                Settings.CustomGameLaunchSplashMinimumDurations[game.Id] = value;
+                SavePluginSettings(Settings);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to set game splash minimum timer preset.");
+            }
+        }
+
+        private IEnumerable<GameMenuItem> GetGameSplashMinimumTimerPresetItems(Game game)
+        {
+            var menuSection = "Aniki Helper|Splash Screen|Set minimum timer for this game";
+
+            var presets = new[]
+            {
+                new { Label = "1 sec", Milliseconds = 1000 },
+                new { Label = "2.4 sec", Milliseconds = 2400 },
+                new { Label = "3 sec", Milliseconds = 3000 },
+                new { Label = "4 sec", Milliseconds = 4000 },
+                new { Label = "5 sec", Milliseconds = 5000 },
+                new { Label = "6 sec", Milliseconds = 6000 },
+                new { Label = "7 sec", Milliseconds = 7000 },
+                new { Label = "8 sec", Milliseconds = 8000 },
+                new { Label = "9 sec", Milliseconds = 9000 },
+                new { Label = "10 sec", Milliseconds = 10000 },
+                new { Label = "11 sec", Milliseconds = 11000 },
+                new { Label = "12 sec", Milliseconds = 12000 },
+                new { Label = "13 sec", Milliseconds = 13000 },
+                new { Label = "14 sec", Milliseconds = 14000 },
+                new { Label = "15 sec", Milliseconds = 15000 },
+                new { Label = "16 sec", Milliseconds = 16000 },
+                new { Label = "17 sec", Milliseconds = 17000 },
+                new { Label = "18 sec", Milliseconds = 18000 },
+                new { Label = "19 sec", Milliseconds = 19000 },
+                new { Label = "20 sec", Milliseconds = 20000 },
+                new { Label = "25 sec", Milliseconds = 25000 },
+                new { Label = "30 sec", Milliseconds = 30000 },
+                new { Label = "45 sec", Milliseconds = 45000 },
+                new { Label = "1 min", Milliseconds = 60000 },
+                new { Label = "1 min 30 sec", Milliseconds = 90000 },
+                new { Label = "2 min", Milliseconds = 120000 },
+                new { Label = "3 min", Milliseconds = 180000 },
+                new { Label = "5 min", Milliseconds = 300000 },
+                new { Label = "10 min", Milliseconds = 600000 }
+            };
+
+            foreach (var preset in presets)
+            {
+                yield return new GameMenuItem
+                {
+                    MenuSection = menuSection,
+                    Description = preset.Label,
+                    Action = (_) => SetGameSplashMinimumTimerValue(game, preset.Milliseconds)
+                };
+            }
+        }
+
+        private void ResetGameSplashMinimumTimer(Game game)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            try
+            {
+                Settings?.CustomGameLaunchSplashMinimumDurations?.Remove(game.Id);
+                SavePluginSettings(Settings);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to reset game splash minimum timer.");
             }
         }
 
@@ -7948,70 +8461,28 @@ namespace AnikiHelper
             base.OnGameStarted(args);
             eventSoundService.PlayGameStarted();
 
+            var g = args?.Game;
+
             Task.Run(async () =>
             {
-                try
+                var minimumDuration = Settings?.GameLaunchSplashMinimumDurationMs ?? GameLaunchSplashMinimumDurationMs;
+
+                if (g != null &&
+                    Settings?.CustomGameLaunchSplashMinimumDurations != null &&
+                    Settings.CustomGameLaunchSplashMinimumDurations.TryGetValue(g.Id, out var customDuration))
                 {
-                    int remainingMinimumDelay = 0;
-
-                    if (currentGameLaunchSplash != null)
-                    {
-                        if (currentGameLaunchSplashShownAt.HasValue)
-                        {
-                            var elapsed = (int)(DateTime.Now - currentGameLaunchSplashShownAt.Value).TotalMilliseconds;
-                            remainingMinimumDelay = Math.Max(0, GameLaunchSplashMinimumDurationMs - elapsed);
-                        }
-                        else
-                        {
-                            remainingMinimumDelay = GameLaunchSplashMinimumDurationMs;
-                        }
-                    }
-
-
-                    if (remainingMinimumDelay > 0)
-                    {
-                        await Task.Delay(remainingMinimumDelay);
-                    }
-
-                    int waitedAfterStarted = 0;
-
-                    while (waitedAfterStarted < GameLaunchSplashMaxWaitAfterGameStartedMs)
-                    {
-                        if (!IsPlayniteForegroundWindow())
-                        {
-
-                            await Task.Delay(GameLaunchSplashFocusLossStabilityMs);
-
-                            if (!IsPlayniteForegroundWindow())
-                            {
-                                await Task.Delay(GameLaunchSplashPostFocusLossDelayMs);
-
-                                CloseCurrentGameLaunchSplash();
-                                break;
-                            }
-                            else
-                            {
-                                logger.Info("[AnikiHelper] Playnite regained foreground during stability check. Keeping splash open.");
-                            }
-                        }
-
-                        await Task.Delay(GameLaunchSplashForegroundCheckIntervalMs);
-                        waitedAfterStarted += GameLaunchSplashForegroundCheckIntervalMs;
-                    }
-
-                    if (waitedAfterStarted >= GameLaunchSplashMaxWaitAfterGameStartedMs)
-                    {
-                        CloseCurrentGameLaunchSplash();
-                    }
+                    minimumDuration = customDuration;
                 }
-                catch (Exception)
-                {
-                    CloseCurrentGameLaunchSplash();
-                }
+
+                var maximumWait = Settings?.GameLaunchSplashMaximumWaitMs ?? GameLaunchSplashMaxWaitAfterGameStartedMs;
+
+                await splashScreenRuntimeService.CloseAfterGameStartedAsync(minimumDuration, maximumWait);
             });
 
-            var g = args?.Game;
-            if (g == null) return;
+            if (g == null)
+            {
+                return;
+            }
 
             sessionStartAt[g.Id] = DateTime.Now;
             sessionStartPlaytimeMinutes[g.Id] = (g.Playtime / 60UL);
@@ -8022,7 +8493,8 @@ namespace AnikiHelper
         {
             base.OnGameStopped(args);
             eventSoundService.PlayGameStopped();
-            CloseCurrentGameLaunchSplash();
+            splashScreenRuntimeService.Close();
+            ReleaseUniPlaySongGameStartingPause(args?.Game?.Id);
 
             var g = args?.Game;
             if (g == null)
@@ -8803,79 +9275,66 @@ namespace AnikiHelper
             }
 
             // ===== PLAYNITE GAME LINKS =====
-            if (game.Links != null && game.Links.Count > 0)
+            if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
             {
-                foreach (var link in game.Links)
+                if (game.Links != null && game.Links.Count > 0)
                 {
-                    if (link == null || string.IsNullOrWhiteSpace(link.Url))
+                    foreach (var link in game.Links)
                     {
-                        continue;
+                        if (link == null || string.IsNullOrWhiteSpace(link.Url))
+                        {
+                            continue;
+                        }
+
+                        var linkName = string.IsNullOrWhiteSpace(link.Name)
+                            ? link.Url
+                            : link.Name;
+
+                        yield return new GameMenuItem
+                        {
+                            MenuSection = "Aniki Helper|Game Links",
+                            Description = linkName,
+                            Action = (_) => OpenGameLink(link.Url)
+                        };
                     }
-
-                    var linkName = string.IsNullOrWhiteSpace(link.Name)
-                        ? link.Url
-                        : link.Name;
-
-                    yield return new GameMenuItem
-                    {
-                        MenuSection = "Game links",
-                        Description = linkName,
-                        Action = (_) => OpenGameLink(link.Url)
-                    };
                 }
             }
 
-            // ===== ANIKI HELPER OPTIONS =====
-            var customPath = GetStoredCustomSplashPath(game);
-
-            if (string.IsNullOrWhiteSpace(customPath))
+            // ===== SPLASH SCREEN =====
+            if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Desktop)
             {
                 yield return new GameMenuItem
                 {
-                    MenuSection = "Aniki Helper",
-                    Description = ResourceProvider.GetString("LOCAnikiHelperSetCustomSplashImage"),
-                    Action = (_) => SetCustomSplashImage(game)
+                    MenuSection = "Aniki Helper|Splash Screen",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperManageSplashScreens"),
+                    Action = (_) => OpenSplashScreenManager(game)
                 };
+            }
 
+            if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Desktop)
+            {
                 yield return new GameMenuItem
                 {
-                    MenuSection = "Aniki Helper",
-                    Description = ResourceProvider.GetString("LOCAnikiHelperOpenCustomSplashFolder"),
-                    Action = (_) => OpenCustomSplashImageFolder(game)
+                    MenuSection = "Aniki Helper|Splash Screen",
+                    Description = ResourceProvider.GetString("LOCAnikiHelperSetGameSplashMinimumTimer"),
+                    Action = (_) => SetGameSplashMinimumTimer(game)
                 };
             }
             else
             {
-                yield return new GameMenuItem
+                foreach (var presetItem in GetGameSplashMinimumTimerPresetItems(game))
                 {
-                    MenuSection = "Aniki Helper",
-                    Description = ResourceProvider.GetString("LOCAnikiHelperReplaceCustomSplashImage"),
-                    Action = (_) => SetCustomSplashImage(game)
-                };
-
-                yield return new GameMenuItem
-                {
-                    MenuSection = "Aniki Helper",
-                    Description = ResourceProvider.GetString("LOCAnikiHelperPreviewCustomSplashImage"),
-                    Action = (_) => PreviewCustomSplashImage(game)
-                };
-
-                yield return new GameMenuItem
-                {
-                    MenuSection = "Aniki Helper",
-                    Description = ResourceProvider.GetString("LOCAnikiHelperRemoveCustomSplashImage"),
-                    Action = (_) => RemoveCustomSplashImage(game)
-                };
-
-                yield return new GameMenuItem
-                {
-                    MenuSection = "Aniki Helper",
-                    Description = ResourceProvider.GetString("LOCAnikiHelperOpenCustomSplashFolder"),
-                    Action = (_) => OpenCustomSplashImageFolder(game)
-                };
+                    yield return presetItem;
+                }
             }
-        }
 
+            yield return new GameMenuItem
+            {
+                MenuSection = "Aniki Helper|Splash Screen",
+                Description = ResourceProvider.GetString("LOCAnikiHelperResetGameSplashMinimumTimer"),
+                Action = (_) => ResetGameSplashMinimumTimer(game)
+            };
+        }
         public override IEnumerable<MainMenuItem> GetMainMenuItems(GetMainMenuItemsArgs args)
         {
             yield break; // aucun menu
