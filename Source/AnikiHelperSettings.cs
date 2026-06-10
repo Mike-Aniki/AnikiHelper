@@ -1,4 +1,8 @@
 ﻿using AnikiHelper.Services;
+using AnikiHelper.Services.Achievements;
+using AnikiHelper.Services.AnikiThemeSettings;
+using AnikiHelper.Services.MediaGallery;
+using AnikiHelper.Services.SplashScreen;
 using Playnite.SDK;
 using Playnite.SDK.Data;
 using Playnite.SDK.Events;
@@ -7,6 +11,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -15,9 +21,8 @@ using System.Threading.Tasks;
 using System.Timers;
 using System.Windows;
 using System.Windows.Input;
-using AnikiHelper.Services.SplashScreen;
-using System.ComponentModel;
 using System.Windows.Threading;
+
 
 namespace AnikiHelper
 {
@@ -282,6 +287,22 @@ namespace AnikiHelper
         private readonly global::AnikiHelper.AnikiHelper plugin;
 
         [DontSerialize]
+        private ScreenshotsVisualizerReader screenshotsVisualizerReader;
+
+        [DontSerialize]
+        private ScreenshotUtilitiesReader screenshotUtilitiesReader;
+
+        [DontSerialize]
+        private AnikiMediaThumbnailService mediaThumbnailService;
+
+        [DontSerialize]
+        private ScreenshotMediaCacheService screenshotMediaCacheService;
+
+        private AchievementMemoriesCacheService achievementMemoriesCacheService;
+        private RarestAchievementCacheService rarestAchievementCacheService;
+        private PlayniteAchievementsReader playniteAchievementsReader;
+
+        [DontSerialize]
         private ILogger logger;
 
         [DontSerialize]
@@ -293,6 +314,595 @@ namespace AnikiHelper
         public RelayCommand<object> ToggleWelcomeHubCommand { get; }
         public RelayCommand<object> CloseWelcomeHubCommand { get; }
         public RelayCommand<object> InitializeWelcomeHubCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand RefreshMediaGalleryCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand RefreshCurrentGameMediaCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenScreenshotsWindowCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenMediaGalleryGamesWindowCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand RefreshMediaGalleryLibraryCommand { get; }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaItem> CurrentGameMediaItems { get; set; }
+            = new ObservableCollection<AnikiMediaItem>();
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaItem> VisibleCurrentGameMediaItems { get; set; }
+            = new ObservableCollection<AnikiMediaItem>();
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaItem> HubLatestMediaItems { get; set; }
+            = new ObservableCollection<AnikiMediaItem>();
+
+        [DontSerialize]
+        public bool HasHubLatestMedia
+        {
+            get => HubLatestMediaItems != null && HubLatestMediaItems.Count > 0;
+        }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaItem> HubMemoryItems { get; set; }
+            = new ObservableCollection<AnikiMediaItem>();
+
+        public ObservableCollection<AnikiAchievementMemoryItem> HubAchievementMemoryItems { get; } =
+            new ObservableCollection<AnikiAchievementMemoryItem>();
+
+        private AnikiAchievementMemoryItem rarestPlayniteAchievementAllTime;
+
+        public AnikiAchievementMemoryItem RarestPlayniteAchievementAllTime
+        {
+            get => rarestPlayniteAchievementAllTime;
+            set => SetValue(ref rarestPlayniteAchievementAllTime, value);
+        }
+
+        public bool HasRarestPlayniteAchievementAllTime
+        {
+            get => RarestPlayniteAchievementAllTime != null;
+        }
+
+        public bool HasHubAchievementMemory
+        {
+            get { return HubAchievementMemoryItems.Count > 0; }
+        }
+
+        private string hubAchievementMemoryPeriod = string.Empty;
+
+        [DontSerialize]
+        public string HubAchievementMemoryPeriod
+        {
+            get => hubAchievementMemoryPeriod;
+            set => SetValue(ref hubAchievementMemoryPeriod, value);
+        }
+
+        [DontSerialize]
+        public bool HasHubMemory
+        {
+            get => HubMemoryItems != null && HubMemoryItems.Count > 0;
+        }
+
+        private string hubMemorySubtitle = string.Empty;
+
+        [DontSerialize]
+        public string HubMemorySubtitle
+        {
+            get => hubMemorySubtitle;
+            set => SetValue(ref hubMemorySubtitle, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaGameItem> MediaGalleryGames { get; set; }
+            = new ObservableCollection<AnikiMediaGameItem>();
+
+        private string mediaGalleryGamesSortMode = "LatestCaptureDesc";
+        public string MediaGalleryGamesSortMode
+        {
+            get => mediaGalleryGamesSortMode;
+            set
+            {
+                SetValue(ref mediaGalleryGamesSortMode, value);
+                ApplyMediaGalleryGamesSort();
+            }
+        }
+
+        [DontSerialize]
+        public RelayCommand<AnikiMediaGameItem> OpenScreenshotsForMediaGameCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<AnikiMediaItem> OpenScreenshotsForMediaItemCommand { get; }
+
+        [DontSerialize]
+        private int currentGameMediaLoadedCount;
+
+        [DontSerialize]
+        public int CurrentGameMediaLoadedCount
+        {
+            get => currentGameMediaLoadedCount;
+            set => SetValue(ref currentGameMediaLoadedCount, value);
+        }
+
+        [DontSerialize]
+        private bool currentGameMediaCanLoadMore;
+
+        [DontSerialize]
+        public bool CurrentGameMediaCanLoadMore
+        {
+            get => currentGameMediaCanLoadMore;
+            set => SetValue(ref currentGameMediaCanLoadMore, value);
+        }
+
+        [DontSerialize]
+        private bool currentGameMediaLoading;
+
+        [DontSerialize]
+        private Guid currentGameMediaActiveGameId = Guid.Empty;
+
+        [DontSerialize]
+        private int currentGameMediaLoadVersion = 0;
+
+        [DontSerialize]
+        private bool currentGameMediaPageLoading;
+
+        [DontSerialize]
+        public bool CurrentGameMediaLoading
+        {
+            get => currentGameMediaLoading;
+            set => SetValue(ref currentGameMediaLoading, value);
+        }
+
+        private int currentGameMediaPageSize = 18;
+        public int CurrentGameMediaPageSize
+        {
+            get => currentGameMediaPageSize;
+            set => SetValue(ref currentGameMediaPageSize, Math.Max(9, Math.Min(60, value)));
+        }
+
+        [DontSerialize]
+        public RelayCommand GenerateMediaThumbnailsCommand { get; }
+
+        [DontSerialize]
+        private bool mediaThumbnailPrecacheLoading;
+
+        [DontSerialize]
+        private readonly HashSet<Guid> stoppedGameMediaRefreshRunning = new HashSet<Guid>();
+
+        [DontSerialize]
+        public bool MediaThumbnailPrecacheLoading
+        {
+            get => mediaThumbnailPrecacheLoading;
+            set => SetValue(ref mediaThumbnailPrecacheLoading, value);
+        }
+
+        [DontSerialize]
+        private int mediaThumbnailPrecacheDone;
+
+        [DontSerialize]
+        public int MediaThumbnailPrecacheDone
+        {
+            get => mediaThumbnailPrecacheDone;
+            set
+            {
+                SetValue(ref mediaThumbnailPrecacheDone, value);
+                OnPropertyChanged(nameof(MediaThumbnailPrecacheProgressText));
+                OnPropertyChanged(nameof(MediaThumbnailPrecacheProgressPercent));
+            }
+        }
+
+        [DontSerialize]
+        private int mediaThumbnailPrecacheTotal;
+
+        [DontSerialize]
+        public int MediaThumbnailPrecacheTotal
+        {
+            get => mediaThumbnailPrecacheTotal;
+            set
+            {
+                SetValue(ref mediaThumbnailPrecacheTotal, value);
+                OnPropertyChanged(nameof(MediaThumbnailPrecacheProgressText));
+                OnPropertyChanged(nameof(MediaThumbnailPrecacheProgressPercent));
+            }
+        }
+
+        [DontSerialize]
+        private string mediaThumbnailPrecacheStatus = string.Empty;
+
+        [DontSerialize]
+        public string MediaThumbnailPrecacheStatus
+        {
+            get => mediaThumbnailPrecacheStatus;
+            set => SetValue(ref mediaThumbnailPrecacheStatus, value);
+        }
+
+        [DontSerialize]
+        public string MediaThumbnailPrecacheProgressText
+        {
+            get
+            {
+                if (MediaThumbnailPrecacheTotal <= 0)
+                {
+                    return "0 / 0";
+                }
+
+                return MediaThumbnailPrecacheDone + " / " + MediaThumbnailPrecacheTotal;
+            }
+        }
+
+        [DontSerialize]
+        public double MediaThumbnailPrecacheProgressPercent
+        {
+            get
+            {
+                if (MediaThumbnailPrecacheTotal <= 0)
+                {
+                    return 0;
+                }
+
+                return Math.Max(0, Math.Min(100, (MediaThumbnailPrecacheDone / (double)MediaThumbnailPrecacheTotal) * 100.0));
+            }
+            set
+            {
+                // Required because ProgressBar.Value may try to write back to the binding.
+                // The real value is computed from MediaThumbnailPrecacheDone / MediaThumbnailPrecacheTotal.
+            }
+        }
+
+        // === Aniki Theme Settings ===
+
+        [DontSerialize]
+        public AnikiDynamicProperties Options { get; } = new AnikiDynamicProperties();
+
+        [DontSerialize]
+        private string aspectRatio = "dsp169";
+
+        [DontSerialize]
+        public string AspectRatio
+        {
+            get => aspectRatio;
+            set => SetValue(ref aspectRatio, string.IsNullOrWhiteSpace(value) ? "dsp169" : value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiThemeSettingsCategory> AnikiThemeSettingsCategories { get; }
+            = new ObservableCollection<AnikiThemeSettingsCategory>();
+
+        [DontSerialize]
+        public ObservableCollection<object> SelectedAnikiThemeSettingsCategoryItems { get; }
+            = new ObservableCollection<object>();
+
+        [DontSerialize]
+        public string SelectedCategoryDisplayName
+        {
+            get
+            {
+                var selectedCategory = AnikiThemeSettingsCategories
+                    .FirstOrDefault(x => string.Equals(
+                        x.Id,
+                        SelectedAnikiThemeSettingsCategoryId,
+                        StringComparison.OrdinalIgnoreCase));
+
+                if (!string.IsNullOrWhiteSpace(selectedCategory?.WindowTitle))
+                {
+                    return selectedCategory.WindowTitle;
+                }
+
+                return selectedCategory?.Title ?? string.Empty;
+            }
+        }
+
+        private string selectedAnikiThemeSettingsCategoryId = "General";
+
+        [DontSerialize]
+        public string SelectedAnikiThemeSettingsCategoryId
+        {
+            get => selectedAnikiThemeSettingsCategoryId;
+            set
+            {
+                var finalValue = string.IsNullOrWhiteSpace(value) ? "General" : value;
+
+                if (string.Equals(selectedAnikiThemeSettingsCategoryId, finalValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                SetValue(ref selectedAnikiThemeSettingsCategoryId, finalValue);
+                RefreshSelectedAnikiThemeSettingsCategoryItems();
+                OnPropertyChanged(nameof(SelectedCategoryDisplayName));
+            }
+        }
+
+        [DontSerialize]
+        public RelayCommand<string> SelectAnikiThemeSettingsCategoryCommand { get; }
+
+        [DontSerialize]
+        public Dictionary<string, string> AnikiThemeSettingsValues { get; set; }
+            = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        [DontSerialize]
+        public Dictionary<string, string> AnikiThemeSettingsSelectedPresets { get; set; }
+            = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private string anikiThemeSettingsPreviewImage;
+
+        [DontSerialize]
+        public string AnikiThemeSettingsPreviewImage
+        {
+            get => anikiThemeSettingsPreviewImage;
+            set => SetValue(ref anikiThemeSettingsPreviewImage, value);
+        }
+
+        [DontSerialize]
+        public RelayCommand<string> SetAnikiThemeOptionCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<string> ToggleAnikiThemeOptionCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<string> SelectAnikiThemePresetCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<string> ShowAnikiThemePresetPreviewCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand HideAnikiThemePresetPreviewCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ReloadAnikiThemeSettingsCommand { get; }
+
+        public void SelectAnikiThemeSettingsCategory(string categoryId)
+        {
+            SelectedAnikiThemeSettingsCategoryId = string.IsNullOrWhiteSpace(categoryId)
+                ? "General"
+                : categoryId;
+        }
+
+        public void RefreshSelectedAnikiThemeSettingsCategoryItems()
+        {
+            try
+            {
+                SelectedAnikiThemeSettingsCategoryItems.Clear();
+
+                var selectedCategory = AnikiThemeSettingsCategories
+                    .FirstOrDefault(x => string.Equals(
+                        x.Id,
+                        SelectedAnikiThemeSettingsCategoryId,
+                        StringComparison.OrdinalIgnoreCase));
+
+                if (selectedCategory == null)
+                {
+                    selectedCategory = AnikiThemeSettingsCategories.FirstOrDefault();
+                }
+
+                if (selectedCategory == null || selectedCategory.Items == null)
+                {
+                    OnPropertyChanged(nameof(SelectedAnikiThemeSettingsCategoryItems));
+                    return;
+                }
+
+                foreach (var item in selectedCategory.Items)
+                {
+                    SelectedAnikiThemeSettingsCategoryItems.Add(item);
+                }
+
+                OnPropertyChanged(nameof(SelectedAnikiThemeSettingsCategoryItems));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to refresh selected Aniki Theme Settings category items.");
+            }
+        }
+
+        public void LoadMoreCurrentGameMediaItems()
+        {
+            if (currentGameMediaPageLoading)
+            {
+                return;
+            }
+
+            try
+            {
+                currentGameMediaPageLoading = true;
+
+                if (CurrentGameMediaItems == null || CurrentGameMediaItems.Count == 0)
+                {
+                    CurrentGameMediaLoadedCount = 0;
+                    CurrentGameMediaCanLoadMore = false;
+                    return;
+                }
+
+                if (!CurrentGameMediaCanLoadMore && CurrentGameMediaLoadedCount >= CurrentGameMediaItems.Count)
+                {
+                    return;
+                }
+
+                var start = CurrentGameMediaLoadedCount;
+
+                if (start < 0)
+                {
+                    start = 0;
+                }
+
+                if (start > CurrentGameMediaItems.Count)
+                {
+                    start = CurrentGameMediaItems.Count;
+                }
+
+                var take = Math.Max(9, CurrentGameMediaPageSize);
+
+                var nextItems = CurrentGameMediaItems
+                    .Skip(start)
+                    .Take(take)
+                    .ToList();
+
+                if (nextItems.Count == 0)
+                {
+                    CurrentGameMediaLoadedCount = VisibleCurrentGameMediaItems.Count;
+                    CurrentGameMediaCanLoadMore = false;
+                    return;
+                }
+
+                // Important:
+                // Update the loaded index BEFORE adding items to the visible collection.
+                // This prevents ScrollChanged / SelectionChanged from re-entering this method
+                // and loading the same page again while items are still being added.
+                CurrentGameMediaLoadedCount = start + nextItems.Count;
+                CurrentGameMediaCanLoadMore = CurrentGameMediaLoadedCount < CurrentGameMediaItems.Count;
+
+                var visibleKeys = new HashSet<string>(
+                    VisibleCurrentGameMediaItems
+                        .Where(x => x != null)
+                        .Select(GetMediaUniqueKey)
+                        .Where(x => !string.IsNullOrWhiteSpace(x)),
+                    StringComparer.OrdinalIgnoreCase
+                );
+
+                foreach (var item in nextItems)
+                {
+                    if (item == null)
+                    {
+                        continue;
+                    }
+
+                    var key = GetMediaUniqueKey(item);
+
+                    // Defensive protection:
+                    // If the same exact media file is already visible, do not add it again.
+                    if (!string.IsNullOrWhiteSpace(key) && visibleKeys.Contains(key))
+                    {
+                        continue;
+                    }
+
+                    VisibleCurrentGameMediaItems.Add(item);
+
+                    if (!string.IsNullOrWhiteSpace(key))
+                    {
+                        visibleKeys.Add(key);
+                    }
+                }
+
+                OnPropertyChanged(nameof(VisibleCurrentGameMediaItems));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load more current game media items.");
+            }
+            finally
+            {
+                currentGameMediaPageLoading = false;
+            }
+        }
+        private static string GetMediaUniqueKey(AnikiMediaItem item)
+        {
+            if (item == null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.FilePath))
+            {
+                try
+                {
+                    return Path.GetFullPath(item.FilePath)
+                        .Trim()
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                catch
+                {
+                    return item.FilePath.Trim();
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.ThumbnailPath))
+            {
+                return item.ThumbnailPath.Trim();
+            }
+
+            return $"{item.GameId}|{item.FileName}|{item.CaptureDate:O}";
+        }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaItem> MediaGalleryItems { get; set; }
+            = new ObservableCollection<AnikiMediaItem>();
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaItem> VisibleMediaGalleryItems { get; set; }
+            = new ObservableCollection<AnikiMediaItem>();
+
+        private AnikiMediaProviderMode mediaGalleryProvider = AnikiMediaProviderMode.ScreenshotsVisualizer;
+        public AnikiMediaProviderMode MediaGalleryProvider
+        {
+            get => mediaGalleryProvider;
+            set
+            {
+                if (mediaGalleryProvider == value)
+                {
+                    return;
+                }
+
+                mediaGalleryProvider = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(MediaGalleryProviderName));
+            }
+        }
+
+        public string MediaGalleryProviderName
+        {
+            get
+            {
+                switch (MediaGalleryProvider)
+                {
+                    case AnikiMediaProviderMode.ScreenshotUtilitiesLocal:
+                        return "Screenshot Utilities - Local";
+
+                    case AnikiMediaProviderMode.ScreenshotsVisualizer:
+                    default:
+                        return "Screenshots Visualizer";
+                }
+            }
+        }
+
+        [DontSerialize]
+        private bool mediaGalleryLoading;
+        [DontSerialize]
+        public bool MediaGalleryLoading
+        {
+            get => mediaGalleryLoading;
+            set => SetValue(ref mediaGalleryLoading, value);
+        }
+
+        [DontSerialize]
+        private string mediaGalleryStatusText = string.Empty;
+        [DontSerialize]
+        public string MediaGalleryStatusText
+        {
+            get => mediaGalleryStatusText;
+            set => SetValue(ref mediaGalleryStatusText, value);
+        }
+
+        [DontSerialize]
+        private int mediaGalleryCount;
+        [DontSerialize]
+        public int MediaGalleryCount
+        {
+            get => mediaGalleryCount;
+            set => SetValue(ref mediaGalleryCount, value);
+        }
+
+        [DontSerialize]
+        private bool hasCurrentGameMedia;
+
+        [DontSerialize]
+        public bool HasCurrentGameMedia
+        {
+            get => hasCurrentGameMedia;
+            set => SetValue(ref hasCurrentGameMedia, value);
+        }
 
         [DontSerialize]
         public AnikiWindowCommandProvider OpenWindow { get; }
@@ -314,10 +924,41 @@ namespace AnikiHelper
         public RelayCommand OpenAchievementsCommand { get; }
 
         [DontSerialize]
+        public RelayCommand RefreshRecentAchievementsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand RefreshInstalledAchievementsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand RefreshFavoritesAchievementsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand RefreshFullAchievementsCommand { get; }
+
+        [DontSerialize]
+        private bool isQuickAccessToMainMenuDimActive;
+
+        [DontSerialize]
+        public bool IsQuickAccessToMainMenuDimActive
+        {
+            get => isQuickAccessToMainMenuDimActive;
+            set => SetValue(ref isQuickAccessToMainMenuDimActive, value);
+        }
+
+        [DontSerialize]
         public RelayCommand OpenLockScreenCommand { get; }
 
         [DontSerialize]
         public RelayCommand OpenPowerMenuCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenExternalClientsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenRandomGameCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand UpdateGameLibraryCommand { get; }
 
         [DontSerialize]
         public AnikiWindowCommandProvider OpenHelpLink { get; }
@@ -340,11 +981,23 @@ namespace AnikiHelper
         [DontSerialize]
         public RelayCommand OpenPlayniteMainMenuCommand { get; }
 
+        public RelayCommand OpenPlayniteSettingsCommand { get; }
+
         private bool isWelcomeHubOpen = true;
         public bool IsWelcomeHubOpen
         {
             get => isWelcomeHubOpen;
             set => SetValue(ref isWelcomeHubOpen, value);
+        }
+
+        [DontSerialize]
+        private bool isFastNavigating = false;
+
+        [DontSerialize]
+        public bool IsFastNavigating
+        {
+            get => isFastNavigating;
+            set => SetValue(ref isFastNavigating, value);
         }
 
         private bool isWelcomeHubClosing = false;
@@ -359,6 +1012,34 @@ namespace AnikiHelper
         {
             get => openWelcomeHubOnStartup;
             set => SetValue(ref openWelcomeHubOnStartup, value);
+        }
+
+        private string customFilterIconsFolder = string.Empty;
+        public string CustomFilterIconsFolder
+        {
+            get => customFilterIconsFolder;
+            set
+            {
+                var finalValue = string.IsNullOrWhiteSpace(value)
+                    ? string.Empty
+                    : value.Trim().Replace("\\", "/").TrimEnd('/');
+
+                SetValue(ref customFilterIconsFolder, finalValue);
+            }
+        }
+
+        private string customSourceIconsFolder = string.Empty;
+        public string CustomSourceIconsFolder
+        {
+            get => customSourceIconsFolder;
+            set
+            {
+                var finalValue = string.IsNullOrWhiteSpace(value)
+                    ? string.Empty
+                    : value.Trim().Replace("\\", "/").TrimEnd('/');
+
+                SetValue(ref customSourceIconsFolder, finalValue);
+            }
         }
 
         [DontSerialize]
@@ -560,6 +1241,7 @@ namespace AnikiHelper
 
         // Options stats / display 
         private bool includeHidden = false;
+        private bool enableDebugLogs = false;
         private int topPlayedMax = 10;
         private bool playtimeStoredInHours = false;
         private bool playtimeUseDaysFormat = false;
@@ -748,6 +1430,13 @@ namespace AnikiHelper
         {
             get => profileGenreLabel;
             set => SetValue(ref profileGenreLabel, value);
+        }
+
+        private DateTime lastProfileGenreScanUtc = DateTime.MinValue;
+        public DateTime LastProfileGenreScanUtc
+        {
+            get => lastProfileGenreScanUtc;
+            set => SetValue(ref lastProfileGenreScanUtc, value);
         }
 
         // Session summary
@@ -1313,6 +2002,20 @@ namespace AnikiHelper
 
 
         #region Options (bindables)
+        public bool EnableDebugLogs
+        {
+            get => enableDebugLogs;
+            set
+            {
+                var changed = enableDebugLogs != value;
+                SetValue(ref enableDebugLogs, value);
+
+                if (changed && plugin != null)
+                {
+                    plugin.SavePluginSettings(this);
+                }
+            }
+        }
         public bool IncludeHidden { get => includeHidden; set => SetValue(ref includeHidden, value); }
 
         public int TopPlayedMax
@@ -1381,6 +2084,13 @@ namespace AnikiHelper
         {
             get => gameLaunchSplashShowLogo;
             set => SetValue(ref gameLaunchSplashShowLogo, value);
+        }
+
+        private bool gameLaunchSplashPauseUniPlaySong = true;
+        public bool GameLaunchSplashPauseUniPlaySong
+        {
+            get => gameLaunchSplashPauseUniPlaySong;
+            set => SetValue(ref gameLaunchSplashPauseUniPlaySong, value);
         }
 
         private bool gameLaunchSplashVideoSoundEnabled = true;
@@ -1470,6 +2180,27 @@ namespace AnikiHelper
         {
             get => shutdownVideoEnabled;
             set => SetValue(ref shutdownVideoEnabled, value);
+        }
+
+        private bool inGameOverlayEnabled = false;
+        public bool InGameOverlayEnabled
+        {
+            get => inGameOverlayEnabled;
+            set => SetValue(ref inGameOverlayEnabled, value);
+        }
+
+        private string inGameOverlayHotkey = "CtrlShiftF12";
+        public string InGameOverlayHotkey
+        {
+            get => string.IsNullOrWhiteSpace(inGameOverlayHotkey) ? "CtrlShiftF12" : inGameOverlayHotkey;
+            set => SetValue(ref inGameOverlayHotkey, string.IsNullOrWhiteSpace(value) ? "CtrlShiftF12" : value);
+        }
+
+        private string inGameOverlayControllerShortcut = "StartBack";
+        public string InGameOverlayControllerShortcut
+        {
+            get => string.IsNullOrWhiteSpace(inGameOverlayControllerShortcut) ? "StartBack" : inGameOverlayControllerShortcut;
+            set => SetValue(ref inGameOverlayControllerShortcut, string.IsNullOrWhiteSpace(value) ? "StartBack" : value);
         }
 
         private bool eventSoundsEnabled = true;
@@ -1669,9 +2400,37 @@ namespace AnikiHelper
             this.plugin = plugin;
             logger = LogManager.GetLogger();
 
+            screenshotsVisualizerReader = new ScreenshotsVisualizerReader(plugin.PlayniteApi, logger);
+            screenshotUtilitiesReader = new ScreenshotUtilitiesReader(plugin.PlayniteApi, logger);
+            mediaThumbnailService = new AnikiMediaThumbnailService(plugin.GetPluginUserDataPath(), logger);
+            screenshotMediaCacheService = new ScreenshotMediaCacheService(plugin.PlayniteApi, plugin.GetPluginUserDataPath(), logger);
+
+            SetAnikiThemeOptionCommand = new RelayCommand<string>(p => plugin?.SetAnikiThemeOption(p));
+            ToggleAnikiThemeOptionCommand = new RelayCommand<string>(p => plugin?.ToggleAnikiThemeOption(p));
+            SelectAnikiThemePresetCommand = new RelayCommand<string>(p => plugin?.SelectAnikiThemePreset(p));
+            ShowAnikiThemePresetPreviewCommand = new RelayCommand<string>(p => plugin?.ShowAnikiThemePresetPreview(p));
+            HideAnikiThemePresetPreviewCommand = new RelayCommand(() => plugin?.HideAnikiThemePresetPreview());
+            ReloadAnikiThemeSettingsCommand = new RelayCommand(() => plugin?.ReloadAnikiThemeSettings());
+            SelectAnikiThemeSettingsCategoryCommand = new RelayCommand<string>(p => SelectAnikiThemeSettingsCategory(p));
+
+
+            LoadHubLatestMediaFromCache();
+            LoadHubMemoryFromCache();
+            LoadHubAchievementMemoriesFromCacheWhenDatabaseReady();
+            EnsureAchievementMemoriesCacheExists();
+            LoadMediaGalleryGamesFromCache();
+
             var saved = LoadSettingsSafe(plugin);
             if (saved != null)
             {
+                AnikiThemeSettingsValues = saved.AnikiThemeSettingsValues
+                    ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                AnikiThemeSettingsSelectedPresets = saved.AnikiThemeSettingsSelectedPresets
+                    ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                EnableDebugLogs = saved.EnableDebugLogs;
+
                 IncludeHidden = saved.IncludeHidden;
                 TopPlayedMax = saved.TopPlayedMax <= 0 ? 10 : saved.TopPlayedMax;
                 PlaytimeStoredInHours = saved.PlaytimeStoredInHours;
@@ -1683,14 +2442,29 @@ namespace AnikiHelper
                 SteamStoreRegion = string.IsNullOrWhiteSpace(saved.SteamStoreRegion) ? "US" : saved.SteamStoreRegion;
                 SteamStoreEnabled = saved.SteamStoreEnabled;
 
+                CustomFilterIconsFolder = saved.CustomFilterIconsFolder ?? string.Empty;
+                CustomSourceIconsFolder = saved.CustomSourceIconsFolder ?? string.Empty;
+
                 LoginRandomIndex = saved.LoginRandomIndex;
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
                 LastSeenWhatsNewVersion = saved.LastSeenWhatsNewVersion ?? string.Empty;
 
+                InGameOverlayEnabled = saved.InGameOverlayEnabled;
+
+                InGameOverlayHotkey = string.IsNullOrWhiteSpace(saved.InGameOverlayHotkey)
+                    ? "CtrlShiftF12"
+                    : saved.InGameOverlayHotkey;
+
+                InGameOverlayControllerShortcut = string.IsNullOrWhiteSpace(saved.InGameOverlayControllerShortcut)
+                    ? "StartBack"
+                    : saved.InGameOverlayControllerShortcut;
+
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
+                SteamUpdatesScanEnabled = saved.SteamUpdatesScanEnabled;
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
                 StartupIntroVideoEnabled = saved.StartupIntroVideoEnabled;
                 GameLaunchSplashEnabled = saved.GameLaunchSplashEnabled;
+                GameLaunchSplashPauseUniPlaySong = saved.GameLaunchSplashPauseUniPlaySong;
                 GameLaunchSplashShowLogo = saved.GameLaunchSplashShowLogo;
                 GameLaunchSplashVideoSoundEnabled = saved.GameLaunchSplashVideoSoundEnabled;
                 GameLaunchSplashVideoEndBehavior = saved.GameLaunchSplashVideoEndBehavior;
@@ -1706,6 +2480,7 @@ namespace AnikiHelper
                 ShutdownVideoEnabled = saved.ShutdownVideoEnabled;
                 LastSteamRecentCheckUtc = saved.LastSteamRecentCheckUtc;
                 EventSoundsEnabled = saved.EventSoundsEnabled;
+                MediaGalleryProvider = saved.MediaGalleryProvider;
 
                 NewsScanEnabled = saved.NewsScanEnabled;
                 LastNewsScanUtc = saved.LastNewsScanUtc;
@@ -1724,6 +2499,10 @@ namespace AnikiHelper
 
                 DynamicAutoPrecacheUserEnabled = saved.DynamicAutoPrecacheUserEnabled;
                 DynamicColorCacheVersion = saved.DynamicColorCacheVersion ?? string.Empty;
+
+                ProfileGenreKey = saved.ProfileGenreKey ?? string.Empty;
+                ProfileGenreLabel = saved.ProfileGenreLabel ?? string.Empty;
+                LastProfileGenreScanUtc = saved.LastProfileGenreScanUtc;
 
                 SteamGlobalNewsALastRefreshUtc = saved.SteamGlobalNewsALastRefreshUtc;
                 SteamGlobalNewsBLastRefreshUtc = saved.SteamGlobalNewsBLastRefreshUtc;
@@ -1820,6 +2599,79 @@ namespace AnikiHelper
                 () => plugin?.PlayniteApi?.MainView?.SelectedGames?.Any() == true
             );
 
+            RefreshMediaGalleryCommand = new RelayCommand(
+                () =>
+                {
+                    RefreshMediaGallery();
+                }
+            );
+
+            GenerateMediaThumbnailsCommand = new RelayCommand(
+                () =>
+                {
+                    _ = GenerateAllMediaThumbnailsAsync();
+                }
+            );
+
+            RefreshCurrentGameMediaCommand = new RelayCommand(
+                () =>
+                {
+                    RefreshCurrentGameMediaFromSelectedGame();
+                }
+            );
+
+            OpenScreenshotsWindowCommand = new RelayCommand(
+                () =>
+                {
+                    PrepareCurrentGameMediaLoading();
+
+                    plugin?.OpenWindow("ScreenShotsThumbsWindowStyle");
+                    plugin?.HookScreenshotsLazyLoad();
+
+                    _ = RefreshCurrentGameMediaFromSelectedGameAsync();
+                }
+
+            );
+
+            OpenScreenshotsForMediaGameCommand = new RelayCommand<AnikiMediaGameItem>(
+                mediaGame =>
+                {
+                    if (mediaGame == null || mediaGame.GameId == Guid.Empty)
+                    {
+                        return;
+                    }
+
+                    _ = OpenScreenshotsWindowForGameAsync(mediaGame.GameId);
+                }
+            );
+
+            OpenScreenshotsForMediaItemCommand = new RelayCommand<AnikiMediaItem>(
+                mediaItem =>
+                {
+                    if (mediaItem == null || mediaItem.GameId == Guid.Empty)
+                    {
+                        return;
+                    }
+
+                    _ = OpenScreenshotsWindowForGameAsync(mediaItem.GameId);
+                }
+            );
+
+            RefreshMediaGalleryLibraryCommand = new RelayCommand(
+                () =>
+                {
+                    _ = RefreshMediaGalleryLibraryAsync();
+                }
+            );
+
+            OpenMediaGalleryGamesWindowCommand = new RelayCommand(
+                () =>
+                {
+                    LoadMediaGalleryGamesFromCache();
+                    plugin?.OpenWindow("MediaGalleryGamesWindowStyle");
+                }
+            );
+
             OpenGameDetailsCommand = new RelayCommand<object>(
                 gameObj =>
                 {
@@ -1879,7 +2731,27 @@ namespace AnikiHelper
 
             OpenPowerMenuCommand = new RelayCommand(() => plugin?.OpenPowerMenuFromQuickAccess());
 
+            OpenPlayniteSettingsCommand = new RelayCommand(() => plugin?.OpenPlayniteSettingsFromShortcut());
+
+            OpenExternalClientsCommand = new RelayCommand(() => plugin?.OpenExternalClientsFromHelpMenu());
+
+            OpenRandomGameCommand = new RelayCommand(() => plugin?.OpenRandomGameFromQuickAccess());
+
+            UpdateGameLibraryCommand = new RelayCommand(() => plugin?.UpdateGameLibraryFromQuickAccess());
+
             OpenAchievementsCommand = new RelayCommand(() => plugin?.OpenAchievementsFromQuickAccess());
+
+            RefreshRecentAchievementsCommand = new RelayCommand(() =>
+                plugin?.TriggerHiddenButtonAfterClosingTopWindow("HiddenRecentRefreshButton"));
+
+            RefreshInstalledAchievementsCommand = new RelayCommand(() =>
+                plugin?.TriggerHiddenButtonAfterClosingTopWindow("HiddenInstalledRefreshButton"));
+
+            RefreshFavoritesAchievementsCommand = new RelayCommand(() =>
+                plugin?.TriggerHiddenButtonAfterClosingTopWindow("HiddenFavoritesRefreshButton"));
+
+            RefreshFullAchievementsCommand = new RelayCommand(() =>
+                plugin?.TriggerHiddenButtonAfterClosingTopWindow("HiddenFullRefreshButton"));
 
             NextNewsTabCommand = new RelayCommand(() => plugin?.SwitchNewsTab(true));
 
@@ -1891,7 +2763,7 @@ namespace AnikiHelper
 
             QuickOptionsNextSectionCommand = new RelayCommand(() => plugin?.SwitchQuickOptionsSection(1));
 
-            OpenPlayniteMainMenuCommand = new RelayCommand(() => plugin?.OpenPlayniteMainMenuFromShortcut());
+            OpenPlayniteMainMenuCommand = new RelayCommand(() => { });
 
             CloseWelcomeHubCommand = new RelayCommand<object>(
                 _ =>
@@ -1967,6 +2839,1339 @@ namespace AnikiHelper
 
             // Startup storage
             LoadDiskUsages();
+        }
+
+        public void RefreshMediaGallery()
+        {
+            try
+            {
+                MediaGalleryLoading = true;
+                MediaGalleryStatusText = "Loading media gallery...";
+
+                var items = LoadUnifiedMediaItems();
+
+                ReplaceMediaCollection(MediaGalleryItems, items);
+
+                MediaGalleryCount = MediaGalleryItems.Count;
+                MediaGalleryStatusText = MediaGalleryCount + " media item(s) loaded.";
+
+                RefreshCurrentGameMediaFromSelectedGame();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to refresh media gallery.");
+                MediaGalleryStatusText = "Failed to load media gallery.";
+            }
+            finally
+            {
+                MediaGalleryLoading = false;
+            }
+        }
+
+        private List<AnikiMediaItem> LoadUnifiedMediaItems()
+        {
+            var allItems = new List<AnikiMediaItem>();
+
+            try
+            {
+                if (screenshotsVisualizerReader == null)
+                {
+                    screenshotsVisualizerReader = new ScreenshotsVisualizerReader(plugin.PlayniteApi, logger);
+                }
+
+                allItems.AddRange(screenshotsVisualizerReader.LoadAll());
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load Screenshots Visualizer media.");
+            }
+
+            try
+            {
+                if (screenshotUtilitiesReader == null)
+                {
+                    screenshotUtilitiesReader = new ScreenshotUtilitiesReader(plugin.PlayniteApi, logger);
+                }
+
+                allItems.AddRange(screenshotUtilitiesReader.LoadAllLocal());
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load Screenshot Utilities media.");
+            }
+
+            return NormalizeUnifiedMediaItems(allItems);
+        }
+
+        private List<AnikiMediaItem> LoadUnifiedMediaItemsForGame(Guid gameId)
+        {
+            var allItems = new List<AnikiMediaItem>();
+
+            if (gameId == Guid.Empty)
+            {
+                return allItems;
+            }
+
+            try
+            {
+                if (screenshotsVisualizerReader == null)
+                {
+                    screenshotsVisualizerReader = new ScreenshotsVisualizerReader(plugin.PlayniteApi, logger);
+                }
+
+                allItems.AddRange(screenshotsVisualizerReader.LoadForGame(gameId));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load Visualizer media for game.");
+            }
+
+            try
+            {
+                if (screenshotUtilitiesReader == null)
+                {
+                    screenshotUtilitiesReader = new ScreenshotUtilitiesReader(plugin.PlayniteApi, logger);
+                }
+
+                allItems.AddRange(screenshotUtilitiesReader.LoadLocalForGame(gameId));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load Utilities media for game.");
+            }
+
+            return NormalizeUnifiedMediaItems(allItems);
+        }
+
+        private List<AnikiMediaItem> NormalizeUnifiedMediaItems(IEnumerable<AnikiMediaItem> items)
+        {
+            var rawItems = (items ?? Enumerable.Empty<AnikiMediaItem>()).ToList();
+
+            logger?.Info($"[AnikiHelper] Unified raw media count: {rawItems.Count}");
+            logger?.Info($"[AnikiHelper] Visualizer count: {rawItems.Count(x => x.SourceProvider == "Screenshots Visualizer")}");
+            logger?.Info($"[AnikiHelper] Utilities count: {rawItems.Count(x => x.SourceProvider == "Screenshot Utilities - Local")}");
+
+            var duplicateCount = rawItems
+                .Where(x => x != null)
+                .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                .GroupBy(x => NormalizeMediaItemPath(x.FilePath), StringComparer.OrdinalIgnoreCase)
+                .Count(g => g.Count() > 1);
+
+            logger?.Info($"[AnikiHelper] Unified duplicate file groups removed: {duplicateCount}");
+
+            var list = rawItems.Where(x => x != null)
+                .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                .Where(x => File.Exists(x.FilePath))
+                .GroupBy(x => NormalizeMediaItemPath(x.FilePath), StringComparer.OrdinalIgnoreCase)
+                .Select(group => group
+                    .OrderByDescending(x => x.IsVideo && HasValidProviderThumbnail(x))
+                    .ThenByDescending(x => x.CaptureDate)
+                    .First())
+                .OrderByDescending(x => x.CaptureDate)
+                .ToList();
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                list[i].MediaIndex = i + 1;
+                list[i].MediaTotal = list.Count;
+            }
+
+            return list;
+        }
+
+        private bool HasValidProviderThumbnail(AnikiMediaItem item)
+        {
+            try
+            {
+                if (item == null)
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(item.ThumbnailPath))
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(item.FilePath))
+                {
+                    return false;
+                }
+
+                if (string.Equals(item.ThumbnailPath, item.FilePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                return File.Exists(item.ThumbnailPath) && new FileInfo(item.ThumbnailPath).Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string NormalizeMediaItemPath(string path)
+        {
+            try
+            {
+                return Path.GetFullPath(path)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                return path?.Trim() ?? string.Empty;
+            }
+        }
+
+        private List<AnikiMediaItem> ApplyThumbnailsToMediaItems(IEnumerable<AnikiMediaItem> items)
+        {
+            var result = items?.ToList() ?? new List<AnikiMediaItem>();
+
+            try
+            {
+                if (mediaThumbnailService == null)
+                {
+                    mediaThumbnailService = new AnikiMediaThumbnailService(plugin.GetPluginUserDataPath(), logger);
+                }
+
+                foreach (var item in result)
+                {
+                    if (item == null)
+                    {
+                        continue;
+                    }
+
+                    var thumbnailPath = mediaThumbnailService.GetOrCreateThumbnail(item);
+
+                    if (!string.IsNullOrWhiteSpace(thumbnailPath))
+                    {
+                        item.ThumbnailPath = thumbnailPath;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to apply media thumbnails.");
+            }
+
+            return result;
+        }
+
+        public Task GenerateAllMediaThumbnailsAsync()
+        {
+            if (MediaThumbnailPrecacheLoading)
+            {
+                return Task.CompletedTask;
+            }
+
+            MediaThumbnailPrecacheLoading = true;
+            MediaThumbnailPrecacheDone = 0;
+            MediaThumbnailPrecacheTotal = 0;
+            MediaThumbnailPrecacheStatus = "Scanning media files...";
+
+            return Task.Run(() =>
+            {
+                try
+                {
+                    plugin.PlayniteApi.Dialogs.ActivateGlobalProgress(progress =>
+                    {
+                        progress.IsIndeterminate = true;
+                        progress.Text = "Scanning media files...";
+
+                        var loadedItems = LoadUnifiedMediaItems();
+                        var providerThumbCount = loadedItems.Count(x => HasValidProviderThumbnail(x));
+                        var imageItems = loadedItems
+                            .Where(x => x != null)
+                            .Where(x => !x.IsVideo)
+                            .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                            .Where(x => File.Exists(x.FilePath))
+                            .ToList();
+
+                        Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                        {
+                            MediaThumbnailPrecacheTotal = imageItems.Count;
+                            MediaThumbnailPrecacheDone = 0;
+                            MediaThumbnailPrecacheStatus = "Generating thumbnails...";
+                        }), DispatcherPriority.Background);
+
+                        progress.IsIndeterminate = false;
+                        progress.ProgressMaxValue = imageItems.Count;
+                        progress.CurrentProgressValue = 0;
+
+                        if (mediaThumbnailService == null)
+                        {
+                            mediaThumbnailService = new AnikiMediaThumbnailService(plugin.GetPluginUserDataPath(), logger);
+                        }
+
+                        for (int i = 0; i < imageItems.Count; i++)
+                        {
+                            if (progress.CancelToken.IsCancellationRequested)
+                            {
+                                progress.Text = "Thumbnail generation cancelled.";
+                                break;
+                            }
+
+                            var item = imageItems[i];
+                            var done = i + 1;
+
+                            progress.CurrentProgressValue = done;
+                            progress.Text = $"Generating thumbnails... {done}/{imageItems.Count}";
+
+                            try
+                            {
+                                mediaThumbnailService.GetOrCreateThumbnail(item);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger?.Debug(ex, "[AnikiHelper] Failed to generate media thumbnail.");
+                            }
+
+                            if (done % 5 == 0 || done == imageItems.Count)
+                            {
+                                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                                {
+                                    MediaThumbnailPrecacheDone = done;
+                                    MediaThumbnailPrecacheStatus = "Generating thumbnails...";
+                                }), DispatcherPriority.Background);
+                            }
+                        }
+
+                        if (!progress.CancelToken.IsCancellationRequested)
+                        {
+                            progress.Text = "Updating media cache...";
+
+                            try
+                            {
+                                if (screenshotMediaCacheService == null)
+                                {
+                                    screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                                        plugin.PlayniteApi,
+                                        plugin.GetPluginUserDataPath(),
+                                        logger
+                                    );
+                                }
+
+                                var itemsWithThumbnails = ApplyThumbnailsToMediaItems(loadedItems);
+                                screenshotMediaCacheService.RebuildCaches(itemsWithThumbnails);
+                                LoadHubMemoryFromCache();
+                                _ = RefreshAchievementMemoriesAsync();
+
+                                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                                {
+                                    LoadHubLatestMediaFromCache();
+                                    LoadMediaGalleryGamesFromCache();
+                                }), DispatcherPriority.Background);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger?.Warn(ex, "[AnikiHelper] Failed to rebuild screenshot media cache.");
+                            }
+
+                            progress.Text = "Thumbnails generated.";
+
+                            Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                            {
+                                MediaThumbnailPrecacheDone = MediaThumbnailPrecacheTotal;
+                                MediaThumbnailPrecacheStatus = "Thumbnails generated.";
+                            }), DispatcherPriority.Background);
+                        }
+                    },
+                    new GlobalProgressOptions("Generating media thumbnails")
+                    {
+                        IsIndeterminate = false,
+                        Cancelable = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to generate all media thumbnails.");
+
+                    Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                    {
+                        MediaThumbnailPrecacheStatus = "Failed to generate thumbnails.";
+                    }), DispatcherPriority.Background);
+                }
+                finally
+                {
+                    Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                    {
+                        MediaThumbnailPrecacheLoading = false;
+                    }), DispatcherPriority.Background);
+                }
+            });
+        }
+
+        public async Task RefreshMediaGalleryLibraryAsync()
+        {
+            try
+            {
+                await GenerateAllMediaThumbnailsAsync();
+
+                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                {
+                    LoadHubLatestMediaFromCache();
+                    LoadHubAchievementMemoriesFromCache();
+                    LoadMediaGalleryGamesFromCache();
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to refresh media gallery library.");
+            }
+        }
+
+        public Task GenerateMediaThumbnailsForGameAsync(Guid gameId, string gameName = "")
+        {
+            if (gameId == Guid.Empty)
+            {
+                return Task.CompletedTask;
+            }
+
+            return Task.Run(() =>
+            {
+                try
+                {
+                    plugin.PlayniteApi.Dialogs.ActivateGlobalProgress(progress =>
+                    {
+                        progress.IsIndeterminate = true;
+                        progress.Text = ResourceProvider.GetString("LOCAnikiHelperScanningMediaForThisGame");
+
+                        var loadedItems = LoadUnifiedMediaItemsForGame(gameId);
+
+                        var imageItems = loadedItems
+                            .Where(x => x != null)
+                            .Where(x => !x.IsVideo)
+                            .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                            .Where(x => File.Exists(x.FilePath))
+                            .ToList();
+
+                        progress.IsIndeterminate = false;
+                        progress.ProgressMaxValue = imageItems.Count;
+                        progress.CurrentProgressValue = 0;
+
+                        if (mediaThumbnailService == null)
+                        {
+                            mediaThumbnailService = new AnikiMediaThumbnailService(plugin.GetPluginUserDataPath(), logger);
+                        }
+
+                        for (int i = 0; i < imageItems.Count; i++)
+                        {
+                            if (progress.CancelToken.IsCancellationRequested)
+                            {
+                                progress.Text = ResourceProvider.GetString("LOCAnikiHelperThumbnailGenerationCancelled");
+                                break;
+                            }
+
+                            var item = imageItems[i];
+                            var done = i + 1;
+
+                            progress.CurrentProgressValue = done;
+                            progress.Text = string.Format(
+                                ResourceProvider.GetString("LOCAnikiHelperGeneratingThumbnailsForGame"),
+                                gameName,
+                                done,
+                                imageItems.Count
+                            );
+
+                            try
+                            {
+                                mediaThumbnailService.GetOrCreateThumbnail(item);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger?.Debug(ex, "[AnikiHelper] Failed to generate media thumbnail for selected game.");
+                            }
+                        }
+
+                        if (!progress.CancelToken.IsCancellationRequested)
+                        {
+                            progress.Text = ResourceProvider.GetString("LOCAnikiHelperUpdatingMediaCache");
+
+                            if (screenshotMediaCacheService == null)
+                            {
+                                screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                                    plugin.PlayniteApi,
+                                    plugin.GetPluginUserDataPath(),
+                                    logger
+                                );
+                            }
+
+                            var itemsWithThumbnails = ApplyThumbnailsToMediaItems(loadedItems);
+
+                            screenshotMediaCacheService.UpdateGameInCaches(gameId, itemsWithThumbnails);
+                            screenshotMediaCacheService.RebuildMemoriesForGame(gameId, itemsWithThumbnails);
+
+                            Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                            {
+                                LoadHubLatestMediaFromCache();
+                                LoadHubMemoryFromCache();
+                                LoadMediaGalleryGamesFromCache();
+                            }), DispatcherPriority.Background);
+
+                            progress.Text = ResourceProvider.GetString("LOCAnikiHelperThumbnailsGenerated");
+                        }
+                    },
+                    new GlobalProgressOptions(ResourceProvider.GetString("LOCAnikiHelperGeneratingGameThumbnails"))
+                    {
+                        IsIndeterminate = false,
+                        Cancelable = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to generate thumbnails for selected game.");
+                }
+            });
+        }
+
+        public Task RefreshStoppedGameMediaSilentAsync(Guid gameId, int delayMs = 6000, DateTime? sessionStart = null, DateTime? sessionEnd = null)
+        {
+            if (gameId == Guid.Empty)
+            {
+                return Task.CompletedTask;
+            }
+
+            lock (stoppedGameMediaRefreshRunning)
+            {
+                if (stoppedGameMediaRefreshRunning.Contains(gameId))
+                {
+                    return Task.CompletedTask;
+                }
+
+                stoppedGameMediaRefreshRunning.Add(gameId);
+            }
+
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    if (delayMs > 0)
+                    {
+                        await Task.Delay(delayMs);
+                    }
+
+                    var items = LoadUnifiedMediaItemsForGame(gameId);
+
+                    if (mediaThumbnailService == null)
+                    {
+                        mediaThumbnailService = new AnikiMediaThumbnailService(plugin.GetPluginUserDataPath(), logger);
+                    }
+
+                    foreach (var item in items.Where(x => x != null && !x.IsVideo && !HasValidProviderThumbnail(x)))
+                    {
+                        try
+                        {
+                            if (!string.IsNullOrWhiteSpace(item.FilePath) && File.Exists(item.FilePath))
+                            {
+                                mediaThumbnailService.GetOrCreateThumbnail(item);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            logger?.Debug(ex, "[AnikiHelper] Failed to generate thumbnail during silent stopped-game refresh.");
+                        }
+                    }
+
+                    var itemsWithThumbnails = ApplyThumbnailsToMediaItems(items);
+
+                    if (screenshotMediaCacheService == null)
+                    {
+                        screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                            plugin.PlayniteApi,
+                            plugin.GetPluginUserDataPath(),
+                            logger
+                        );
+                    }
+
+                    screenshotMediaCacheService.UpdateGameInCaches(gameId, itemsWithThumbnails);
+
+                    if (sessionStart.HasValue && sessionEnd.HasValue)
+                    {
+                        screenshotMediaCacheService.UpdateMemoryFromSession(gameId, itemsWithThumbnails, sessionStart.Value, sessionEnd.Value);
+                    }
+
+                    Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                    {
+                        LoadHubLatestMediaFromCache();
+                        LoadHubMemoryFromCache();
+                        LoadMediaGalleryGamesFromCache();
+                    }), DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Silent media refresh after game stopped failed.");
+                }
+                finally
+                {
+                    lock (stoppedGameMediaRefreshRunning)
+                    {
+                        stoppedGameMediaRefreshRunning.Remove(gameId);
+                    }
+                }
+            });
+        }
+
+        public void RefreshCurrentGameMediaFromSelectedGame()
+        {
+            try
+            {
+                var game = plugin?.PlayniteApi?.MainView?.SelectedGames?.FirstOrDefault();
+                if (game == null)
+                {
+                    CurrentGameMediaItems.Clear();
+                    VisibleCurrentGameMediaItems.Clear();
+                    CurrentGameMediaLoadedCount = 0;
+                    CurrentGameMediaCanLoadMore = false;
+                    HasCurrentGameMedia = false;
+                    return;
+                }
+
+                RefreshCurrentGameMediaForGame(game.Id);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to refresh current game media.");
+            }
+        }
+
+        public void LoadHubLatestMediaFromCache()
+        {
+            try
+            {
+                if (screenshotMediaCacheService == null)
+                {
+                    screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                        plugin.PlayniteApi,
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                var items = screenshotMediaCacheService.LoadLatestMediaCache();
+
+                ReplaceMediaCollection(HubLatestMediaItems, items);
+
+                OnPropertyChanged(nameof(HubLatestMediaItems));
+                OnPropertyChanged(nameof(HasHubLatestMedia));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load hub latest media cache.");
+
+                HubLatestMediaItems.Clear();
+                OnPropertyChanged(nameof(HubLatestMediaItems));
+                OnPropertyChanged(nameof(HasHubLatestMedia));
+            }
+        }
+
+        public void LoadHubMemoryFromCache()
+        {
+            try
+            {
+                if (screenshotMediaCacheService == null)
+                {
+                    screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                        plugin.PlayniteApi,
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                var memories = screenshotMediaCacheService.LoadMemoriesCache()
+                    .Where(x => x != null)
+                    .Where(x => x.Screenshots != null && x.Screenshots.Count > 0)
+                    .OrderByDescending(x => x.MemoryDate)
+                    .Take(20)
+                    .ToList();
+
+                var selectedMemory = memories
+                    .OrderBy(x => Guid.NewGuid())
+                    .FirstOrDefault();
+
+                if (selectedMemory != null)
+                {
+                    var memoryItems = selectedMemory.Screenshots
+                        .Where(x => x != null)
+                        .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                        .Where(x => File.Exists(x.FilePath))
+                        .Take(4)
+                        .ToList();
+
+                    ReplaceMediaCollection(HubMemoryItems, memoryItems);
+                    HubMemorySubtitle = $"{selectedMemory.GameName} • {selectedMemory.MemoryDate:dd/MM/yyyy}";
+                }
+                else
+                {
+                    var fallbackItems = screenshotMediaCacheService.LoadLatestMediaCache()
+                        .Where(x => x != null)
+                        .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                        .Where(x => File.Exists(x.FilePath))
+                        .Take(4)
+                        .ToList();
+
+                    ReplaceMediaCollection(HubMemoryItems, fallbackItems);
+                    HubMemorySubtitle = string.Empty;
+                }
+
+                OnPropertyChanged(nameof(HubMemoryItems));
+                OnPropertyChanged(nameof(HasHubMemory));
+                OnPropertyChanged(nameof(HubMemorySubtitle));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load hub memory cache.");
+
+                HubMemoryItems.Clear();
+                HubMemorySubtitle = string.Empty;
+
+                OnPropertyChanged(nameof(HubMemoryItems));
+                OnPropertyChanged(nameof(HasHubMemory));
+                OnPropertyChanged(nameof(HubMemorySubtitle));
+            }
+        }
+
+        public void LoadHubAchievementMemoriesFromCache()
+        {
+            try
+            {
+                if (achievementMemoriesCacheService == null)
+                {
+                    achievementMemoriesCacheService = new AchievementMemoriesCacheService(
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                var allItems = achievementMemoriesCacheService.Load()
+                    .Where(x => x != null)
+                    .Where(x => x.UnlockDate != DateTime.MinValue)
+                    .ToList();
+
+                var groups = allItems
+                    .GroupBy(x => new { x.UnlockDate.Year, x.UnlockDate.Month })
+                    .Where(g => g.Count() >= 4)
+                    .ToList();
+
+                var selectedGroup = groups
+                    .OrderBy(x => Guid.NewGuid())
+                    .FirstOrDefault();
+
+                var selected = new List<AnikiAchievementMemoryItem>();
+
+                if (selectedGroup != null)
+                {
+                    var monthItems = selectedGroup
+                        .Where(x => x != null)
+                        .ToList();
+
+                    selected = monthItems
+                        .GroupBy(x => x.GameId)
+                        .Select(g => g
+                            .OrderBy(x => x.Percent ?? double.MaxValue)
+                            .ThenByDescending(x => x.UnlockDate)
+                            .First())
+                        .OrderBy(x => x.Percent ?? double.MaxValue)
+                        .ThenByDescending(x => x.UnlockDate)
+                        .Take(4)
+                        .ToList();
+
+                    if (selected.Count < 4)
+                    {
+                        var alreadySelected = new HashSet<string>(
+                            selected.Select(x => $"{x.GameId}|{x.Title}|{x.UnlockDate:O}"),
+                            StringComparer.OrdinalIgnoreCase
+                        );
+
+                        var fillers = monthItems
+                            .OrderBy(x => x.Percent ?? double.MaxValue)
+                            .ThenByDescending(x => x.UnlockDate)
+                            .Where(x => !alreadySelected.Contains($"{x.GameId}|{x.Title}|{x.UnlockDate:O}"))
+                            .Take(4 - selected.Count)
+                            .ToList();
+
+                        selected.AddRange(fillers);
+                    }
+                }
+
+                var period = string.Empty;
+
+                if (selectedGroup != null)
+                {
+                    var date = new DateTime(selectedGroup.Key.Year, selectedGroup.Key.Month, 1);
+                    var monthName = date.ToString("MMMM");
+                    monthName = char.ToUpper(monthName[0]) + monthName.Substring(1);
+
+                    period = $"{monthName} {selectedGroup.Key.Year}";
+                }
+
+                if (playniteAchievementsReader == null)
+                {
+                    playniteAchievementsReader = new PlayniteAchievementsReader(plugin.PlayniteApi, logger);
+                }
+
+                foreach (var item in selected)
+                {
+                    playniteAchievementsReader.RefreshDisplayData(item);
+                }
+
+                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                {
+                    HubAchievementMemoryItems.Clear();
+
+                    foreach (var item in selected)
+                    {
+                        HubAchievementMemoryItems.Add(item);
+                    }
+
+                    HubAchievementMemoryPeriod = period;
+
+                    OnPropertyChanged(nameof(HubAchievementMemoryItems));
+                    OnPropertyChanged(nameof(HasHubAchievementMemory));
+                    OnPropertyChanged(nameof(HubAchievementMemoryPeriod));
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load achievement memories cache.");
+
+                HubAchievementMemoryItems.Clear();
+                HubAchievementMemoryPeriod = string.Empty;
+
+                OnPropertyChanged(nameof(HubAchievementMemoryItems));
+                OnPropertyChanged(nameof(HasHubAchievementMemory));
+                OnPropertyChanged(nameof(HubAchievementMemoryPeriod));
+            }
+        }
+
+        private void LoadRarestPlayniteAchievementAllTimeFromCache()
+        {
+            try
+            {
+                if (rarestAchievementCacheService == null)
+                {
+                    rarestAchievementCacheService = new RarestAchievementCacheService(
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                RarestPlayniteAchievementAllTime = rarestAchievementCacheService.Load();
+
+                OnPropertyChanged(nameof(RarestPlayniteAchievementAllTime));
+                OnPropertyChanged(nameof(HasRarestPlayniteAchievementAllTime));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load rarest achievement cache.");
+            }
+        }
+
+        public void LoadHubAchievementMemoriesFromCacheWhenDatabaseReady()
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    for (int i = 0; i < 30; i++)
+                    {
+                        var gameCount = plugin?.PlayniteApi?.Database?.Games?.Count ?? 0;
+
+                        if (gameCount > 0)
+                        {
+                            LoadHubAchievementMemoriesFromCache();
+                            LoadRarestPlayniteAchievementAllTimeFromCache();
+                            return;
+                        }
+
+                        await Task.Delay(1000);
+                    }
+
+                    LoadHubAchievementMemoriesFromCache();
+                    LoadRarestPlayniteAchievementAllTimeFromCache();
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to load achievement memories when database ready.");
+                }
+            });
+        }
+
+        public void EnsureAchievementMemoriesCacheExists()
+        {
+            try
+            {
+                if (achievementMemoriesCacheService == null)
+                {
+                    achievementMemoriesCacheService = new AchievementMemoriesCacheService(
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                if (!File.Exists(achievementMemoriesCacheService.CachePath))
+                {
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            for (int i = 0; i < 30; i++)
+                            {
+                                var gameCount = plugin?.PlayniteApi?.Database?.Games?.Count ?? 0;
+
+                                if (gameCount > 0)
+                                {
+                                    logger?.Info($"[AnikiHelper] Playnite database ready ({gameCount} games). Building achievement memories cache...");
+                                    await RefreshAchievementMemoriesAsync();
+                                    return;
+                                }
+
+                                await Task.Delay(1000);
+                            }
+
+                            logger?.Warn("[AnikiHelper] Playnite database was not ready after 30 seconds. Achievement memories cache not created.");
+                        }
+                        catch (Exception ex)
+                        {
+                            logger?.Warn(ex, "[AnikiHelper] Failed to create achievement memories cache.");
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to ensure achievement memories cache.");
+            }
+        }
+
+        public Task RefreshAchievementMemoriesAsync()
+        {
+            return Task.Run(() =>
+            {
+                try
+                {
+                    if (playniteAchievementsReader == null)
+                    {
+                        playniteAchievementsReader = new PlayniteAchievementsReader(plugin.PlayniteApi, logger);
+                    }
+
+                    if (achievementMemoriesCacheService == null)
+                    {
+                        achievementMemoriesCacheService = new AchievementMemoriesCacheService(
+                            plugin.GetPluginUserDataPath(),
+                            logger
+                        );
+                    }
+
+                    var items = playniteAchievementsReader.LoadAchievementMemories(5000);
+                    logger?.Info("[AnikiHelper] Achievement memories loaded: " + items.Count);
+                    achievementMemoriesCacheService.Save(items);
+
+                    if (rarestAchievementCacheService == null)
+                    {
+                        rarestAchievementCacheService = new RarestAchievementCacheService(
+                            plugin.GetPluginUserDataPath(),
+                            logger
+                        );
+                    }
+
+                    var rarestAchievement = playniteAchievementsReader.LoadRarestAchievementAllTime();
+
+                    if (rarestAchievement != null)
+                    {
+                        rarestAchievementCacheService.Save(rarestAchievement);
+                    }
+
+                    LoadHubAchievementMemoriesFromCache();
+                    LoadRarestPlayniteAchievementAllTimeFromCache();
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to refresh achievement memories.");
+                }
+            });
+        }
+
+        public Task RefreshAchievementMemoriesForGameAsync(Guid gameId)
+        {
+            if (gameId == Guid.Empty)
+            {
+                return Task.CompletedTask;
+            }
+
+            return Task.Run(() =>
+            {
+                try
+                {
+                    if (playniteAchievementsReader == null)
+                    {
+                        playniteAchievementsReader = new PlayniteAchievementsReader(plugin.PlayniteApi, logger);
+                    }
+
+                    if (achievementMemoriesCacheService == null)
+                    {
+                        achievementMemoriesCacheService = new AchievementMemoriesCacheService(
+                            plugin.GetPluginUserDataPath(),
+                            logger
+                        );
+                    }
+
+                    var newItems = playniteAchievementsReader.LoadAchievementMemoriesForGame(gameId);
+
+                    var existingItems = achievementMemoriesCacheService.Load()
+                        .Where(x => x != null)
+                        .Where(x => x.GameId != gameId)
+                        .ToList();
+
+                    existingItems.AddRange(newItems);
+
+                    achievementMemoriesCacheService.Save(existingItems);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to refresh achievement memories for game.");
+                }
+            });
+        }
+
+        private IEnumerable<AnikiMediaGameItem> SortMediaGalleryGames(IEnumerable<AnikiMediaGameItem> games)
+        {
+            var list = games ?? Enumerable.Empty<AnikiMediaGameItem>();
+
+            switch (MediaGalleryGamesSortMode)
+            {
+                case "LatestCaptureAsc":
+                    return list.OrderBy(x => x.LatestCaptureDate).ThenBy(x => x.GameName);
+
+                case "MediaCountDesc":
+                    return list.OrderByDescending(x => x.MediaCount).ThenBy(x => x.GameName);
+
+                case "MediaCountAsc":
+                    return list.OrderBy(x => x.MediaCount).ThenBy(x => x.GameName);
+
+                case "GameNameAsc":
+                    return list.OrderBy(x => x.GameName);
+
+                case "GameNameDesc":
+                    return list.OrderByDescending(x => x.GameName);
+
+                case "LatestCaptureDesc":
+                default:
+                    return list.OrderByDescending(x => x.LatestCaptureDate).ThenBy(x => x.GameName);
+            }
+        }
+
+        public void ApplyMediaGalleryGamesSort()
+        {
+            try
+            {
+                var sorted = SortMediaGalleryGames(MediaGalleryGames).ToList();
+
+                ReplaceMediaGameCollection(MediaGalleryGames, sorted);
+
+                OnPropertyChanged(nameof(MediaGalleryGames));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to apply media gallery games sort.");
+            }
+        }
+
+        private void ReplaceMediaGameCollection(
+            ObservableCollection<AnikiMediaGameItem> target,
+            IEnumerable<AnikiMediaGameItem> items)
+        {
+            target.Clear();
+
+            foreach (var item in items ?? Enumerable.Empty<AnikiMediaGameItem>())
+            {
+                target.Add(item);
+            }
+        }
+
+        public void LoadMediaGalleryGamesFromCache()
+        {
+            try
+            {
+                if (screenshotMediaCacheService == null)
+                {
+                    screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                        plugin.PlayniteApi,
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                var games = screenshotMediaCacheService.LoadGamesCache();
+
+                ReplaceMediaGameCollection(MediaGalleryGames, SortMediaGalleryGames(games));
+
+                OnPropertyChanged(nameof(MediaGalleryGames));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load media gallery games cache.");
+
+                MediaGalleryGames.Clear();
+                OnPropertyChanged(nameof(MediaGalleryGames));
+            }
+        }
+
+        public void ClearCurrentGameMediaState()
+        {
+            try
+            {
+                var alreadyClear =
+                    currentGameMediaActiveGameId == Guid.Empty &&
+                    CurrentGameMediaItems.Count == 0 &&
+                    VisibleCurrentGameMediaItems.Count == 0 &&
+                    CurrentGameMediaLoadedCount == 0 &&
+                    CurrentGameMediaCanLoadMore == false &&
+                    CurrentGameMediaLoading == false &&
+                    HasCurrentGameMedia == false;
+
+                if (alreadyClear)
+                {
+                    return;
+                }
+
+                currentGameMediaLoadVersion++;
+                currentGameMediaActiveGameId = Guid.Empty;
+                currentGameMediaPageLoading = false;
+
+                CurrentGameMediaItems.Clear();
+                VisibleCurrentGameMediaItems.Clear();
+
+                CurrentGameMediaLoadedCount = 0;
+                CurrentGameMediaCanLoadMore = false;
+                CurrentGameMediaLoading = false;
+                HasCurrentGameMedia = false;
+
+                OnPropertyChanged(nameof(CurrentGameMediaItems));
+                OnPropertyChanged(nameof(VisibleCurrentGameMediaItems));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to clear current game media state.");
+            }
+        }
+
+        public void PrepareCurrentGameMediaLoading()
+        {
+            try
+            {
+                currentGameMediaPageLoading = false;
+
+                CurrentGameMediaLoading = true;
+
+                CurrentGameMediaItems.Clear();
+                VisibleCurrentGameMediaItems.Clear();
+
+                CurrentGameMediaLoadedCount = 0;
+                CurrentGameMediaCanLoadMore = false;
+                HasCurrentGameMedia = false;
+
+                OnPropertyChanged(nameof(CurrentGameMediaItems));
+                OnPropertyChanged(nameof(VisibleCurrentGameMediaItems));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to prepare current game media loading.");
+            }
+        }
+
+        public async Task OpenScreenshotsWindowForGameAsync(Guid gameId)
+        {
+            try
+            {
+                if (gameId == Guid.Empty)
+                {
+                    return;
+                }
+
+                PrepareCurrentGameMediaLoading();
+
+                plugin?.OpenWindow("ScreenShotsThumbsWindowStyle");
+
+                await Application.Current.Dispatcher.InvokeAsync(
+                    () => { },
+                    DispatcherPriority.Render
+                );
+
+                await Task.Delay(120);
+
+                plugin?.HookScreenshotsLazyLoad();
+
+                await RefreshCurrentGameMediaForGameAsync(gameId);
+            }
+            catch (Exception ex)
+            {
+                ClearCurrentGameMediaState();
+                logger?.Warn(ex, "[AnikiHelper] Failed to open screenshots window for media game.");
+            }
+        }
+
+        public async Task RefreshCurrentGameMediaFromSelectedGameAsync()
+        {
+            try
+            {
+                var game = plugin?.PlayniteApi?.MainView?.SelectedGames?.FirstOrDefault();
+                if (game == null)
+                {
+                    ClearCurrentGameMediaState();
+                    return;
+                }
+
+                await RefreshCurrentGameMediaForGameAsync(game.Id);
+            }
+            catch (Exception ex)
+            {
+                ClearCurrentGameMediaState();
+                logger?.Warn(ex, "[AnikiHelper] Failed to load current game media async.");
+            }
+        }
+
+
+
+        public async Task RefreshCurrentGameMediaForGameAsync(Guid gameId)
+        {
+            var requestVersion = ++currentGameMediaLoadVersion;
+            currentGameMediaActiveGameId = gameId;
+
+            try
+            {
+                if (gameId == Guid.Empty)
+                {
+                    Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        if (requestVersion != currentGameMediaLoadVersion)
+                        {
+                            return;
+                        }
+
+                        ClearCurrentGameMediaState();
+                    });
+
+                    return;
+                }
+
+                CurrentGameMediaLoading = true;
+
+                var items = await Task.Run(() =>
+                {
+                    var loadedItems = LoadUnifiedMediaItemsForGame(gameId);
+                    return ApplyThumbnailsToMediaItems(loadedItems);
+                });
+
+                Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    if (requestVersion != currentGameMediaLoadVersion || currentGameMediaActiveGameId != gameId)
+                    {
+                        return;
+                    }
+
+                    ReplaceMediaCollection(CurrentGameMediaItems, items);
+
+                    VisibleCurrentGameMediaItems.Clear();
+                    CurrentGameMediaLoadedCount = 0;
+                    CurrentGameMediaCanLoadMore = false;
+
+                    HasCurrentGameMedia = CurrentGameMediaItems.Count > 0;
+
+                    LoadMoreCurrentGameMediaItems();
+
+                    OnPropertyChanged(nameof(CurrentGameMediaItems));
+                    OnPropertyChanged(nameof(VisibleCurrentGameMediaItems));
+
+                    CurrentGameMediaLoading = false;
+                });
+            }
+            catch (Exception ex)
+            {
+                Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    if (requestVersion != currentGameMediaLoadVersion || currentGameMediaActiveGameId != gameId)
+                    {
+                        return;
+                    }
+
+                    CurrentGameMediaItems.Clear();
+                    VisibleCurrentGameMediaItems.Clear();
+                    CurrentGameMediaLoadedCount = 0;
+                    CurrentGameMediaCanLoadMore = false;
+                    HasCurrentGameMedia = false;
+                    CurrentGameMediaLoading = false;
+                });
+
+                logger?.Warn(ex, "[AnikiHelper] Failed to load current game media by game id.");
+            }
+        }
+
+        public void RefreshCurrentGameMediaForGame(Guid gameId)
+        {
+            try
+            {
+                CurrentGameMediaLoading = true;
+
+                if (gameId == Guid.Empty)
+                {
+                    CurrentGameMediaItems.Clear();
+                    VisibleCurrentGameMediaItems.Clear();
+                    CurrentGameMediaLoadedCount = 0;
+                    CurrentGameMediaCanLoadMore = false;
+                    HasCurrentGameMedia = false;
+                    return;
+                }
+
+                var items = LoadUnifiedMediaItemsForGame(gameId);
+
+                ReplaceMediaCollection(CurrentGameMediaItems, ApplyThumbnailsToMediaItems(items));
+
+                VisibleCurrentGameMediaItems.Clear();
+                CurrentGameMediaLoadedCount = 0;
+                CurrentGameMediaCanLoadMore = false;
+
+                HasCurrentGameMedia = CurrentGameMediaItems.Count > 0;
+
+                LoadMoreCurrentGameMediaItems();
+
+                OnPropertyChanged(nameof(CurrentGameMediaItems));
+                OnPropertyChanged(nameof(VisibleCurrentGameMediaItems));
+            }
+            catch (Exception ex)
+            {
+                CurrentGameMediaItems.Clear();
+                VisibleCurrentGameMediaItems.Clear();
+                CurrentGameMediaLoadedCount = 0;
+                CurrentGameMediaCanLoadMore = false;
+                HasCurrentGameMedia = false;
+
+                logger?.Warn(ex, "[AnikiHelper] Failed to load current game media.");
+            }
+            finally
+            {
+                CurrentGameMediaLoading = false;
+            }
+        }
+
+        private void ReplaceMediaCollection(ObservableCollection<AnikiMediaItem> target, IEnumerable<AnikiMediaItem> items)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            target.Clear();
+
+            if (items == null)
+            {
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                target.Add(item);
+            }
         }
 
         // Recent Trophy
@@ -2578,6 +4783,11 @@ namespace AnikiHelper
             nameof(AnikiHelperSettings.StartupIntroVideoEnabled),
             nameof(AnikiHelperSettings.ShutdownVideoEnabled),
 
+            nameof(AnikiHelperSettings.CustomFilterIconsFolder),
+            nameof(AnikiHelperSettings.CustomSourceIconsFolder),
+
+            nameof(AnikiHelperSettings.MediaGalleryProvider),
+
             nameof(AnikiHelperSettings.SteamUpdatesScanEnabled),
             nameof(AnikiHelperSettings.SteamPlayerCountEnabled),
             nameof(AnikiHelperSettings.SteamStoreEnabled),
@@ -2585,6 +4795,7 @@ namespace AnikiHelper
             nameof(AnikiHelperSettings.SteamStoreRegion),
 
             nameof(AnikiHelperSettings.GameLaunchSplashEnabled),
+            nameof(AnikiHelperSettings.GameLaunchSplashPauseUniPlaySong),
             nameof(AnikiHelperSettings.GameLaunchSplashSelectionMode),
             nameof(AnikiHelperSettings.GameLaunchSplashShowLogo),
             nameof(AnikiHelperSettings.GameLaunchSplashLogoPosition),
@@ -2594,6 +4805,10 @@ namespace AnikiHelper
             nameof(AnikiHelperSettings.GameLaunchSplashVideoEndBehavior),
             nameof(AnikiHelperSettings.GameLaunchSplashVideoSoundEnabled),
             nameof(AnikiHelperSettings.GameLaunchSplashVideoVolume),
+
+            nameof(AnikiHelperSettings.InGameOverlayEnabled),
+            nameof(AnikiHelperSettings.InGameOverlayHotkey),
+            nameof(AnikiHelperSettings.InGameOverlayControllerShortcut),
 
             nameof(AnikiHelperSettings.DynamicAutoPrecacheUserEnabled)
         };
@@ -2641,6 +4856,46 @@ namespace AnikiHelper
             plugin.SavePluginSettings(Settings);
         }
 
+        public void OpenLogsFolder()
+        {
+            try
+            {
+                var folder = plugin?.PlayniteApi?.Paths?.ConfigurationPath;
+
+                if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+                {
+                    Process.Start("explorer.exe", folder);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] OpenLogsFolder failed: " + ex.Message);
+            }
+        }
+
+        public void ClearLogFile()
+        {
+            try
+            {
+                var folder = plugin?.PlayniteApi?.Paths?.ConfigurationPath;
+
+                if (string.IsNullOrWhiteSpace(folder))
+                {
+                    return;
+                }
+
+                var logPath = Path.Combine(folder, "extensions.log");
+
+                if (File.Exists(logPath))
+                {
+                    File.WriteAllText(logPath, string.Empty);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ClearLogFile failed: " + ex.Message);
+            }
+        }
 
 
         public bool VerifySettings(out List<string> errors) { errors = null; return true; }

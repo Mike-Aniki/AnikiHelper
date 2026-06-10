@@ -27,9 +27,9 @@ namespace AnikiHelper
         private static CancellationTokenSource debounceCts;
         private static CancellationTokenSource animCts;
 
-        private const int DebounceMs = 300;          // decrease = more reactive
-        private const int TransitionMs = 150;        // total fade time
-        private const int TransitionSteps = 4;      // + more steps = smoother
+        private const int DebounceMs = 1000;          // decrease = more reactive
+        private const int TransitionMs = 0;        // total fade time
+        private const int TransitionSteps = 1;      // + more steps = smoother
 
         // Precache optionnel
         private const int PrecacheDelayMs = 20000;   // attendre après le boot
@@ -299,33 +299,29 @@ namespace AnikiHelper
         {
             api = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));
 
-            // 1) No Desktop
             if (api.ApplicationInfo.Mode != ApplicationMode.Fullscreen)
                 return;
 
-            // 2) The resource must exist
             var dict = Application.Current?.Resources;
             if (dict == null || !dict.Contains("DynamicAutoEnabled"))
                 return;
 
-            // 3) And be true
             var enabled = dict["DynamicAutoEnabled"] as bool?;
             if (enabled != true)
                 return;
 
             HookWindowFocus();
 
-            // Nettoyage quand Playnite se ferme
             Application.Current.Exit += (_, __) =>
             {
                 try
                 {
-                    if (timer != null) timer.Stop();
+                    timer?.Stop();
                     CancelWork();
                     UnhookWindowFocus();
 
-                    // Flush persistent cache and clean up deferred timer
                     SaveAccentCacheNow(null, EventArgs.Empty);
+
                     if (saveCacheTimer != null)
                     {
                         saveCacheTimer.Stop();
@@ -336,16 +332,16 @@ namespace AnikiHelper
                 catch { }
             };
 
-            // Safety measure in case Application.Current.Exit does not trigger
             AppDomain.CurrentDomain.ProcessExit += (_, __) =>
             {
                 try
                 {
-                    if (timer != null) timer.Stop();
+                    timer?.Stop();
                     CancelWork();
                     UnhookWindowFocus();
 
                     SaveAccentCacheNow(null, EventArgs.Empty);
+
                     if (saveCacheTimer != null)
                     {
                         saveCacheTimer.Stop();
@@ -356,37 +352,34 @@ namespace AnikiHelper
                 catch { }
             };
 
-
-
-
-            // 3.5) Prepare the persistent cache
             const string PluginId = "96a983a3-3f13-4dce-a474-4052b718bb52";
 
-            // On crée le bon dossier dans ExtensionsData/<GUID>/
             var userDataPath = Path.Combine(api.Paths.ExtensionsDataPath, PluginId);
             Directory.CreateDirectory(userDataPath);
 
             cacheFilePath = Path.Combine(userDataPath, "palette_cache_v2.json");
             LoadAccentCache();
 
-
-            // 4) Start the timer
-            timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-            timer.Tick += async (_, __) =>
+            // Timer léger : il ne suit plus le jeu sélectionné.
+            // Il surveille seulement l'état actif/inactif de DynamicAuto.
+            timer = new DispatcherTimer
             {
-                // Gate: prevents 2 Ticks in parallel
+                Interval = TimeSpan.FromMilliseconds(1000)
+            };
+
+            timer.Tick += (_, __) =>
+            {
                 if (Interlocked.Exchange(ref tickGate, 1) == 1)
                     return;
 
-                if (!IsAppActive())
-                {
-                    CancelWork();
-                    Volatile.Write(ref tickGate, 0);
-                    return;
-                }
-
                 try
                 {
+                    if (!IsAppActive())
+                    {
+                        CancelWork();
+                        return;
+                    }
+
                     if (api.ApplicationInfo.Mode == ApplicationMode.Desktop)
                         return;
 
@@ -398,59 +391,120 @@ namespace AnikiHelper
                         lastGameId = null;
                         lastActive = true;
                     }
+
                     if (!active && lastActive)
                     {
                         animCts?.Cancel();
                         animCts?.Dispose();
+
                         RestoreSnapshot();
                         lastActive = false;
                         return;
                     }
-                    if (!active) return;
+                }
+                finally
+                {
+                    Volatile.Write(ref tickGate, 0);
+                }
+            };
 
-                    var initialGame = api.MainView?.SelectedGames?.FirstOrDefault();
-                    if (initialGame is null) return;
-                    if (lastGameId == initialGame.Id) return;
-                    if (pendingGameId == initialGame.Id)
-                        return;
+            timer.Start();
 
-                    pendingGameId = initialGame.Id;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(PrecacheDelayMs);
 
-                    // === Debounce: swap propre  ===
-                    var prev = Interlocked.Exchange(ref debounceCts, null);
-                    prev?.Cancel();
-                    prev?.Dispose();
+                if (IsPrecacheEnabled())
+                {
+                    await RunPrecacheTrickleAsync(skipInitialDelay: true);
+                }
+            });
+        }
 
-                    var cts = new CancellationTokenSource();
-                    debounceCts = cts;
-                    var ct = cts.Token;
+        public static void NotifyGameSelected(Game game)
+        {
+            try
+            {
+                if (game == null)
+                {
+                    CancelWork();
+                    pendingGameId = null;
+                    return;
+                }
 
+                if (api == null)
+                    return;
+
+                if (api.ApplicationInfo.Mode == ApplicationMode.Desktop)
+                    return;
+
+                if (!IsAppActive())
+                {
+                    CancelWork();
+                    return;
+                }
+
+                var active = IsDynamicAutoActive();
+
+                if (active && !lastActive)
+                {
+                    CaptureSnapshot();
+                    lastGameId = null;
+                    lastActive = true;
+                }
+
+                if (!active && lastActive)
+                {
+                    animCts?.Cancel();
+                    animCts?.Dispose();
+                    RestoreSnapshot();
+                    lastActive = false;
+                    return;
+                }
+
+                if (!active)
+                    return;
+
+                if (lastGameId == game.Id)
+                    return;
+
+                if (pendingGameId == game.Id)
+                    return;
+
+                pendingGameId = game.Id;
+
+                var prev = Interlocked.Exchange(ref debounceCts, null);
+                prev?.Cancel();
+                prev?.Dispose();
+
+                var cts = new CancellationTokenSource();
+                debounceCts = cts;
+                var ct = cts.Token;
+
+                _ = Task.Run(async () =>
+                {
                     try
                     {
-                        try { await Task.Delay(DebounceMs, ct); } catch { return; }
-                        if (ct.IsCancellationRequested) return;
-
-                        var current = initialGame;
-                        if (lastGameId == current.Id) return;
+                        await Task.Delay(DebounceMs, ct);
+                        if (ct.IsCancellationRequested)
+                            return;
 
                         var selectedNow = api.MainView?.SelectedGames?.FirstOrDefault();
-                        if (selectedNow == null || selectedNow.Id != current.Id)
-                        {
+                        if (selectedNow == null || selectedNow.Id != game.Id)
                             return;
-                        }
+
+                        if (lastGameId == game.Id)
+                            return;
 
                         Interlocked.Exchange(ref lastUserActivityTicks, (long)Environment.TickCount);
 
-
-                        // --- Resolve usable image + build palette HORS UI THREAD ---
                         var target = await Task.Run(() =>
                         {
                             try
                             {
                                 string key = null;
 
-                                // 1) Cache sans décoder l'image
-                                if (TryGetImageKeyOnly(current, out key) && !string.IsNullOrEmpty(key))
+                                if (TryGetImageKeyOnly(game, out key) && !string.IsNullOrEmpty(key))
                                 {
                                     Palette cachedPal;
                                     lock (paletteLock)
@@ -459,9 +513,7 @@ namespace AnikiHelper
                                     }
 
                                     if (cachedPal != null)
-                                    {
                                         return cachedPal;
-                                    }
 
                                     PaletteDto dto;
                                     lock (cacheLock)
@@ -477,11 +529,8 @@ namespace AnikiHelper
                                     }
                                 }
 
-                                // 2) Seulement si pas de cache : charger/décoder l'image
-                                if (!TryGetImageFor(current, out var src, out var used, out var ext, out key))
-                                {
-                                    return (Palette)null;
-                                }
+                                if (!TryGetImageFor(game, out var src, out var used, out var ext, out key))
+                                    return null;
 
                                 var pf = PixelFormats.Bgra32;
                                 if (src.Format != pf)
@@ -517,18 +566,27 @@ namespace AnikiHelper
                             }
                         }, ct);
 
+                        if (ct.IsCancellationRequested || target == null)
+                            return;
 
+                        lastGameId = game.Id;
 
-                        if (ct.IsCancellationRequested || target is null) return;
-
-                        
-                        lastGameId = current.Id;
-
-                        StartAnimatedTransition(target);
+                        Application.Current?.Dispatcher?.InvokeAsync(() =>
+                        {
+                            ApplyPalette_NoShade(target, includeHeavyBrushes: true);
+                        }, DispatcherPriority.Render);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        // Normal when the selected game changes quickly.
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Normal cancellation.
                     }
                     catch (Exception ex)
                     {
-                        log.Warn(ex, "[AnikiHelper] Failed to build/apply palette");
+                        log.Warn(ex, "[AnikiHelper] Failed to build/apply palette from selected game event.");
                     }
                     finally
                     {
@@ -537,29 +595,18 @@ namespace AnikiHelper
                         var oldCts = Interlocked.Exchange(ref debounceCts, null);
                         oldCts?.Dispose();
                     }
-                }
-                finally
-                {
-                    Volatile.Write(ref tickGate, 0);
-                }
-            };
-
-            // 4) Start the timer
-            timer.Start();
-            // Optionnel : precache goutte-à-goutte, ne démarre que si activé via ressource
-            _ = Task.Run(async () =>
+                }, ct);
+            }
+            catch (TaskCanceledException)
             {
-                await Task.Delay(PrecacheDelayMs);
-
-                if (IsPrecacheEnabled())
-                {
-                    await RunPrecacheTrickleAsync(skipInitialDelay: true);
-                }
-            });
-
-
-
-
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                log.Warn(ex, "[AnikiHelper] NotifyGameSelected failed.");
+            }
         }
 
         public static void ClearPersistentCache(bool alsoRam = true)
@@ -1707,7 +1754,8 @@ namespace AnikiHelper
         private static void SetBrush(string key, MediaBrush b)
         {
             var dict = Application.Current?.Resources;
-            if (dict == null) return;
+            if (dict == null || b == null)
+                return;
 
             if (dict.Contains(key))
             {
@@ -1717,6 +1765,9 @@ namespace AnikiHelper
                         return;
                 }
             }
+
+            if (b.CanFreeze)
+                b.Freeze();
 
             dict[key] = b;
         }

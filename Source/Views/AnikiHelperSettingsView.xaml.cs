@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 using System.IO;
+using Forms = System.Windows.Forms;
 
 namespace AnikiHelper
 {
@@ -219,6 +220,16 @@ namespace AnikiHelper
             vm?.OpenPlatformSplashScreenManager();
         }
 
+        private void ClearLogFile_Click(object sender, RoutedEventArgs e)
+        {
+            (DataContext as AnikiHelperSettingsViewModel)?.ClearLogFile();
+        }
+
+        private void OpenLogsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            (DataContext as AnikiHelperSettingsViewModel)?.OpenLogsFolder();
+        }
+
         private void ManageGlobalSplash_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -342,6 +353,73 @@ namespace AnikiHelper
                 {
                     MessageBox.Show("Error while clearing source B cache:\n" + ex.Message, "Aniki Helper");
                 }
+            }
+        }
+
+        private string SelectFolder(string title, string currentPath)
+        {
+            using (var dialog = new Forms.FolderBrowserDialog())
+            {
+                dialog.Description = title;
+                dialog.ShowNewFolderButton = true;
+
+                var normalizedCurrentPath = string.IsNullOrWhiteSpace(currentPath)
+                    ? string.Empty
+                    : currentPath.Replace("/", "\\");
+
+                if (!string.IsNullOrWhiteSpace(normalizedCurrentPath) && Directory.Exists(normalizedCurrentPath))
+                {
+                    dialog.SelectedPath = normalizedCurrentPath;
+                }
+
+                var result = dialog.ShowDialog();
+
+                if (result == Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(dialog.SelectedPath))
+                {
+                    return dialog.SelectedPath.Replace("\\", "/").TrimEnd('/');
+                }
+
+                return null;
+            }
+        }
+
+        private void BrowseFilterIconsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+
+            if (vm == null)
+            {
+                return;
+            }
+
+            var selectedPath = SelectFolder(
+                FindResource("CustomIcons_SelectFilterFolderDialog") as string ?? "Select the folder containing your filter PNG icons.",
+                vm.Settings.CustomFilterIconsFolder
+            );
+
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                vm.Settings.CustomFilterIconsFolder = selectedPath;
+            }
+        }
+
+        private void BrowseSourceIconsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+
+            if (vm == null)
+            {
+                return;
+            }
+
+            var selectedPath = SelectFolder(
+                FindResource("CustomIcons_SelectSourceFolderDialog") as string ?? "Select the folder containing your source PNG icons.",
+                vm.Settings.CustomSourceIconsFolder
+            );
+
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                vm.Settings.CustomSourceIconsFolder = selectedPath;
             }
         }
 

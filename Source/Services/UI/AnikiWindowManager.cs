@@ -3,9 +3,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace AnikiHelper.Services
 {
@@ -24,9 +25,7 @@ namespace AnikiHelper.Services
             get
             {
                 if (string.IsNullOrWhiteSpace(styleKey))
-                {
                     return null;
-                }
 
                 if (!cache.TryGetValue(styleKey, out var command))
                 {
@@ -52,14 +51,34 @@ namespace AnikiHelper.Services
 
         public bool HasOpenWindow => windows.Any();
 
-        public void OpenWindow(string styleKey)
+        public void OpenWindow(string parameter)
         {
-            Open(styleKey, false);
+            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName);
+            Open(styleKey, false, focusTargetName);
+        }
+
+        public void OpenWindow(string styleKey, string focusTargetName)
+        {
+            Open(styleKey, false, focusTargetName);
         }
 
         public void OpenChildWindow(string styleKey)
         {
-            Open(styleKey, true);
+            Open(styleKey, true, null);
+        }
+
+        private void ParseOpenParameter(string parameter, out string styleKey, out string focusTargetName)
+        {
+            styleKey = parameter;
+            focusTargetName = null;
+
+            if (string.IsNullOrWhiteSpace(parameter) || !parameter.Contains("|"))
+                return;
+
+            var parts = parameter.Split('|');
+
+            styleKey = parts.Length > 0 ? parts[0] : parameter;
+            focusTargetName = parts.Length > 1 ? parts[1] : null;
         }
 
         public bool CloseTopWindow()
@@ -67,16 +86,12 @@ namespace AnikiHelper.Services
             CleanupClosedWindows();
 
             if (!windows.Any())
-            {
                 return false;
-            }
 
             var top = windows.Pop();
 
             if (top != null && top.IsVisible)
-            {
                 top.Close();
-            }
 
             FocusTopWindow();
             return true;
@@ -87,20 +102,16 @@ namespace AnikiHelper.Services
             CleanupClosedWindows();
 
             if (!windows.Any())
-            {
                 return false;
-            }
 
             var top = windows.Peek();
             return top != null && top.IsActive;
         }
 
-        private void Open(string styleKey, bool forceChild)
+        private void Open(string styleKey, bool forceChild, string focusTargetName)
         {
             if (string.IsNullOrWhiteSpace(styleKey))
-            {
                 return;
-            }
 
             Application.Current.Dispatcher.Invoke(() =>
             {
@@ -118,7 +129,6 @@ namespace AnikiHelper.Services
                 });
 
                 window.Tag = styleKey;
-
                 window.WindowStyle = WindowStyle.None;
                 window.ResizeMode = ResizeMode.NoResize;
                 window.WindowState = WindowState.Maximized;
@@ -134,7 +144,7 @@ namespace AnikiHelper.Services
                 if (forceChild)
                 {
                     window.AllowsTransparency = true;
-                    window.Background = System.Windows.Media.Brushes.Transparent;
+                    window.Background = Brushes.Transparent;
                 }
 
                 var style = Application.Current.TryFindResource(styleKey) as Style;
@@ -148,13 +158,13 @@ namespace AnikiHelper.Services
                             Width = 1920,
                             Height = 1080,
                             Children =
-            {
-                new ContentControl
-                {
-                    Focusable = false,
-                    Style = style
-                }
-            }
+                            {
+                                new ContentControl
+                                {
+                                    Focusable = false,
+                                    Style = style
+                                }
+                            }
                         }
                     };
                 }
@@ -175,22 +185,55 @@ namespace AnikiHelper.Services
                 window.Closed += (s, e) =>
                 {
                     RemoveWindow(window);
-                    FocusTopWindow();
                 };
 
                 windows.Push(window);
+
                 window.Show();
                 window.Activate();
                 window.Focus();
+
+                if (!string.IsNullOrWhiteSpace(focusTargetName))
+                {
+                    window.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        var target = FindVisualChildByName<FrameworkElement>(window, focusTargetName);
+
+                        if (target != null)
+                        {
+                            target.Focus();
+                            Keyboard.Focus(target);
+                        }
+                    }), DispatcherPriority.ApplicationIdle);
+                }
             });
+        }
+
+        private static T FindVisualChildByName<T>(DependencyObject parent, string name) where T : FrameworkElement
+        {
+            if (parent == null)
+                return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                var element = child as T;
+                if (element != null && element.Name == name)
+                    return element;
+
+                var result = FindVisualChildByName<T>(child, name);
+                if (result != null)
+                    return result;
+            }
+
+            return null;
         }
 
         private void CloseWindowByStyleKey(string styleKey)
         {
             if (string.IsNullOrWhiteSpace(styleKey))
-            {
                 return;
-            }
 
             var windowsToClose = windows
                 .Where(w =>
@@ -200,26 +243,20 @@ namespace AnikiHelper.Services
                 .ToList();
 
             foreach (var window in windowsToClose)
-            {
                 window.Close();
-            }
         }
 
         private void RemoveWindow(Window window)
         {
             if (window == null || !windows.Contains(window))
-            {
                 return;
-            }
 
             var rebuilt = windows.Reverse().Where(w => !ReferenceEquals(w, window)).ToList();
 
             windows.Clear();
 
             foreach (var item in rebuilt)
-            {
                 windows.Push(item);
-            }
         }
 
         private void CleanupClosedWindows()
@@ -231,9 +268,7 @@ namespace AnikiHelper.Services
             windows.Clear();
 
             foreach (var item in opened)
-            {
                 windows.Push(item);
-            }
         }
 
         private void FocusTopWindow()

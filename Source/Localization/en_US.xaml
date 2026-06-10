@@ -14,6 +14,13 @@
     <sys:String x:Key="GroupDynamicColors">Dynamic colors</sys:String>
     <sys:String x:Key="GameLaunchSplash_VideoVolume_Title">Video volume</sys:String>
 
+    <sys:String x:Key="LOCDebugLogsTitle">Debug</sys:String>
+    <sys:String x:Key="LOCDebugLogsDescription">Enable this only when troubleshooting an issue and when you need to send a debug report. It writes detailed Aniki Helper information to extensions.log and may generate a lot of log entries.</sys:String>
+    <sys:String x:Key="LOCEnableDebugLogs">Enable debug logs</sys:String>
+    <sys:String x:Key="LOCDebugLogsInfo">For a clean debug report: clear the log file, enable Debug Mode, reproduce the bug, then send the extensions.log file.</sys:String>
+    <sys:String x:Key="LOCClearLogFile">Clear log file</sys:String>
+    <sys:String x:Key="LOCOpenLogsFolder">Open logs folder</sys:String>
+
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Home screen</sys:String>
     <sys:String x:Key="WelcomeHubStartup_Desc">Choose which screen is shown when Playnite starts: your library or the Hub.</sys:String>
@@ -28,6 +35,33 @@
     <sys:String x:Key="PreviewTotal">Preview — Total:</sys:String>
     <sys:String x:Key="Installed">Installed:</sys:String>
     <sys:String x:Key="NotInstalled">Not installed:</sys:String>
+
+    <!-- ========= MEDIA GALLERY ========= -->
+    <sys:String x:Key="MediaGallery_Title">Media gallery</sys:String>
+    <sys:String x:Key="MediaGallery_Desc">Aniki Helper reads media from Screenshots Visualizer and Screenshot Utilities. Configure your screenshot folders in those plugins; Aniki Helper only reads their data and generates thumbnails for faster navigation in the theme.</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Title">Screenshot provider</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Visualizer">Screenshots Visualizer</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_UtilitiesLocal">Screenshot Utilities - Local</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Help">The theme will use Aniki Helper's media list instead of binding directly to the selected screenshot plugin.</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails">Media thumbnails</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Button">Generate thumbnails</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pre-generates thumbnails for all images from the screenshot plugins. The first generation may take some time, but later ones should be faster.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Generate thumbnails for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Scanning media files for this game...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Thumbnail generation cancelled.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Generating thumbnails for {0}... {1}/{2}</sys:String>
+    <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Updating media cache...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Thumbnails generated.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Generating game thumbnails</sys:String>
+    <!-- ========= CUSTOM ICONS ========= -->
+    <sys:String x:Key="CustomIcons_Title">Custom icons</sys:String>
+    <sys:String x:Key="CustomIcons_Desc">Choose external folders for custom filter and source icons. These icons override the default theme icons without modifying the theme files.</sys:String>
+    <sys:String x:Key="CustomIcons_FilterFolder">Filter icons folder</sys:String>
+    <sys:String x:Key="CustomIcons_SourceFolder">Source icons folder</sys:String>
+    <sys:String x:Key="CustomIcons_Help">PNG files must use the exact same names as the filters or sources shown in Playnite. Example: Installed.png, Favorites.png, Steam.png.</sys:String>
+    <sys:String x:Key="BrowseFolder">Browse...</sys:String>
+    <sys:String x:Key="CustomIcons_SelectFilterFolderDialog">Select the folder containing your filter PNG icons.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectSourceFolderDialog">Select the folder containing your source PNG icons.</sys:String>
 
     <!-- ========= TRACK PLAYTIME FEATURES ========= -->
     <sys:String x:Key="GroupMonthly">Monthly history</sys:String>
@@ -67,6 +101,41 @@
     <sys:String x:Key="EventSounds_Desc">Plays sound effects for events like game launch, Playnite start/exit, and library updates. Works with sounds included in the theme.</sys:String>
     <sys:String x:Key="EventSounds_Enable">Enable event sounds</sys:String>
     <sys:String x:Key="EventSounds_Help">If enabled, disable UI/event sounds from the PlayniteSounds plugin to avoid duplicate audio.</sys:String>
+
+    <!-- ========= GameOverlay FEATURES ========= -->
+    <sys:String x:Key="InGameOverlay_Tab">In-Game Overlay</sys:String>
+    <sys:String x:Key="InGameOverlay_Title">In-Game Overlay</sys:String>
+    <sys:String x:Key="InGameOverlay_Desc">Display an Aniki quick action panel on top of the current game.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Settings_Title">Overlay settings</sys:String>
+    <sys:String x:Key="InGameOverlay_Settings_Desc">Configure the Aniki in-game overlay and its keyboard shortcut.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Enable">Enable in-game overlay</sys:String>
+    <sys:String x:Key="InGameOverlay_Enable_Help">Enables Aniki Helper’s own in-game overlay. Disable this if you prefer to use Playnite’s overlay or another overlay solution.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Hotkey_Title">Overlay shortcut</sys:String>
+    <sys:String x:Key="InGameOverlay_Hotkey_Help">Choose the keyboard shortcut used to open the in-game overlay. Restart Playnite after changing this setting.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Title">Controller shortcut</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Help">Choose the controller shortcut used to open the in-game overlay. Guide button support is experimental and may be captured by Steam, Windows, or controller tools.</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_StartBack">Start + Back</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_BackY">Back + Y</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Guide">Guide button</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Disabled">Disabled</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Limitations_Title">Limitations</sys:String>
+    <sys:String x:Key="InGameOverlay_Limitations_Desc">This overlay is a transparent window displayed above the game. It is not injected directly into the game like Steam or Discord overlays.</sys:String>
+    <sys:String x:Key="InGameOverlay_Limitations_Help">It works best with borderless or windowed fullscreen games. Some exclusive fullscreen games, anti-cheat systems, or elevated games may prevent the overlay from appearing correctly.</sys:String>
+
+    <sys:String x:Key="LOCInGameOverlayFooterTitle">Aniki Overlay</sys:String>
+    <sys:String x:Key="LOCInGameOverlayNoGameRunning">No game running</sys:String>
+    <sys:String x:Key="LOCInGameOverlayNoActiveGame">No active game detected</sys:String>
+    <sys:String x:Key="LOCInGameOverlayLessThanOneMinute">less than 1 min</sys:String>
+    <sys:String x:Key="LOCInGameOverlayQuitDialogTitle">Quit {0}?</sys:String>
+    <sys:String x:Key="LOCInGameOverlayQuitDialogMessage">This will try to close the active game window.</sys:String>
+
+    <sys:String x:Key="LOCInGameOverlayCancel">Cancel</sys:String>
+    <sys:String x:Key="LOCInGameOverlayConfirmQuit">Quit Game</sys:String>
 
     <!-- ========= SPLASH FEATURES ========= -->
     <sys:String x:Key="SplashScreen">Splash screen</sys:String>
@@ -172,6 +241,11 @@
     <sys:String x:Key="SplashPicker_PlatformOpenFailed">Couldn’t open the platform splash screen manager:</sys:String>
     <sys:String x:Key="SplashPicker_GlobalTitle">Global</sys:String>
     <sys:String x:Key="SplashPicker_GlobalOpenFailed">Couldn’t open the global splash screen manager:</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_PauseUniPlaySong_Enable">Pause UniPlaySong while splash screen is visible</sys:String>
+    <sys:String x:Key="GameLaunchSplash_PauseUniPlaySong_Help">Temporarily pauses UniPlaySong music during the game launch splash, then resumes it when the splash closes.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_SoundTitle">Sound</sys:String>
+
 
     <!-- ========= DYNAMIC COLORS FEATURES ========= -->
     <sys:String x:Key="GroupDynColors">Dynamic colors</sys:String>

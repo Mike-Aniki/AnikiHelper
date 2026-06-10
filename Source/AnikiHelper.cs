@@ -1,5 +1,9 @@
 ﻿using AnikiHelper.Services;
 using AnikiHelper.Services.SplashScreen;
+using AnikiHelper.Services.Controller;
+using AnikiHelper.Services.InGameOverlay;
+using AnikiHelper.Services.AnikiThemeSettings;
+using AnikiHelper.Services.UI;
 using Microsoft.Win32;
 using Playnite.SDK;
 using Playnite.SDK.Data;
@@ -30,6 +34,8 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Windows.Interop;
+
 
 namespace AnikiHelper
 {
@@ -37,9 +43,27 @@ namespace AnikiHelper
     {
         private static readonly ILogger logger = LogManager.GetLogger();
 
+        private void DebugLog(string message)
+        {
+            try
+            {
+                if (Settings?.EnableDebugLogs == true)
+                {
+                    logger.Info(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
         private readonly SteamGlobalNewsService rssNewsService;
         private readonly EventSoundService eventSoundService;
         private readonly AnikiWindowManager anikiWindowManager;
+        private readonly InGameOverlayService inGameOverlayService;
+        private readonly AnikiThemeSettingsService anikiThemeSettingsService;
+        private readonly NavigationFixService horizontalFocusFixService;
 
         private readonly bool isFullscreenMode;
 
@@ -215,7 +239,7 @@ namespace AnikiHelper
                         Settings.LatestNewsSummary = string.Empty;
                         Settings.LatestNewsGameName = string.Empty;
                         Settings.LatestNewsLocalImagePath = string.Empty;
-                        
+
                         Settings.LatestNewsLocalImagePathA = string.Empty;
                         Settings.LatestNewsLocalImagePathB = string.Empty;
                         Settings.LatestNewsShowLayerB = false;
@@ -315,7 +339,6 @@ namespace AnikiHelper
             if (Settings != null)
             {
                 Settings.IsWelcomeHubOpen = isOpen;
-                logger.Info($"[AnikiHelper] SetWelcomeHubState -> IsWelcomeHubOpen = {isOpen}");
             }
         }
 
@@ -339,8 +362,9 @@ namespace AnikiHelper
                 CloseWelcomeHub();
             }
 
-            logger.Info($"[AnikiHelper] InitializeWelcomeHubState -> IsWelcomeHubOpen = {openAtStartup}");
         }
+
+
 
         public void OpenGameDetails(Guid gameId)
         {
@@ -396,6 +420,182 @@ namespace AnikiHelper
             }
         }
 
+        public void HookScreenshotsLazyLoad()
+        {
+            _ = HookScreenshotsLazyLoadRetryAsync();
+        }
+
+        private async Task HookScreenshotsLazyLoadRetryAsync()
+        {
+            try
+            {
+                for (int attempt = 0; attempt < 10; attempt++)
+                {
+                    var hooked = false;
+
+                    await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            foreach (Window window in System.Windows.Application.Current.Windows)
+                            {
+                                var listBox = FindVisualChildByName<ListBox>(window, "ThumbGrid");
+                                if (listBox == null)
+                                {
+                                    continue;
+                                }
+
+                                listBox.SelectionChanged -= ScreenshotsThumbGrid_SelectionChanged;
+                                listBox.SelectionChanged += ScreenshotsThumbGrid_SelectionChanged;
+
+                                var scrollViewer = FindVisualChild<ScrollViewer>(listBox);
+                                if (scrollViewer != null)
+                                {
+                                    scrollViewer.ScrollChanged -= ScreenshotsThumbGrid_ScrollChanged;
+                                    scrollViewer.ScrollChanged += ScreenshotsThumbGrid_ScrollChanged;
+                                }
+
+                                hooked = true;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.Warn(ex, "[AnikiHelper] Failed to hook screenshot lazy loading.");
+                        }
+                    }, DispatcherPriority.Background);
+
+                    if (hooked)
+                    {
+                        return;
+                    }
+
+                    await Task.Delay(200);
+                }
+
+                logger.Warn("[AnikiHelper] Screenshot lazy loading hook failed: ThumbGrid not found after retries.");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] HookScreenshotsLazyLoadRetryAsync failed.");
+            }
+        }
+
+        private void ScreenshotsThumbGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            try
+            {
+                var listBox = sender as ListBox;
+                if (listBox == null)
+                {
+                    return;
+                }
+
+                var count = listBox.Items.Count;
+                var index = listBox.SelectedIndex;
+
+                if (count <= 0 || index < 0)
+                {
+                    return;
+                }
+
+                if (index >= count - 6)
+                {
+                    Settings?.LoadMoreCurrentGameMediaItems();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, "[AnikiHelper] Screenshot selection lazy load failed.");
+            }
+        }
+
+        private void ScreenshotsThumbGrid_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            try
+            {
+                var scrollViewer = sender as ScrollViewer;
+                if (scrollViewer == null)
+                {
+                    return;
+                }
+
+                if (scrollViewer.ScrollableHeight <= 0)
+                {
+                    return;
+                }
+
+                var remaining = scrollViewer.ScrollableHeight - scrollViewer.VerticalOffset;
+
+                if (remaining <= 300)
+                {
+                    Settings?.LoadMoreCurrentGameMediaItems();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, "[AnikiHelper] Screenshot scroll lazy load failed.");
+            }
+        }
+
+        private static T FindVisualChildByName<T>(DependencyObject parent, string name) where T : FrameworkElement
+        {
+            if (parent == null)
+            {
+                return null;
+            }
+
+            var count = VisualTreeHelper.GetChildrenCount(parent);
+
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                var element = child as T;
+                if (element != null && element.Name == name)
+                {
+                    return element;
+                }
+
+                var result = FindVisualChildByName<T>(child, name);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null)
+            {
+                return null;
+            }
+
+            var count = VisualTreeHelper.GetChildrenCount(parent);
+
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                var result = child as T;
+                if (result != null)
+                {
+                    return result;
+                }
+
+                result = FindVisualChild<T>(child);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
         private void LoadNewsFromCacheIfNeeded()
         {
             try
@@ -421,18 +621,14 @@ namespace AnikiHelper
 
             if (!File.Exists(path))
             {
-                logger.Info($"[AnikiHelper] Cache load {sourceKey}: file not found -> {path}");
                 return;
             }
 
             var cached = Serialization.FromJsonFile<List<SteamGlobalNewsItem>>(path);
             if (cached == null || cached.Count == 0)
             {
-                logger.Info($"[AnikiHelper] Cache load {sourceKey}: file exists but contains 0 items -> {path}");
                 return;
             }
-
-            logger.Info($"[AnikiHelper] Cache load {sourceKey}: loaded {cached.Count} items from {path}");
 
             var ordered = cached
                 .OrderByDescending(n => n.PublishedUtc)
@@ -934,7 +1130,6 @@ namespace AnikiHelper
                     Settings.LastNotifications.RemoveAt(Settings.LastNotifications.Count - 1);
                 }
 
-                SaveSettingsSafe();
             }
             catch (Exception ex)
             {
@@ -1219,7 +1414,9 @@ namespace AnikiHelper
         private Playnite.SDK.Models.Game pendingUpdateGame;
         private readonly DispatcherTimer newsRotationTimer;
         private readonly DispatcherTimer suggestedRotationTimer;
+        private readonly DispatcherTimer navigationSettleTimer;
         private readonly SemaphoreSlim newsRefreshGate = new SemaphoreSlim(1, 1);
+
 
         private readonly List<SteamGlobalNewsItem> latestNewsRotation = new List<SteamGlobalNewsItem>();
         private int latestNewsRotationIndex = 0;
@@ -1255,6 +1452,9 @@ namespace AnikiHelper
         // Anti-freeze: 1 update à la fois + annulation si navigation rapide
         private readonly SemaphoreSlim steamUpdateGate = new SemaphoreSlim(1, 1);
         private CancellationTokenSource steamUpdateCts;
+
+        private bool isInFullscreenDetailsView = false;
+        private Guid lastDetailsMediaGameId = Guid.Empty;
 
         // Used to pause background Steam update scans while the user is navigating.
         private long lastSteamUpdateUserActivityTicks = 0;
@@ -1494,8 +1694,6 @@ namespace AnikiHelper
 
             FlushSteamAppIdMappingCacheIfNeeded();
 
-            logger.Info($"[AnikiHelper] Auto Steam AppID mapping: {game.Name} -> {resolved.SteamName} ({resolved.SteamAppId}) confidence={resolved.Confidence}");
-
             return resolved.SteamAppId;
         }
 
@@ -1505,9 +1703,9 @@ namespace AnikiHelper
             try
             {
                 var games = PlayniteApi.Database.Games
-                    .Where(g => g.LastActivity != null)                 
-                    .OrderByDescending(g => g.LastActivity)             
-                    .Take(Math.Max(1, maxGames))                       
+                    .Where(g => g.LastActivity != null)
+                    .OrderByDescending(g => g.LastActivity)
+                    .Take(Math.Max(1, maxGames))
                     .ToList();
 
                 return games
@@ -1529,6 +1727,19 @@ namespace AnikiHelper
                 System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                 {
                     var s = Settings;
+                    if (s == null)
+                        return;
+
+                    if (string.IsNullOrEmpty(s.SteamUpdateTitle) &&
+                        string.IsNullOrEmpty(s.SteamUpdateDate) &&
+                        string.IsNullOrEmpty(s.SteamUpdateHtml) &&
+                        s.SteamUpdateAvailable == false &&
+                        string.IsNullOrEmpty(s.SteamUpdateError) &&
+                        s.SteamUpdateIsNew == false)
+                    {
+                        return;
+                    }
+
                     s.SteamUpdateTitle = string.Empty;
                     s.SteamUpdateDate = string.Empty;
                     s.SteamUpdateHtml = string.Empty;
@@ -1539,7 +1750,6 @@ namespace AnikiHelper
             }
             catch
             {
-                // ignorer
             }
         }
 
@@ -1549,14 +1759,24 @@ namespace AnikiHelper
             {
                 System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                 {
-                    Settings.SteamGameNews.Clear();
-                    Settings.SteamGameNewsAvailable = false;
-                    Settings.SteamGameNewsError = string.Empty;
+                    var s = Settings;
+                    if (s == null)
+                        return;
+
+                    if (s.SteamGameNews.Count == 0 &&
+                        s.SteamGameNewsAvailable == false &&
+                        string.IsNullOrEmpty(s.SteamGameNewsError))
+                    {
+                        return;
+                    }
+
+                    s.SteamGameNews.Clear();
+                    s.SteamGameNewsAvailable = false;
+                    s.SteamGameNewsError = string.Empty;
                 });
             }
             catch
             {
-                // ignorer
             }
         }
 
@@ -1567,6 +1787,16 @@ namespace AnikiHelper
                 System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
                 {
                     var s = Settings;
+                    if (s == null)
+                        return;
+
+                    if (string.IsNullOrEmpty(s.SteamCurrentPlayersString) &&
+                        s.SteamCurrentPlayersAvailable == false &&
+                        string.IsNullOrEmpty(s.SteamCurrentPlayersError))
+                    {
+                        return;
+                    }
+
                     s.SteamCurrentPlayersString = string.Empty;
                     s.SteamCurrentPlayersAvailable = false;
                     s.SteamCurrentPlayersError = string.Empty;
@@ -1574,7 +1804,6 @@ namespace AnikiHelper
             }
             catch
             {
-                // ignorer
             }
         }
 
@@ -1616,7 +1845,6 @@ namespace AnikiHelper
                     ResetSteamUpdate();
                 }
 
-                await UpdateSteamPlayerCountForGameAsync(g);
             }
             catch (OperationCanceledException)
             {
@@ -1691,10 +1919,6 @@ namespace AnikiHelper
                     lastCachedBUrl,
                     force).ConfigureAwait(false) ?? new List<SteamGlobalNewsItem>();
 
-                logger.Info(
-                    $"[AnikiHelper] RefreshGlobalSteamNewsAsync: itemsA={itemsA?.Count ?? 0}, itemsB={itemsB?.Count ?? 0}, " +
-                    $"currentA={Settings.SteamGlobalNewsA?.Count ?? 0}, currentB={Settings.SteamGlobalNewsB?.Count ?? 0}");
-
                 bool sameA = false;
                 bool sameB = false;
 
@@ -1750,10 +1974,6 @@ namespace AnikiHelper
 
                     SaveSettingsSafe();
                 }
-
-                logger.Info(
-                    $"[AnikiHelper] Refresh apply result: finalA={Settings.SteamGlobalNewsA?.Count ?? 0}, finalB={Settings.SteamGlobalNewsB?.Count ?? 0}, " +
-                    $"sameA={sameA}, sameB={sameB}");
 
                 if (itemsA != null && itemsA.Count > 0)
                 {
@@ -1957,7 +2177,7 @@ namespace AnikiHelper
                 {
                     published = DateTime.UtcNow;
                 }
-                
+
 
                 // Lire l'entrée depuis le cache RAM
                 SteamUpdateCacheEntry cachedEntry;
@@ -2080,7 +2300,6 @@ namespace AnikiHelper
 
             try
             {
-                logger.Info("[SteamUpdates] Recent games scan started.");
                 // 1) Check mode + focus
                 if (!IsSteamRecentScanAllowed())
                 {
@@ -2210,7 +2429,7 @@ namespace AnikiHelper
                 }
 
                 // 1) First, we try the CACHE (RAM)
-               
+
 
                 SteamUpdateCacheEntry cachedEntry;
                 lock (steamUpdatesCacheLock)
@@ -2241,7 +2460,7 @@ namespace AnikiHelper
                         Settings.SteamUpdateHtml = cachedHtml;
                         Settings.SteamUpdateAvailable = true;
                         Settings.SteamUpdateError = string.Empty;
-                        Settings.SteamUpdateIsNew = false; 
+                        Settings.SteamUpdateIsNew = false;
                     });
 
                     hadUsableCache = true;
@@ -2342,8 +2561,8 @@ namespace AnikiHelper
 
                     // only if the DATE is more recent than the cache date.
                     bool isRealNew =
-                        lastPublished == DateTime.MinValue ||        
-                        published > lastPublished;                   
+                        lastPublished == DateTime.MinValue ||
+                        published > lastPublished;
 
                     if (isRealNew)
                     {
@@ -2817,7 +3036,6 @@ namespace AnikiHelper
 
                         SaveSteamUpdatesCache(cache);
                         RefreshSteamRecentUpdatesFromCache();
-                        logger.Info($"[AnikiHelper] InitializeSteamUpdatesCacheForAllGamesAsync completed. Steam games={steamGames.Count}, new cached entries={updated}");
                     },
                     new GlobalProgressOptions(
                         (string)Application.Current?.TryFindResource("SteamInitCache_ProgressTitle")
@@ -2848,7 +3066,7 @@ namespace AnikiHelper
                 var root = PlayniteApi?.Paths?.ExtensionsDataPath;
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return null;
 
-                
+
                 var classic = Path.Combine(root, "cebe6d32-8c46-4459-b993-5a5189d60788", "SuccessStory");
                 if (Directory.Exists(classic)) return classic;
 
@@ -3171,68 +3389,360 @@ namespace AnikiHelper
 
                 if (GenericGenreTagNames.Contains(trimmed))
                 {
-                    continue; 
+                    continue;
                 }
 
                 yield return trimmed;
             }
         }
 
+        private string NormalizeTextForGenre(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var normalized = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+            var builder = new StringBuilder();
+
+            foreach (var c in normalized)
+            {
+                var category = CharUnicodeInfo.GetUnicodeCategory(c);
+                if (category != UnicodeCategory.NonSpacingMark)
+                {
+                    builder.Append(c);
+                }
+            }
+
+            return builder
+                .ToString()
+                .Normalize(NormalizationForm.FormC)
+                .Replace("’", "'")
+                .Replace("–", "-")
+                .Replace("—", "-")
+                .Replace("_", " ")
+                .Replace("/", " ");
+        }
+
         private string NormalizeProfileGenreKey(string genre)
         {
-            if (string.IsNullOrWhiteSpace(genre))
+            var g = NormalizeTextForGenre(genre);
+
+            if (string.IsNullOrWhiteSpace(g))
             {
                 return null;
             }
 
-            var g = genre.Trim().ToLowerInvariant();
+            // Ignored / generic metadata tags
+            if (g.Contains("indie") ||
+                g.Contains("independant") ||
+                g.Contains("casual") ||
+                g.Contains("occasionnel") ||
+                g.Contains("free to play") ||
+                g.Contains("free-to-play") ||
+                g.Contains("gratuit") ||
+                g.Contains("early access") ||
+                g.Contains("acces anticipe") ||
+                g.Contains("remake") ||
+                g.Contains("remaster") ||
+                g.Contains("compilation") ||
+                g.Contains("classic") ||
+                g.Contains("classique") ||
+                g.Contains("open world") ||
+                g.Contains("open-world") ||
+                g.Contains("monde ouvert") ||
+                g.Contains("sci-fi") ||
+                g.Contains("science fiction") ||
+                g.Contains("crime") ||
+                g.Contains("superhero") ||
+                g.Contains("super-heros") ||
+                g.Contains("anime") ||
+                g.Contains("live service") ||
+                g.Contains("online"))
+            {
+                return null;
+            }
 
-            if (g.Contains("souls")) return "SOULSLIKE";
-            if (g.Contains("metroidvania")) return "METROIDVANIA";
+            // Very specific genres first
+            if (g.Contains("soulslike") ||
+                g.Contains("souls-like") ||
+                g.Contains("soul's like") ||
+                g.Contains("souls like") ||
+                g.Contains("souls"))
+                return "SOULSLIKE";
 
-            if (g.Contains("action rpg") || g.Contains("action-rpg") || g.Contains("arpg"))
-                return "ACTION_RPG";
+            if (g.Contains("metroidvania"))
+                return "METROIDVANIA";
 
-            if (g.Contains("jrpg") || g.Contains("j-rpg") || g.Contains("rpg japonais"))
-                return "JRPG";
-
-            if (g == "rpg" || g.Contains("role-playing") || g.Contains("jeu de rôle"))
-                return "RPG";
-
-            if (g.Contains("survival horror"))
+            if (g.Contains("survival horror") ||
+                g.Contains("horreur de survie") ||
+                g.Contains("survie horreur"))
                 return "SURVIVAL_HORROR";
 
-            if (g.Contains("horror") || g.Contains("horreur"))
-                return "HORROR";
+            if (g.Contains("roguelike") || g.Contains("roguelite"))
+                return "ROGUELIKE";
 
-            if (g.Contains("fps") || g.Contains("first-person shooter"))
+            if (g.Contains("jrpg") ||
+                g.Contains("j-rpg") ||
+                g.Contains("japanese rpg") ||
+                g.Contains("rpg japonais"))
+                return "JRPG";
+
+            if (g.Contains("action rpg") ||
+                g.Contains("action-rpg") ||
+                g.Contains("arpg") ||
+                g.Contains("action role-playing") ||
+                g.Contains("action role playing"))
+                return "ACTION_RPG";
+
+            // RPG
+            if (g == "rpg" ||
+                g.Contains("role-playing") ||
+                g.Contains("role playing") ||
+                g.Contains("role-playing game") ||
+                g.Contains("jeux de roles") ||
+                g.Contains("jeu de role") ||
+                g.Contains("juego de rol") ||
+                g.Contains("rol") ||
+                g.Contains("rollenspiel") ||
+                g.Contains("gioco di ruolo") ||
+                g.Contains("jogo de interpretacao") ||
+                g.Contains("jogo de representacao") ||
+                g.Contains("gra fabularna") ||
+                g.Contains("fabularna") ||
+                g.Contains("roolipeli") ||
+                g.Contains("rollspel") ||
+                g.Contains("rollespill") ||
+                g.Contains("szerepjatek") ||
+                g.Contains("joc de rol") ||
+                g.Contains("rol yapma") ||
+                g.Contains("role-playingova") ||
+                g.Contains("ролев") ||
+                g.Contains("ролева"))
+                return "RPG";
+
+            // Shooter / FPS
+            if (g.Contains("fps") ||
+                g.Contains("first person shooter") ||
+                g.Contains("first-person shooter") ||
+                g.Contains("first person") ||
+                g.Contains("tir a la premiere personne") ||
+                g.Contains("ego shooter") ||
+                g.Contains("ego-shooter"))
                 return "FPS";
 
-            if (g.Contains("third-person shooter") || g.Contains("tps") || g.Contains("shooter"))
+            if (g.Contains("shooter") ||
+                g.Contains("third person shooter") ||
+                g.Contains("third-person shooter") ||
+                g.Contains("third person") ||
+                g.Contains("tps") ||
+                g.Contains("jeux de tir") ||
+                g.Contains("jeu de tir") ||
+                g.Contains("tir") ||
+                g.Contains("sparatutto") ||
+                g.Contains("strzelanka") ||
+                g.Contains("schietspel") ||
+                g.Contains("ampumapeli") ||
+                g.Contains("skjutspel") ||
+                g.Contains("skytespill") ||
+                g.Contains("lövöldözős") ||
+                g.Contains("lovedozos") ||
+                g.Contains("shmup") ||
+                g.Contains("стрелба") ||
+                g.Contains("шутер"))
                 return "SHOOTER";
 
-            if (g.Contains("plateforme") || g.Contains("platformer"))
+            // Horror
+            if (g.Contains("horror") ||
+                g.Contains("horreur") ||
+                g.Contains("terror") ||
+                g.Contains("terreur") ||
+                g.Contains("horrorpeli") ||
+                g.Contains("ужасы") ||
+                g.Contains("хорър"))
+                return "HORROR";
+
+            // Platformer
+            if (g.Contains("platformer") ||
+                g.Contains("platform") ||
+                g.Contains("plateforme") ||
+                g.Contains("jeu de plateforme") ||
+                g.Contains("jeux de plateforme") ||
+                g.Contains("plataformas") ||
+                g.Contains("platformspel") ||
+                g.Contains("tasohyppely") ||
+                g.Contains("plattform") ||
+                g.Contains("platformow") ||
+                g.Contains("platforma") ||
+                g.Contains("платформ") ||
+                g.Contains("plošinov") ||
+                g.Contains("plosinov"))
                 return "PLATFORMER";
 
-            if (g.Contains("course") || g.Contains("racing") || g.Contains("driving"))
+            // Racing
+            if (g.Contains("racing") ||
+                g.Contains("driving") ||
+                g.Contains("course automobile") ||
+                g.Contains("course et pilotage") ||
+                g == "course" ||
+                g.Contains("carreras") ||
+                g.Contains("rennspiel") ||
+                g.Contains("corse") ||
+                g.Contains("corrida") ||
+                g.Contains("corridas") ||
+                g.Contains("wyścigi") ||
+                g.Contains("wyscigi") ||
+                g.Contains("race") ||
+                g.Contains("racen") ||
+                g.Contains("ajopeli") ||
+                g.Contains("racespel") ||
+                g.Contains("verseny") ||
+                g.Contains("гонки") ||
+                g.Contains("състез"))
                 return "RACING";
 
-            if (g.Contains("combat") || g.Contains("fighting"))
+            // Fighting
+            if (g.Contains("fighting") ||
+                g.Contains("versus fighting") ||
+                g.Contains("combat") ||
+                g.Contains("sports de combat") ||
+                g.Contains("lucha") ||
+                g.Contains("kampf") ||
+                g.Contains("combattimento") ||
+                g.Contains("bijatyka") ||
+                g.Contains("vechtspel") ||
+                g.Contains("taistelupeli") ||
+                g.Contains("kampsport") ||
+                g.Contains("harc") ||
+                g.Contains("bataie") ||
+                g.Contains("bătăie") ||
+                g.Contains("dovus") ||
+                g.Contains("dövüş") ||
+                g.Contains("бой") ||
+                g.Contains("боев"))
                 return "FIGHTING";
 
-            if (g.Contains("stratégie") || g.Contains("strategy") || g.Contains("tactical"))
+            // Strategy
+            if (g.Contains("strategy") ||
+                g.Contains("stratégie") ||
+                g.Contains("strategie") ||
+                g.Contains("estrategia") ||
+                g.Contains("strategia") ||
+                g.Contains("strategi") ||
+                g.Contains("strategiczne") ||
+                g.Contains("strategiapeli") ||
+                g.Contains("strategie") ||
+                g.Contains("tactical") ||
+                g.Contains("tactique") ||
+                g.Contains("turn based") ||
+                g.Contains("turn-based") ||
+                g.Contains("tour par tour") ||
+                g.Contains("turowa") ||
+                g.Contains("taktik") ||
+                g.Contains("тактичес") ||
+                g.Contains("стратег"))
                 return "STRATEGY";
 
-            if (g.Contains("simulation") || g.Contains("simulator"))
+            // Simulation
+            if (g.Contains("simulation") ||
+                g.Contains("simulator") ||
+                g.Contains("simulateur") ||
+                g.Contains("simulacion") ||
+                g.Contains("simulador") ||
+                g.Contains("simulazione") ||
+                g.Contains("simulatie") ||
+                g.Contains("symulacja") ||
+                g.Contains("simulointi") ||
+                g.Contains("simulering") ||
+                g.Contains("szimulator") ||
+                g.Contains("симулятор") ||
+                g.Contains("симулац"))
                 return "SIMULATION";
 
-            if (g.Contains("infiltration") || g.Contains("stealth"))
+            // Stealth
+            if (g.Contains("stealth") ||
+                g.Contains("infiltration") ||
+                g.Contains("furtif") ||
+                g.Contains("furtivo") ||
+                g.Contains("sigilo") ||
+                g.Contains("skradanka") ||
+                g.Contains("sluip") ||
+                g.Contains("lopakod") ||
+                g.Contains("lopakod") ||
+                g.Contains("sneak") ||
+                g.Contains("скрыт") ||
+                g.Contains("стелт"))
                 return "STEALTH";
 
-            if (g.Contains("aventure") || g.Contains("adventure"))
+            // MMO
+            if (g.Contains("mmo") ||
+                g.Contains("mmorpg") ||
+                g.Contains("massively multiplayer") ||
+                g.Contains("massivement multijoueur") ||
+                g.Contains("multijoueur massif") ||
+                g.Contains("masowo wieloosob") ||
+                g.Contains("massaal multiplayer") ||
+                g.Contains("многопольз") ||
+                g.Contains("много играчи"))
+                return "MMO";
+
+            // Sports
+            if (g == "sport" ||
+                g == "sports" ||
+                g.Contains("soccer") ||
+                g.Contains("football") ||
+                g.Contains("basketball") ||
+                g.Contains("tennis") ||
+                g.Contains("sportif") ||
+                g.Contains("sportowe") ||
+                g.Contains("esportes") ||
+                g.Contains("deportes") ||
+                g.Contains("sportspel") ||
+                g.Contains("urheilu") ||
+                g.Contains("спорт"))
+                return "SPORTS";
+
+            // Adventure last because it is very generic
+            if (g.Contains("adventure") ||
+                g.Contains("aventure") ||
+                g.Contains("action adventure") ||
+                g.Contains("action-adventure") ||
+                g.Contains("action et aventure") ||
+                g.Contains("action aventure") ||
+                g.Contains("aventura") ||
+                g.Contains("abenteuer") ||
+                g.Contains("avventura") ||
+                g.Contains("przygod") ||
+                g.Contains("avontuur") ||
+                g.Contains("seikkailu") ||
+                g.Contains("aventuri") ||
+                g.Contains("macera") ||
+                g.Contains("приключ") ||
+                g.Contains("приключен"))
                 return "ADVENTURE";
 
             return null;
+        }
+
+        private double GetProfileGenreRecencyWeight(Game game)
+        {
+            if (game == null || !game.LastActivity.HasValue)
+            {
+                return 0.50;
+            }
+
+            var days = (DateTime.Now - game.LastActivity.Value).TotalDays;
+            var years = Math.Floor(days / 365.0);
+
+            if (years <= 0)
+            {
+                return 1.00; // année en cours
+            }
+
+            var weight = Math.Pow(0.65, years);
+
+            return Math.Max(0.05, weight);
         }
 
         private string BuildProfileGenreKey(IEnumerable<Game> games)
@@ -3261,6 +3771,7 @@ namespace AnikiHelper
                 var genresToUse = filteredGenres.Count > 0 ? filteredGenres : rawGenres;
 
                 var gameMinutes = g.Playtime / 60.0;
+                var weightedMinutes = gameMinutes * GetProfileGenreRecencyWeight(g);
                 if (gameMinutes <= 0)
                 {
                     continue;
@@ -3269,6 +3780,7 @@ namespace AnikiHelper
                 foreach (var genre in genresToUse.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     var key = NormalizeProfileGenreKey(genre);
+                    
                     if (string.IsNullOrWhiteSpace(key))
                     {
                         continue;
@@ -3279,7 +3791,7 @@ namespace AnikiHelper
                         scores[key] = 0;
                     }
 
-                    scores[key] += gameMinutes;
+                    scores[key] += weightedMinutes;
                 }
             }
 
@@ -3291,6 +3803,15 @@ namespace AnikiHelper
             var ordered = scores
                 .OrderByDescending(x => x.Value)
                 .ToList();
+
+            DebugLog("========== PROFILE GENRE SCORES ==========");
+
+            foreach (var s in ordered)
+            {
+                DebugLog($"[ProfileGenre] {s.Key} = {s.Value:F0} min ({s.Value / 60:F1}h)");
+            }
+
+            DebugLog("=========================================");
 
             var top = ordered[0];
             var secondValue = ordered.Count > 1 ? ordered[1].Value : 0;
@@ -3308,6 +3829,17 @@ namespace AnikiHelper
             }
 
             return top.Key;
+        }
+
+        private void RecalcProfileGenre(IEnumerable<Game> games)
+        {
+            var genreKey = BuildProfileGenreKey(games);
+
+            Settings.ProfileGenreKey = genreKey;
+            Settings.ProfileGenreLabel = GetLocalizedProfileGenreLabel(genreKey);
+            Settings.LastProfileGenreScanUtc = DateTime.UtcNow;
+
+            SaveSettingsSafe();
         }
 
         private string GetLocalizedProfileGenreLabel(string key)
@@ -3361,6 +3893,15 @@ namespace AnikiHelper
 
                 case "ADVENTURE":
                     return Loc("ProfileGenre_Adventure", "Adventure fan");
+
+                case "ROGUELIKE":
+                    return Loc("ProfileGenre_Roguelike", "Roguelike fan");
+
+                case "MMO":
+                    return Loc("ProfileGenre_Mmo", "MMO fan");
+
+                case "SPORTS":
+                    return Loc("ProfileGenre_Sports", "Sports fan");
 
                 case "VARIETY":
                 default:
@@ -3684,7 +4225,7 @@ namespace AnikiHelper
                     continue;
 
                 // Exclude "saturated" games from suggestions
-                if (g.Playtime >= 30UL * 60UL) 
+                if (g.Playtime >= 30UL * 60UL)
                 {
                     if (g.LastActivity.HasValue &&
                         (DateTime.Now - g.LastActivity.Value).TotalDays > 60)
@@ -3833,7 +4374,7 @@ namespace AnikiHelper
                     var snap = PlayniteApi.Database.Games.ToDictionary(g => g.Id, g => g.Playtime / 60UL);
                     var json = Serialization.ToJson(snap, true);
                     File.WriteAllText(file, json);
-                    logger.Info($"[AnikiHelper] Created monthly snapshot: {file}");
+                    DebugLog($"[AnikiHelper] Created monthly snapshot: {file}");
                     return snap;
                 }
 
@@ -4186,7 +4727,7 @@ namespace AnikiHelper
                             System.Globalization.DateTimeStyles.None,
                             out monthStart))
                     {
-                        continue; 
+                        continue;
                     }
 
                     try
@@ -4287,7 +4828,7 @@ namespace AnikiHelper
                     var json = Serialization.ToJson(snapshot, true);
                     Directory.CreateDirectory(Path.GetDirectoryName(file) ?? GetMonthlyDir());
                     File.WriteAllText(file, json);
-                    logger.Info($"[AnikiHelper] Monthly snapshot created for {monthStart:yyyy-MM} at {file}.");
+                    DebugLog($"[AnikiHelper] Monthly snapshot created for {monthStart:yyyy-MM} at {file}.");
                 }
 
                 UpdateSnapshotInfoProperty(monthStart);
@@ -4360,23 +4901,43 @@ namespace AnikiHelper
         {
             try
             {
+                var confirm = PlayniteApi.Dialogs.ShowMessage(
+                    "This will delete the current month tracking data and recreate the snapshot from now. Continue?",
+                    "Aniki Helper",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning
+                );
+
+                if (confirm != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
                 var now = DateTime.Now;
                 var monthStart = new DateTime(now.Year, now.Month, 1);
                 var file = GetMonthFilePath(monthStart);
 
                 var snapshot = PlayniteApi.Database.Games.ToDictionary(g => g.Id, g => g.Playtime / 60UL);
                 var json = Serialization.ToJson(snapshot, true);
+
                 Directory.CreateDirectory(Path.GetDirectoryName(file) ?? GetMonthlyDir());
                 File.WriteAllText(file, json);
 
                 UpdateSnapshotInfoProperty(monthStart);
                 RecalcStatsSafe();
-                PlayniteApi.Dialogs.ShowMessage("Snapshot mensuel recréé. Les stats repartent de maintenant.", "AnikiHelper");
+
+                PlayniteApi.Dialogs.ShowMessage(
+                    "Current month tracking has been reset. Stats will restart from now.",
+                    "Aniki Helper"
+                );
             }
             catch (Exception ex)
             {
                 logger.Error(ex, "[AnikiHelper] ResetMonthlySnapshot failed");
-                PlayniteApi.Dialogs.ShowErrorMessage($"Échec du reset du snapshot : {ex.Message}", "AnikiHelper");
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    $"Failed to reset monthly tracking: {ex.Message}",
+                    "Aniki Helper"
+                );
             }
         }
 
@@ -4432,7 +4993,7 @@ namespace AnikiHelper
 
                 File.WriteAllText(exportFilePath, json);
 
-                logger.Info($"[AnikiHelper] Monthly backup exported: {exportFilePath}");
+                DebugLog($"[AnikiHelper] Monthly backup exported: {exportFilePath}");
                 PlayniteApi.Dialogs.ShowMessage("Monthly backup exported successfully.", "AnikiHelper");
             }
             catch (Exception ex)
@@ -4509,7 +5070,7 @@ namespace AnikiHelper
                 EnsureMonthlySnapshotSafe();
                 RecalcStatsSafe();
 
-                logger.Info($"[AnikiHelper] Monthly backup imported: {importFilePath} | months={restoredMonths} entries={restoredEntries} skipped={skippedEntries}");
+                DebugLog($"[AnikiHelper] Monthly backup imported: {importFilePath} | months={restoredMonths} entries={restoredEntries} skipped={skippedEntries}");
 
                 PlayniteApi.Dialogs.ShowMessage(
                     $"Monthly backup imported.\n\nMonths restored: {restoredMonths}\nEntries restored: {restoredEntries}\nEntries skipped: {skippedEntries}",
@@ -4552,7 +5113,7 @@ namespace AnikiHelper
                     }
                 }
 
-                logger.Info($"[AnikiHelper] Cleared dynamic color cache. Files deleted: {deleted}");
+                DebugLog($"[AnikiHelper] Cleared dynamic color cache. Files deleted: {deleted}");
             }
             catch (Exception ex)
             {
@@ -4573,7 +5134,7 @@ namespace AnikiHelper
                     !Version.TryParse(current, out var currentVersion) ||
                     currentVersion < new Version(1, 3, 3))
                 {
-                    logger.Info($"[AnikiHelper] Dynamic color cache is older than {RequiredCacheVersion}. Clearing cache.");
+                    DebugLog($"[AnikiHelper] Dynamic color cache is older than {RequiredCacheVersion}. Clearing cache.");
 
                     ClearDynamicColorCache();
 
@@ -4694,6 +5255,70 @@ namespace AnikiHelper
             }
         }
 
+        private void UpdateFullscreenAspectRatio()
+        {
+            try
+            {
+                if (Settings == null)
+                {
+                    return;
+                }
+
+                var window = Application.Current?.MainWindow;
+
+                if (window == null)
+                {
+                    return;
+                }
+
+                var width = window.ActualWidth;
+                var height = window.ActualHeight;
+
+                if (width <= 0 || height <= 0)
+                {
+                    return;
+                }
+
+                Settings.AspectRatio = GetAspectRatioKey(width, height);
+
+                DebugLog($"[AnikiHelper] Fullscreen aspect ratio detected: {Settings.AspectRatio} ({width:0}x{height:0})");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to update fullscreen aspect ratio.");
+            }
+        }
+
+        private static string GetAspectRatioKey(double width, double height)
+        {
+            if (height <= 0)
+            {
+                return "dsp169";
+            }
+
+            var ratio = width / height;
+
+            // 16:10 = 1.60
+            if (Math.Abs(ratio - 1.6) <= 0.06)
+            {
+                return "dsp1610";
+            }
+
+            // Ultrawide: 21:9 / 3440x1440 / 2560x1080
+            if (ratio >= 2.15)
+            {
+                return "dsp219";
+            }
+
+            // Default: 16:9 and close ratios.
+            return "dsp169";
+        }
+
+        private void OnFullscreenWindowSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateFullscreenAspectRatio();
+        }
+
         public AnikiHelper(IPlayniteAPI api) : base(api)
         {
             Instance = this;
@@ -4725,13 +5350,24 @@ namespace AnikiHelper
             rssNewsService = new SteamGlobalNewsService(api, Settings);
             eventSoundService = new EventSoundService(api, Settings);
             anikiWindowManager = new AnikiWindowManager(api);
+            inGameOverlayService = new InGameOverlayService(api, Settings);
+
+            anikiThemeSettingsService = new AnikiThemeSettingsService(
+                api,
+                Settings,
+                logger,
+                GetPluginUserDataPath());
+
             steamStoreService = new SteamStoreService(api, GetPluginUserDataPath());
             splashScreenService = new SplashScreenService(GetPluginUserDataPath());
             splashScreenRuntimeService = new SplashScreenRuntimeService(IsPlayniteForegroundWindow);
 
+            horizontalFocusFixService = new NavigationFixService(api, () => Settings.IsWelcomeHubOpen);
+
             CleanupLegacyNewsCache();
 
             AddSettingsSupportSafe("AnikiHelper", "Settings");
+            AddControllerSupportSafe();
 
             Settings.PropertyChanged += (s, e) =>
             {
@@ -4792,6 +5428,28 @@ namespace AnikiHelper
                     Interval = TimeSpan.FromMilliseconds(800)
                 };
                 steamUpdateTimer.Tick += steamUpdateTimer_Tick;
+
+                navigationSettleTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(250)
+                };
+
+                navigationSettleTimer.Tick += (s, e) =>
+                {
+                    navigationSettleTimer.Stop();
+
+                    try
+                    {
+                        if (Settings != null)
+                        {
+                            Settings.IsFastNavigating = false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to settle fast navigation state.");
+                    }
+                };
 
                 // Charger le cache Steam Updates une seule fois (hors UI thread)
                 Task.Run(() =>
@@ -5437,9 +6095,19 @@ namespace AnikiHelper
             }
         }
 
-        public void OpenWindow(string styleKey)
+        public void OpenWindow(string parameter)
         {
-            anikiWindowManager?.OpenWindow(styleKey);
+            var styleKey = parameter;
+            string focusTargetName = null;
+
+            if (!string.IsNullOrWhiteSpace(parameter) && parameter.Contains("|"))
+            {
+                var parts = parameter.Split('|');
+                styleKey = parts[0];
+                focusTargetName = parts.Length > 1 ? parts[1] : null;
+            }
+
+            anikiWindowManager?.OpenWindow(styleKey, focusTargetName);
         }
 
         public void OpenChildWindow(string styleKey)
@@ -5582,6 +6250,69 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] OpenAchievementsFromQuickAccess failed.");
+            }
+        }
+
+        public void TriggerHiddenButtonAfterClosingTopWindow(string buttonName)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        CloseTopWindow();
+
+                        dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try
+                            {
+                                var app = Application.Current;
+                                if (app == null)
+                                {
+                                    return;
+                                }
+
+                                var button = app.Windows
+                                    .OfType<Window>()
+                                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                                    .FirstOrDefault(x => x.Name == buttonName) as System.Windows.Controls.Primitives.ButtonBase;
+
+                                if (button == null)
+                                {
+                                    logger.Warn("[AnikiHelper] Hidden button was not found: " + buttonName);
+                                    return;
+                                }
+
+                                if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
+                                {
+                                    button.Command.Execute(button.CommandParameter);
+                                    return;
+                                }
+
+                                button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Failed to trigger hidden button: " + buttonName);
+                            }
+                        }), DispatcherPriority.ApplicationIdle);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] TriggerHiddenButtonAfterClosingTopWindow inner failed.");
+                    }
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] TriggerHiddenButtonAfterClosingTopWindow failed.");
             }
         }
 
@@ -5942,6 +6673,60 @@ namespace AnikiHelper
             }
         }
 
+        public void OpenExternalClientsFromHelpMenu()
+        {
+            try
+            {
+                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var appAssembly = Application.Current.GetType().Assembly;
+
+                        var fullscreenVm = Application.Current.MainWindow?.DataContext;
+                        if (fullscreenVm == null)
+                        {
+                            logger.Warn("[AnikiHelper] Fullscreen main DataContext not found.");
+                            return;
+                        }
+
+                        var windowFactoryType = appAssembly.GetType("Playnite.FullscreenApp.Windows.GameClientsMenuWindowFactory");
+                        var viewModelType = appAssembly.GetType("Playnite.FullscreenApp.ViewModels.GameClientsMenuViewModel");
+
+                        if (windowFactoryType == null || viewModelType == null)
+                        {
+                            logger.Warn("[AnikiHelper] GameClientsMenu types not found.");
+                            return;
+                        }
+
+                        var windowFactory = Activator.CreateInstance(windowFactoryType);
+                        var vm = Activator.CreateInstance(viewModelType, windowFactory, fullscreenVm);
+
+                        var openView = viewModelType.GetMethod("OpenView");
+                        openView?.Invoke(vm, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to open external clients menu.");
+                    }
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] OpenExternalClientsFromHelpMenu failed.");
+            }
+        }
+
+        public void OpenRandomGameFromQuickAccess()
+        {
+            OpenRandomGameDirect();
+        }
+
+        public void UpdateGameLibraryFromQuickAccess()
+        {
+            UpdateGameLibraryDirect();
+        }
+
         public void CloseHubToLibraryFromShortcut()
         {
             try
@@ -6001,7 +6786,7 @@ namespace AnikiHelper
             }
         }
 
-        public void OpenPlayniteMainMenuFromShortcut()
+        public async void OpenPlayniteMainMenuFromShortcut()
         {
             try
             {
@@ -6011,44 +6796,249 @@ namespace AnikiHelper
                     return;
                 }
 
-                dispatcher.BeginInvoke(new Action(() =>
+                await dispatcher.InvokeAsync(async () =>
                 {
                     try
                     {
-                        var app = Application.Current;
-                        if (app == null)
+                        if (Settings != null)
                         {
-                            return;
+                            Settings.IsQuickAccessToMainMenuDimActive = true;
                         }
 
-                        var button = app.Windows
-                            .OfType<Window>()
-                            .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
-                            .FirstOrDefault(x => x.Name == "PART_ButtonMainMenu") as ButtonBase;
+                        await dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
 
-                        if (button == null)
+                        CloseTopWindow();
+
+                        await dispatcher.InvokeAsync(() =>
                         {
-                            logger.Warn("[AnikiHelper] PART_ButtonMainMenu was not found.");
-                            return;
-                        }
+                            try
+                            {
+                                var app = Application.Current;
+                                if (app == null)
+                                {
+                                    return;
+                                }
 
-                        if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
-                        {
-                            button.Command.Execute(button.CommandParameter);
-                            return;
-                        }
+                                var button = app.Windows
+                                    .OfType<Window>()
+                                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                                    .FirstOrDefault(x => x.Name == "PART_ButtonMainMenu") as ButtonBase;
 
-                        button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                                if (button == null)
+                                {
+                                    logger.Warn("[AnikiHelper] PART_ButtonMainMenu was not found.");
+
+                                    if (Settings != null)
+                                    {
+                                        Settings.IsQuickAccessToMainMenuDimActive = false;
+                                    }
+
+                                    return;
+                                }
+
+                                if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
+                                {
+                                    button.Command.Execute(button.CommandParameter);
+                                }
+                                else
+                                {
+                                    button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                                }
+
+                                var timer = new DispatcherTimer
+                                {
+                                    Interval = TimeSpan.FromMilliseconds(800)
+                                };
+
+                                timer.Tick += (s, e) =>
+                                {
+                                    timer.Stop();
+
+                                    if (Settings != null)
+                                    {
+                                        Settings.IsQuickAccessToMainMenuDimActive = false;
+                                    }
+                                };
+
+                                timer.Start();
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Failed to trigger PART_ButtonMainMenu.");
+
+                                if (Settings != null)
+                                {
+                                    Settings.IsQuickAccessToMainMenuDimActive = false;
+                                }
+                            }
+                        }, DispatcherPriority.Normal);
                     }
                     catch (Exception ex)
                     {
-                        logger.Warn(ex, "[AnikiHelper] Failed to trigger PART_ButtonMainMenu.");
+                        logger.Warn(ex, "[AnikiHelper] OpenPlayniteMainMenuFromShortcut inner failed.");
+
+                        if (Settings != null)
+                        {
+                            Settings.IsQuickAccessToMainMenuDimActive = false;
+                        }
+                    }
+                }, DispatcherPriority.Render);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] OpenPlayniteMainMenuFromShortcut failed.");
+
+                if (Settings != null)
+                {
+                    Settings.IsQuickAccessToMainMenuDimActive = false;
+                }
+            }
+        }
+
+        public async void OpenPlayniteSettingsFromShortcut()
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                await dispatcher.InvokeAsync(() =>
+                {
+                    try
+                    {
+                        CloseTopWindow();
+
+                        var appAssembly = Application.Current.GetType().Assembly;
+                        var fullscreenVm = Application.Current.MainWindow?.DataContext;
+
+                        if (fullscreenVm == null)
+                        {
+                            logger.Warn("[AnikiHelper] Fullscreen main DataContext not found.");
+                            return;
+                        }
+
+                        var windowFactoryType = appAssembly.GetType("Playnite.FullscreenApp.Windows.SettingsWindowFactory");
+                        var viewModelType = appAssembly.GetType("Playnite.FullscreenApp.ViewModels.SettingsViewModel");
+
+                        if (windowFactoryType == null || viewModelType == null)
+                        {
+                            logger.Warn("[AnikiHelper] Settings fullscreen types not found.");
+                            return;
+                        }
+
+                        var windowFactory = Activator.CreateInstance(windowFactoryType);
+                        var vm = Activator.CreateInstance(viewModelType, windowFactory, fullscreenVm);
+
+                        var openView = viewModelType.GetMethod("OpenView");
+                        openView?.Invoke(vm, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to open fullscreen Settings.");
+                    }
+                }, DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] OpenPlayniteSettingsFromShortcut failed.");
+            }
+        }
+
+        private void OpenRandomGameDirect()
+        {
+            try
+            {
+                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        CloseTopWindow();
+
+                        var fullscreenVm = Application.Current.MainWindow?.DataContext;
+                        if (fullscreenVm == null)
+                        {
+                            logger.Warn("[AnikiHelper] Fullscreen main DataContext not found.");
+                            return;
+                        }
+
+                        var method = fullscreenVm.GetType().GetMethod("SelectRandomGame");
+                        if (method == null)
+                        {
+                            logger.Warn("[AnikiHelper] SelectRandomGame method not found.");
+                            return;
+                        }
+
+                        method.Invoke(fullscreenVm, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to open random game.");
                     }
                 }), DispatcherPriority.Background);
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] OpenPlayniteMainMenuFromShortcut failed.");
+                logger.Warn(ex, "[AnikiHelper] OpenRandomGameDirect failed.");
+            }
+        }
+
+        private void UpdateGameLibraryDirect()
+        {
+            try
+            {
+                Application.Current?.Dispatcher?.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        CloseTopWindow();
+
+                        var fullscreenVm = Application.Current.MainWindow?.DataContext;
+                        if (fullscreenVm == null)
+                        {
+                            logger.Warn("[AnikiHelper] Fullscreen main DataContext not found.");
+                            return;
+                        }
+
+                        var appSettingsProp = fullscreenVm.GetType().GetProperty("AppSettings");
+                        var appSettings = appSettingsProp?.GetValue(fullscreenVm);
+
+                        var downloadMetadataProp = appSettings?.GetType().GetProperty("DownloadMetadataOnImport");
+                        var downloadMetadata = downloadMetadataProp?.GetValue(appSettings) is bool b && b;
+
+                        var method = fullscreenVm.GetType().GetMethod(
+                            "UpdateLibrary",
+                            new Type[] { typeof(bool), typeof(bool), typeof(bool) });
+
+                        if (method == null)
+                        {
+                            logger.Warn("[AnikiHelper] UpdateLibrary(bool,bool,bool) method not found.");
+                            return;
+                        }
+
+                        var result = method.Invoke(fullscreenVm, new object[]
+                        {
+                    downloadMetadata,
+                    true,
+                    true
+                        }) as Task;
+
+                        if (result != null)
+                        {
+                            await result;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to update library.");
+                    }
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] UpdateGameLibraryDirect failed.");
             }
         }
 
@@ -6109,6 +7099,30 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 logger.Error(ex, $"[AnikiHelper] Failed to open help link: {linkKey}");
+            }
+        }
+
+        private void AddControllerSupportSafe()
+        {
+            try
+            {
+                AddCustomElementSupport(new AddCustomElementSupportArgs
+                {
+                    SourceName = "AnikiHelper",
+                    ElementList = new List<string>
+                    {
+                        "ControllerCommands",
+                        "ControllerShortcuts",
+                        "ControllerOverride",
+                        "GlobalControllerShortcuts",
+                        "GlobalControllerShortcutsHub",
+                        "GlobalControllerOverride"
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] AddCustomElementSupport for controller shortcuts is unavailable.");
             }
         }
 
@@ -6220,6 +7234,83 @@ namespace AnikiHelper
                     SaveSettingsSafe();
                 }
                 catch { }
+            }
+        }
+
+        public void SetAnikiThemeOption(string parameter)
+        {
+            anikiThemeSettingsService?.SetOptionFromParameter(parameter);
+        }
+
+        public void ToggleAnikiThemeOption(string parameter)
+        {
+            anikiThemeSettingsService?.ToggleOptionFromParameter(parameter);
+        }
+
+        public void SelectAnikiThemePreset(string parameter)
+        {
+            anikiThemeSettingsService?.SelectPresetFromParameter(parameter);
+        }
+
+        public void ShowAnikiThemePresetPreview(string presetId)
+        {
+            anikiThemeSettingsService?.ShowPreview(presetId);
+        }
+
+        public void HideAnikiThemePresetPreview()
+        {
+            anikiThemeSettingsService?.HidePreview();
+        }
+
+        public void ReloadAnikiThemeSettings()
+        {
+            anikiThemeSettingsService?.Reload();
+        }
+
+        public void SetAnikiThemeSettingsRestartRequiredAction(Action action)
+        {
+            anikiThemeSettingsService?.SetRestartRequiredAction(action);
+        }
+
+        public void ShowAnikiThemeSettingsRestartPromptIfNeeded()
+        {
+            anikiThemeSettingsService?.ShowRestartPromptIfNeeded();
+        }
+
+        public override Control GetGameViewControl(GetGameViewControlArgs args)
+        {
+            try
+            {
+                var controlType = args.Name?.Split('_')[0];
+
+                switch (controlType)
+                {
+                    case "ControllerCommands":
+                        return new AnikiControllerCommandsControl();
+
+                    case "ControllerShortcuts":
+                        return new AnikiControllerShortcutControl(suppressDefaults: false, global: false);
+
+                    case "ControllerOverride":
+                        return new AnikiControllerShortcutControl(suppressDefaults: true, global: false);
+
+                    case "GlobalControllerShortcuts":
+                        return new AnikiControllerShortcutControl(suppressDefaults: false, global: true);
+
+                    case "GlobalControllerShortcutsHub":
+                        return new AnikiControllerShortcutControl(suppressDefaults: false, global: true);
+
+                    case "GlobalControllerOverride":
+                        return new AnikiControllerShortcutControl(suppressDefaults: true, global: true);
+
+                    default:
+                        throw new ArgumentException($"Unknown Aniki Helper controller control: {args.Name}");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, $"[AnikiHelper] Failed to create controller control: {args?.Name}");
+                return base.GetGameViewControl(args);
             }
         }
 
@@ -6804,6 +7895,12 @@ namespace AnikiHelper
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
         private bool TrySetUniPlaySongGameStartingPause(bool pause)
         {
             try
@@ -6856,7 +7953,6 @@ namespace AnikiHelper
 
                 method.Invoke(playbackService, new object[] { gameStartingSource });
 
-                logger.Info($"[AnikiHelper] UniPlaySong GameStarting pause {(pause ? "enabled" : "disabled")}.");
                 return true;
             }
             catch (Exception ex)
@@ -6936,6 +8032,119 @@ namespace AnikiHelper
             }
         }
 
+        private bool IsKeyDown(int vKey)
+        {
+            return (GetAsyncKeyState(vKey) & 0x8000) != 0;
+        }
+
+        private void DebugLogFocusState(string context)
+        {
+            try
+            {
+                if (Settings?.EnableDebugLogs != true)
+                {
+                    return;
+                }
+
+                var foregroundHandle = GetForegroundWindow();
+                GetWindowThreadProcessId(foregroundHandle, out uint pid);
+
+                var title = new StringBuilder(512);
+                GetWindowText(foregroundHandle, title, title.Capacity);
+
+                var processName = "unknown";
+
+                try
+                {
+                    if (pid > 0)
+                    {
+                        processName = Process.GetProcessById((int)pid).ProcessName;
+                    }
+                }
+                catch { }
+
+                string wpfState = "WPF=unavailable";
+
+                try
+                {
+                    var app = System.Windows.Application.Current;
+
+                    if (app?.Dispatcher != null)
+                    {
+                        Action readWpf = () =>
+                        {
+                            var win = app.MainWindow;
+                            var handle = win != null ? new WindowInteropHelper(win).Handle : IntPtr.Zero;
+
+                            var focused = Keyboard.FocusedElement;
+                            var focusedName = focused == null ? "NULL" : focused.GetType().FullName;
+
+                            if (focused is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
+                            {
+                                focusedName += $" Name='{fe.Name}'";
+                            }
+
+                            wpfState =
+                                $"MainWindowHandle={handle}, " +
+                                $"IsSameWindow={foregroundHandle == handle}, " +
+                                $"WindowIsActive={win?.IsActive}, " +
+                                $"WindowIsFocused={win?.IsFocused}, " +
+                                $"KeyboardFocusWithin={win?.IsKeyboardFocusWithin}, " +
+                                $"WindowState={win?.WindowState}, " +
+                                $"WindowVisibility={win?.Visibility}, " +
+                                $"FocusedElement='{focusedName}'";
+                        };
+
+                        if (app.Dispatcher.CheckAccess())
+                        {
+                            readWpf();
+                        }
+                        else
+                        {
+                            app.Dispatcher.Invoke(readWpf, DispatcherPriority.Send);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    wpfState = $"WPF_ERROR={ex.GetType().Name}: {ex.Message}";
+                }
+
+                DebugLog(
+                    $"[AnikiHelper][FocusDebug][{context}] " +
+                    $"ForegroundPid={pid}, " +
+                    $"ForegroundProcess='{processName}', " +
+                    $"ForegroundTitle='{title}', " +
+                    $"IsPlayniteForegroundProcess={pid == (uint)Process.GetCurrentProcess().Id}, " +
+                    $"{wpfState}, " +
+                    $"Keys: LWin={IsKeyDown(0x5B)}, RWin={IsKeyDown(0x5C)}, Alt={IsKeyDown(0x12)}, Ctrl={IsKeyDown(0x11)}, Shift={IsKeyDown(0x10)}"
+                );
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, $"[AnikiHelper][FocusDebug][{context}] Failed to read focus state.");
+            }
+        }
+
+        private void StartPostGameFocusDebugTrace(string gameName)
+        {
+            if (Settings?.EnableDebugLogs != true)
+            {
+                return;
+            }
+
+            var sw = Stopwatch.StartNew();
+
+            Task.Run(async () =>
+            {
+                for (int i = 0; i <= 40; i++)
+                {
+                    await Task.Delay(250);
+                    DebugLogFocusState($"AfterGameStopped REAL={sw.ElapsedMilliseconds}ms | Game='{gameName}'");
+                }
+            });
+        }
+
         private async Task<bool> WaitForPlayniteForegroundAsync(TimeSpan timeout)
         {
             var start = DateTime.Now;
@@ -7002,7 +8211,7 @@ namespace AnikiHelper
 
                 await RestorePlayniteWindowsAfterStartupAsync();
 
-                await Task.Delay(100);
+                await Task.Delay(120);
 
                 await RestorePlayniteWindowsAfterStartupAsync();
             }
@@ -7206,217 +8415,455 @@ namespace AnikiHelper
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
-            base.OnApplicationStarted(args);
-            eventSoundService.PlayApplicationStarted();
+            var swTotal = Stopwatch.StartNew();
+            var sw = Stopwatch.StartNew();
 
-            if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
-            {
-                return;
-            }
-
-            var isAnikiThemeActive = IsAnikiThemeActive();
+            DebugLog("[AnikiHelper][OnApplicationStarted] START");
 
             try
             {
-                if (isAnikiThemeActive)
+                base.OnApplicationStarted(args);
+                DebugLog($"[AnikiHelper][OnApplicationStarted] base.OnApplicationStarted took {swTotal.ElapsedMilliseconds}ms");
+
+                sw.Restart();
+                eventSoundService.PlayApplicationStarted();
+                DebugLog($"[AnikiHelper][OnApplicationStarted] PlayApplicationStarted took {sw.ElapsedMilliseconds}ms");
+
+                sw.Restart();
+                var isFullscreen = PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
+                DebugLog($"[AnikiHelper][OnApplicationStarted] Fullscreen check took {sw.ElapsedMilliseconds}ms | fullscreen={isFullscreen}");
+
+                if (!isFullscreen)
                 {
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] STOP not fullscreen | total={swTotal.ElapsedMilliseconds}ms");
+                    return;
+                }
+
+                sw.Restart();
+                var isAnikiThemeActive = IsAnikiThemeActive();
+                DebugLog($"[AnikiHelper][OnApplicationStarted] IsAnikiThemeActive took {sw.ElapsedMilliseconds}ms | active={isAnikiThemeActive}");
+
+                try
+                {
+                    if (isAnikiThemeActive)
+                    {
+                        sw.Restart();
+                        anikiThemeSettingsService?.LoadAndApply();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] anikiThemeSettingsService.LoadAndApply took {sw.ElapsedMilliseconds}ms");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to load Aniki Theme Settings.");
+                }
+
+                try
+                {
+                    if (isAnikiThemeActive)
+                    {
+                        sw.Restart();
+                        inGameOverlayService?.Start();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] inGameOverlayService.Start took {sw.ElapsedMilliseconds}ms");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to start in-game overlay service.");
+                }
+
+                try
+                {
+                    if (isAnikiThemeActive)
+                    {
+                        sw.Restart();
+
+                        Application.Current?.Dispatcher?.InvokeAsync(
+                            () =>
+                            {
+                                horizontalFocusFixService?.Start();
+                            },
+                            DispatcherPriority.Loaded
+                        );
+
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] HorizontalFocusFixService queued took {sw.ElapsedMilliseconds}ms");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to start horizontal focus fix service.");
+                }
+
+                try
+                {
+                    if (isAnikiThemeActive)
+                    {
+                        sw.Restart();
+                        OnUi(() =>
+                        {
+                            Settings.IsWelcomeHubOpen = Settings.OpenWelcomeHubOnStartup;
+                        });
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] Welcome hub OnUi took {sw.ElapsedMilliseconds}ms");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to initialize welcome hub startup state.");
+                }
+
+                sw.Restart();
+                hubPage3CardsInitialized = false;
+                DebugLog($"[AnikiHelper][OnApplicationStarted] hubPage3CardsInitialized reset took {sw.ElapsedMilliseconds}ms");
+
+                sw.Restart();
+                EnsureMonthlySnapshotSafe();
+                DebugLog($"[AnikiHelper][OnApplicationStarted] EnsureMonthlySnapshotSafe took {sw.ElapsedMilliseconds}ms");
+
+                sw.Restart();
+                RecalcStatsSafe();
+                DebugLog($"[AnikiHelper][OnApplicationStarted] RecalcStatsSafe took {sw.ElapsedMilliseconds}ms");
+
+                sw.Restart();
+                PlayniteApi.Database.DatabaseOpened += (_, __) =>
+                {
+                    var swDb = Stopwatch.StartNew();
+                    DebugLog("[AnikiHelper][DatabaseOpened] START");
+
+                    hubPage3CardsInitialized = false;
+                    DebugLog($"[AnikiHelper][DatabaseOpened] hubPage3CardsInitialized reset at {swDb.ElapsedMilliseconds}ms");
+
+                    EnsureMonthlySnapshotSafe();
+                    DebugLog($"[AnikiHelper][DatabaseOpened] EnsureMonthlySnapshotSafe at {swDb.ElapsedMilliseconds}ms");
+
+                    RecalcStatsSafe();
+                    DebugLog($"[AnikiHelper][DatabaseOpened] RecalcStatsSafe at {swDb.ElapsedMilliseconds}ms");
+
+                    DebugLog($"[AnikiHelper][DatabaseOpened] END total={swDb.ElapsedMilliseconds}ms");
+                };
+                DebugLog($"[AnikiHelper][OnApplicationStarted] DatabaseOpened handler attach took {sw.ElapsedMilliseconds}ms");
+
+                // Profile genre is intentionally cache-based.
+                DebugLog("[AnikiHelper][OnApplicationStarted] Profile genre cache mode active.");
+
+                try
+                {
+                    sw.Restart();
                     OnUi(() =>
                     {
-                        Settings.IsWelcomeHubOpen = Settings.OpenWelcomeHubOnStartup;
+                        Settings.SessionNotificationStamp = string.Empty;
+                        Settings.SessionNotificationArmed = false;
                     });
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] Reset session notification OnUi took {sw.ElapsedMilliseconds}ms");
                 }
-            }
-            catch (Exception ex)
-            {
-                logger.Warn(ex, "[AnikiHelper] Failed to initialize welcome hub startup state.");
-            }
-
-            hubPage3CardsInitialized = false;
-            EnsureMonthlySnapshotSafe();
-            RecalcStatsSafe();
-
-            PlayniteApi.Database.DatabaseOpened += (_, __) =>
-            {
-                hubPage3CardsInitialized = false;
-                EnsureMonthlySnapshotSafe();
-                RecalcStatsSafe();
-            };
-
-            if (PlayniteApi?.Database?.Games is INotifyCollectionChanged coll)
-            {
-                coll.CollectionChanged += (_, __) => DebounceRecalcStatsSafe();
-            }
-
-            try
-            {
-                OnUi(() =>
+                catch (Exception ex)
                 {
-                    Settings.SessionNotificationStamp = string.Empty;
-                    Settings.SessionNotificationArmed = false;
-                });
-            }
-            catch { }
+                    logger.Warn(ex, "[AnikiHelper] Failed to reset session notification state.");
+                }
 
-
-            // --- UI Fullscreen ---
-            if (isAnikiThemeActive)
-            {
-                AddonsUpdateStyler.Start();
-            }
-
-            System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                () =>
+                if (isAnikiThemeActive)
                 {
-                    EnsureDynamicColorCacheVersion();
-                    DynamicAuto.Init(PlayniteApi);
-                },
-                System.Windows.Threading.DispatcherPriority.Loaded
-            );
+                    sw.Restart();
+                    AddonsUpdateStyler.Start();
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] AddonsUpdateStyler.Start took {sw.ElapsedMilliseconds}ms");
+                }
 
-            if (isAnikiThemeActive)
-            {
+                sw.Restart();
                 System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                    () => SettingsWindowStyler.Start(),
+                    () =>
+                    {
+                        var swUi = Stopwatch.StartNew();
+                        DebugLog("[AnikiHelper][OnApplicationStarted][UI Loaded] Dynamic color init START");
+
+                        EnsureDynamicColorCacheVersion();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] EnsureDynamicColorCacheVersion at {swUi.ElapsedMilliseconds}ms");
+
+                        DynamicAuto.Init(PlayniteApi);
+                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] DynamicAuto.Init at {swUi.ElapsedMilliseconds}ms");
+
+                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] Dynamic color init END total={swUi.ElapsedMilliseconds}ms");
+                    },
                     System.Windows.Threading.DispatcherPriority.Loaded
                 );
-            }
+                DebugLog($"[AnikiHelper][OnApplicationStarted] Dynamic color InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
 
-            if (isAnikiThemeActive)
-            {
-                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                    () => FastScrollViewerService.Start(),
-                    System.Windows.Threading.DispatcherPriority.Loaded
-                );
-            }
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                        () =>
+                        {
+                            var swUi = Stopwatch.StartNew();
+                            SettingsWindowStyler.Start();
+                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] SettingsWindowStyler.Start took {swUi.ElapsedMilliseconds}ms");
+                        },
+                        System.Windows.Threading.DispatcherPriority.Loaded
+                    );
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] SettingsWindowStyler InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
+                }
 
-            if (isAnikiThemeActive)
-            {
-                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                    () => VisualPackBackgroundComposer.Start(),
-                    System.Windows.Threading.DispatcherPriority.Loaded
-                );
-            }
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    Application.Current?.Dispatcher?.InvokeAsync(
+                        () =>
+                        {
+                            var swUi = Stopwatch.StartNew();
 
-            if (isAnikiThemeActive && Settings.ShutdownVideoEnabled)
-            {
-                FullscreenShutdownVideoHook.Start(this);
-            }
+                            UpdateFullscreenAspectRatio();
+                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] UpdateFullscreenAspectRatio took {swUi.ElapsedMilliseconds}ms");
 
-            if (isAnikiThemeActive && Settings.StartupIntroVideoEnabled)
-            {
-                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                    async () =>
+                            var window = Application.Current?.MainWindow;
+
+                            if (window != null)
+                            {
+                                window.SizeChanged -= OnFullscreenWindowSizeChanged;
+                                window.SizeChanged += OnFullscreenWindowSizeChanged;
+                            }
+
+                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] Window SizeChanged hook total={swUi.ElapsedMilliseconds}ms | windowNull={window == null}");
+                        },
+                        DispatcherPriority.Loaded
+                    );
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] Aspect ratio InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                        () =>
+                        {
+                            var swUi = Stopwatch.StartNew();
+                            FastScrollViewerService.Start();
+                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] FastScrollViewerService.Start took {swUi.ElapsedMilliseconds}ms");
+                        },
+                        System.Windows.Threading.DispatcherPriority.Loaded
+                    );
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] FastScrollViewerService InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                        () =>
+                        {
+                            var swUi = Stopwatch.StartNew();
+                            VisualPackBackgroundComposer.Start();
+                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] VisualPackBackgroundComposer.Start took {swUi.ElapsedMilliseconds}ms");
+                        },
+                        System.Windows.Threading.DispatcherPriority.Loaded
+                    );
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] VisualPackBackgroundComposer InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive && Settings.ShutdownVideoEnabled)
+                {
+                    sw.Restart();
+                    FullscreenShutdownVideoHook.Start(this);
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] FullscreenShutdownVideoHook.Start took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive && Settings.StartupIntroVideoEnabled)
+                {
+                    sw.Restart();
+                    System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
+                        async () =>
+                        {
+                            var swUi = Stopwatch.StartNew();
+                            DebugLog("[AnikiHelper][OnApplicationStarted][StartupVideo] START");
+
+                            try
+                            {
+                                await ShowStartupVideoAsync();
+                                DebugLog($"[AnikiHelper][OnApplicationStarted][StartupVideo] ShowStartupVideoAsync finished total={swUi.ElapsedMilliseconds}ms");
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Startup video launch failed.");
+                            }
+                        },
+                        System.Windows.Threading.DispatcherPriority.Send
+                    );
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] Startup video InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    newsRotationTimer?.Start();
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] newsRotationTimer.Start took {sw.ElapsedMilliseconds}ms");
+
+                    sw.Restart();
+                    _ = StartSuggestedRotationWithDelayAsync(3000);
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] StartSuggestedRotationWithDelayAsync launch took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive)
+                {
+                    try
+                    {
+                        sw.Restart();
+                        LoadNewsFromCacheIfNeeded();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] LoadNewsFromCacheIfNeeded took {sw.ElapsedMilliseconds}ms");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] LoadNewsFromCacheIfNeeded failed.");
+                    }
+
+                    try
+                    {
+                        sw.Restart();
+                        RefreshSteamRecentUpdatesFromCache();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] RefreshSteamRecentUpdatesFromCache took {sw.ElapsedMilliseconds}ms");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] RefreshSteamRecentUpdatesFromCache failed.");
+                    }
+
+                    if (Settings.NewsScanEnabled)
                     {
                         try
                         {
-                            await ShowStartupVideoAsync();
+                            sw.Restart();
+                            _ = ScheduleGlobalSteamNewsRefreshAsync();
+                            DebugLog($"[AnikiHelper][OnApplicationStarted] ScheduleGlobalSteamNewsRefreshAsync launch took {sw.ElapsedMilliseconds}ms");
                         }
                         catch (Exception ex)
                         {
-                            logger.Warn(ex, "[AnikiHelper] Startup video launch failed.");
+                            logger.Warn(ex, "[AnikiHelper] ScheduleGlobalSteamNewsRefreshAsync failed.");
                         }
-                    },
-                    System.Windows.Threading.DispatcherPriority.Send
-                );
-            }
+                    }
 
-            if (isAnikiThemeActive)
-            {
-                newsRotationTimer?.Start();
-                _ = StartSuggestedRotationWithDelayAsync(3000);
-            }
+                    try
+                    {
+                        sw.Restart();
+                        _ = SchedulePlayniteNewsRefreshAsync();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] SchedulePlayniteNewsRefreshAsync launch took {sw.ElapsedMilliseconds}ms");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] SchedulePlayniteNewsRefreshAsync failed.");
+                    }
+                }
 
-            // --- News globales Steam ---
-            try
-            {
-                LoadNewsFromCacheIfNeeded();
-            }
-            catch { }
-
-            try
-            {
-                RefreshSteamRecentUpdatesFromCache();
-            }
-            catch { }
-
-
-            // 2) lancer un scan RSS différé de 10s, limité à 1 fois / 3h
-            if (Settings.NewsScanEnabled)
-            {
                 try
                 {
-                    _ = ScheduleGlobalSteamNewsRefreshAsync();
+                    sw.Restart();
+                    OnUi(() =>
+                    {
+                        var swUi = Stopwatch.StartNew();
+
+                        var rand = new Random();
+                        const int max = 41;
+
+                        int pick;
+                        if (Settings.LastLoginRandomIndex >= 1 && Settings.LastLoginRandomIndex <= max && max > 1)
+                        {
+                            do { pick = rand.Next(1, max + 1); } while (pick == Settings.LastLoginRandomIndex);
+                        }
+                        else
+                        {
+                            pick = rand.Next(1, max + 1);
+                        }
+
+                        Settings.LoginRandomIndex = pick;
+                        Settings.LastLoginRandomIndex = pick;
+
+                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI] Random login pick took {swUi.ElapsedMilliseconds}ms | pick={pick}");
+                    });
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] Random login OnUi took {sw.ElapsedMilliseconds}ms");
+
+                    sw.Restart();
+                    SaveSettingsSafe();
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] SaveSettingsSafe after random login took {sw.ElapsedMilliseconds}ms");
                 }
-                catch { }
-            }
-
-            // Playnite News
-            try
-            {
-                _ = SchedulePlayniteNewsRefreshAsync();
-            }
-            catch { }
-
-            
-
-
-            // Random login screen
-            try
-            {
-                OnUi(() =>
+                catch (Exception ex)
                 {
-                    var rand = new Random();
-                    const int max = 41;
+                    logger.Warn(ex, "[AnikiHelper] Random login screen init failed.");
+                }
 
-                    int pick;
-                    if (Settings.LastLoginRandomIndex >= 1 && Settings.LastLoginRandomIndex <= max && max > 1)
+                try
+                {
+                    if (isAnikiThemeActive)
                     {
-                        do { pick = rand.Next(1, max + 1); } while (pick == Settings.LastLoginRandomIndex);
+                        sw.Restart();
+                        TryAskForSteamUpdateCacheOnStartup();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] TryAskForSteamUpdateCacheOnStartup took {sw.ElapsedMilliseconds}ms");
                     }
-                    else
-                    {
-                        pick = rand.Next(1, max + 1);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] TryAskForSteamUpdateCacheOnStartup failed.");
+                }
 
-                    Settings.LoginRandomIndex = pick;
-                    Settings.LastLoginRandomIndex = pick;
-                });
-
-                SaveSettingsSafe();
-            }
-            catch { }
-
-
-            try
-            {
                 if (isAnikiThemeActive)
                 {
-                    TryAskForSteamUpdateCacheOnStartup();
+                    try
+                    {
+                        sw.Restart();
+                        _ = ScheduleSteamRecentUpdatesScanAsync(30);
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] ScheduleSteamRecentUpdatesScanAsync launch took {sw.ElapsedMilliseconds}ms");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] ScheduleSteamRecentUpdatesScanAsync failed.");
+                    }
                 }
-            }
-            catch { }
 
-            try
-            {
-                _ = ScheduleSteamRecentUpdatesScanAsync(30);
-            }
-            catch { }
+                try
+                {
+                    sw.Restart();
+                    _ = CheckRequiredPluginVersionAfterFullscreenStartupAsync();
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] CheckRequiredPluginVersionAfterFullscreenStartupAsync launch took {sw.ElapsedMilliseconds}ms");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] CheckRequiredPluginVersionAfterFullscreenStartupAsync failed.");
+                }
 
-            try
-            {
-                _ = CheckRequiredPluginVersionAfterFullscreenStartupAsync();
-            }
-            catch { }
+                try
+                {
+                    sw.Restart();
+                    _ = CheckWhatsNewAfterStartupAsync();
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] CheckWhatsNewAfterStartupAsync launch took {sw.ElapsedMilliseconds}ms");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] CheckWhatsNewAfterStartupAsync failed.");
+                }
 
-            try
-            {
-                _ = CheckWhatsNewAfterStartupAsync();
+                DebugLog($"[AnikiHelper][OnApplicationStarted] END total={swTotal.ElapsedMilliseconds}ms");
             }
-            catch { }
+            catch (Exception ex)
+            {
+                logger.Error(ex, $"[AnikiHelper][OnApplicationStarted] FATAL ERROR after {swTotal.ElapsedMilliseconds}ms");
+            }
         }
 
         public override void OnControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
         {
+            var allowInGameOverlay =
+                PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen &&
+                IsAnikiThemeActive();
+
+            if (allowInGameOverlay)
+            {
+
+                if (inGameOverlayService != null && inGameOverlayService.HandleControllerButtonStateChanged(args))
+                {
+                    return;
+                }
+
+                if (inGameOverlayService != null && inGameOverlayService.IsGameRunning)
+                {
+                    return;
+                }
+            }
+
+            AnikiControllerInput.SetState(args);
+
             if (args.Button == ControllerInput.B && args.State == ControllerInputState.Pressed)
             {
                 if (anikiWindowManager != null && anikiWindowManager.IsTopWindowActive())
@@ -7462,6 +8909,7 @@ namespace AnikiHelper
             try { steamGameNewsCacheFlushTimer?.Stop(); } catch { }
             try { newsRotationTimer?.Stop(); } catch { }
             try { suggestedRotationTimer?.Stop(); } catch { }
+            try { navigationSettleTimer?.Stop(); } catch { }
 
             try
             {
@@ -7484,6 +8932,7 @@ namespace AnikiHelper
             catch { }
 
             try { FullscreenShutdownVideoHook.Stop(); } catch { }
+            try { inGameOverlayService?.Stop(); } catch { }
 
             base.OnApplicationStopped(args);
         }
@@ -7493,7 +8942,6 @@ namespace AnikiHelper
         {
             try
             {
-                logger.Info("[SteamUpdates] Background scan scheduled.");
                 await Task.Delay(TimeSpan.FromSeconds(9));
 
                 if (!IsSteamRecentScanAllowed())
@@ -7545,25 +8993,224 @@ namespace AnikiHelper
 
         public override void OnFullscreenViewChanged(OnFullscreenViewChangedArgs args)
         {
-            base.OnFullscreenViewChanged(args);
+            DebugLog(
+                $"[AnikiHelper][FullscreenViewChanged][START] " +
+                $"NewView={args?.NewView}"
+            );
+
+            DebugLogFocusState("FullscreenViewChanged START");
 
             try
             {
-                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                base.OnFullscreenViewChanged(args);
+
+                DebugLogFocusState("After base.OnFullscreenViewChanged");
+
+                var isFullscreen = PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
+
+                if (!isFullscreen)
                 {
+                    DebugLog("[AnikiHelper][FullscreenViewChanged][STOP] Playnite is not in Fullscreen mode.");
                     return;
                 }
 
-                if (args?.NewView != FullscreenView.Details)
+                var isDetailsView = args?.NewView == FullscreenView.Details;
+                var isAnikiTheme = IsAnikiThemeActive();
+
+                DebugLog(
+                    $"[AnikiHelper][FullscreenViewChanged][State] " +
+                    $"Fullscreen={isFullscreen}, " +
+                    $"IsDetailsView={isDetailsView}, " +
+                    $"AnikiTheme={isAnikiTheme}"
+                );
+
+                if (!isDetailsView)
                 {
+                    DebugLog(
+                        $"[AnikiHelper][FullscreenViewChanged][LeavingDetails] " +
+                        $"NewView={args?.NewView}. Clearing details state."
+                    );
+
+                    isInFullscreenDetailsView = false;
+                    lastDetailsMediaGameId = Guid.Empty;
+
+                    try
+                    {
+                        steamUpdateCts?.Cancel();
+                        steamUpdateCts?.Dispose();
+                        steamUpdateCts = null;
+
+                        DebugLog("[AnikiHelper][FullscreenViewChanged][SteamTasks] Existing Steam details task cancelled.");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper][FullscreenViewChanged] Failed to cancel Steam details task while leaving details.");
+                    }
+
+                    ResetSteamUpdate();
                     ResetSteamGameNews();
+                    ResetSteamPlayerCount();
+
+                    Settings?.ClearCurrentGameMediaState();
+
+                    DebugLog("[AnikiHelper][FullscreenViewChanged][RESULT] Details state cleared because new view is not Details.");
                     return;
                 }
-                
+
+                if (!isAnikiTheme)
+                {
+                    DebugLog("[AnikiHelper][FullscreenViewChanged][STOP] Details view opened, but Aniki theme is not active. Clearing state.");
+
+                    isInFullscreenDetailsView = false;
+                    lastDetailsMediaGameId = Guid.Empty;
+
+                    try
+                    {
+                        steamUpdateCts?.Cancel();
+                        steamUpdateCts?.Dispose();
+                        steamUpdateCts = null;
+
+                        DebugLog("[AnikiHelper][FullscreenViewChanged][SteamTasks] Existing Steam details task cancelled because theme is not active.");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper][FullscreenViewChanged] Failed to cancel Steam details task when theme inactive.");
+                    }
+
+                    ResetSteamUpdate();
+                    ResetSteamGameNews();
+                    ResetSteamPlayerCount();
+
+                    Settings?.ClearCurrentGameMediaState();
+
+                    DebugLog("[AnikiHelper][FullscreenViewChanged][RESULT] State cleared because Aniki theme is not active.");
+                    return;
+                }
+
+                isInFullscreenDetailsView = true;
+
+                var game = PlayniteApi?.MainView?.SelectedGames?.FirstOrDefault();
+
+                if (game == null)
+                {
+                    DebugLog("[AnikiHelper][FullscreenViewChanged][STOP] Details view opened but no selected game found.");
+
+                    lastDetailsMediaGameId = Guid.Empty;
+
+                    ResetSteamUpdate();
+                    ResetSteamGameNews();
+                    ResetSteamPlayerCount();
+
+                    Settings?.ClearCurrentGameMediaState();
+
+                    DebugLog("[AnikiHelper][FullscreenViewChanged][RESULT] Details state cleared because selected game is null.");
+                    return;
+                }
+
+                lastDetailsMediaGameId = game.Id;
+
+                DebugLog(
+                    $"[AnikiHelper][FullscreenViewChanged][Details] " +
+                    $"SelectedGame='{game.Name}', Id={game.Id}"
+                );
+
+                Settings?.ClearCurrentGameMediaState();
+
+                DebugLog("[AnikiHelper][FullscreenViewChanged][Media] Current game media state cleared. Screenshots will load only when the screenshot window is opened.");
+
+                try
+                {
+                    steamUpdateCts?.Cancel();
+                    steamUpdateCts?.Dispose();
+
+                    DebugLog("[AnikiHelper][FullscreenViewChanged][SteamTasks] Previous Steam details task cancelled before starting a new one.");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper][FullscreenViewChanged] Failed to cancel previous Steam details task.");
+                }
+
+                steamUpdateCts = new CancellationTokenSource();
+                var ct = steamUpdateCts.Token;
+
+                var playerCountEnabled = Settings?.SteamPlayerCountEnabled == true;
+                var steamUpdatesEnabled = Settings?.SteamUpdatesScanEnabled == true;
+
+                DebugLog(
+                    $"[AnikiHelper][FullscreenViewChanged][SteamDetails] " +
+                    $"PlayerCountEnabled={playerCountEnabled}, " +
+                    $"SteamUpdatesEnabled={steamUpdatesEnabled}, " +
+                    $"Game='{game.Name}'"
+                );
+
+                _ = Task.Run(async () =>
+                {
+                    DebugLog(
+                        $"[AnikiHelper][SteamDetailsTask][START] " +
+                        $"Game='{game.Name}', Id={game.Id}"
+                    );
+
+                    try
+                    {
+                        await Task.Delay(500, ct);
+
+                        if (ct.IsCancellationRequested)
+                        {
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][CANCELLED] Cancelled before player count. Game='{game.Name}'");
+                            return;
+                        }
+
+                        if (Settings != null && Settings.SteamPlayerCountEnabled)
+                        {
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][PlayerCount] Updating player count. Game='{game.Name}'");
+                            await UpdateSteamPlayerCountForGameAsync(game);
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][PlayerCount] Update finished. Game='{game.Name}'");
+                        }
+                        else
+                        {
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][PlayerCount] Skipped. Setting disabled or Settings null. Game='{game.Name}'");
+                        }
+
+                        await Task.Delay(1000, ct);
+
+                        if (ct.IsCancellationRequested)
+                        {
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][CANCELLED] Cancelled before Steam update scan. Game='{game.Name}'");
+                            return;
+                        }
+
+                        if (Settings != null && Settings.SteamUpdatesScanEnabled)
+                        {
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][Updates] Updating Steam update data. Game='{game.Name}'");
+                            await UpdateSteamUpdateForGameAsync(game, ct);
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][Updates] Update finished. Game='{game.Name}'");
+                        }
+                        else
+                        {
+                            DebugLog($"[AnikiHelper][SteamDetailsTask][Updates] Skipped. Setting disabled or Settings null. Game='{game.Name}'");
+                        }
+
+                        DebugLog($"[AnikiHelper][SteamDetailsTask][END] Game='{game.Name}'");
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        DebugLog($"[AnikiHelper][SteamDetailsTask][CANCELLED] TaskCanceledException. Game='{game.Name}'");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        DebugLog($"[AnikiHelper][SteamDetailsTask][CANCELLED] OperationCanceledException. Game='{game.Name}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, $"[AnikiHelper][SteamDetailsTask][ERROR] Failed to scan Steam details data. Game='{game.Name}'");
+                    }
+                });
+
+                DebugLog($"[AnikiHelper][FullscreenViewChanged][RESULT] Steam details task scheduled. Game='{game.Name}'");
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] OnFullscreenViewChanged failed.");
+                logger.Warn(ex, "[AnikiHelper][FullscreenViewChanged][ERROR] OnFullscreenViewChanged failed.");
             }
         }
 
@@ -7574,8 +9221,22 @@ namespace AnikiHelper
             Interlocked.Exchange(ref lastSteamUpdateUserActivityTicks, Environment.TickCount);
 
             var g = args?.NewValue?.FirstOrDefault();
+
+            DynamicAuto.NotifyGameSelected(g);
+
             if (g == null)
             {
+                try
+                {
+                    if (Settings != null)
+                    {
+                        Settings.IsFastNavigating = false;
+                    }
+
+                    navigationSettleTimer?.Stop();
+                }
+                catch { }
+
                 ResetSteamUpdate();
                 ResetSteamGameNews();
                 ResetSteamPlayerCount();
@@ -7584,74 +9245,198 @@ namespace AnikiHelper
 
             if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
             {
+                try
+                {
+                    if (Settings != null)
+                    {
+                        Settings.IsFastNavigating = false;
+                    }
+
+                    navigationSettleTimer?.Stop();
+                }
+                catch { }
+
                 ResetSteamUpdate();
                 ResetSteamGameNews();
                 ResetSteamPlayerCount();
                 return;
             }
 
+            if (!IsAnikiThemeActive())
+            {
+                try
+                {
+                    if (Settings != null)
+                    {
+                        Settings.IsFastNavigating = false;
+                    }
+
+                    navigationSettleTimer?.Stop();
+                }
+                catch { }
+
+                ResetSteamUpdate();
+                ResetSteamGameNews();
+                ResetSteamPlayerCount();
+                return;
+            }
+
+            try
+            {
+                if (Settings != null)
+                {
+                    Settings.IsFastNavigating = true;
+                }
+
+                navigationSettleTimer?.Stop();
+                navigationSettleTimer?.Start();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to update fast navigation state.");
+            }
+
+            if (isInFullscreenDetailsView && Settings != null && g != null && g.Id != lastDetailsMediaGameId)
+            {
+                lastDetailsMediaGameId = g.Id;
+
+                // Changing game must cancel/clear any old media load,
+                Settings.ClearCurrentGameMediaState();
+            }
+
             pendingUpdateGame = g;
-            steamUpdateTimer.Stop();
-            steamUpdateTimer.Start();
+            steamUpdateTimer?.Stop();
+
         }
 
         public override void OnGameStarting(OnGameStartingEventArgs args)
         {
-            base.OnGameStarting(args);
-            eventSoundService.PlayGameStarting();
+            DebugLog($"[AnikiHelper][GameStarting][START] Game='{args?.Game?.Name ?? "NULL"}' Id={args?.Game?.Id}");
 
             try
             {
-                if (!(Settings?.GameLaunchSplashEnabled ?? false))
-                {
-                    return;
-                }
+                base.OnGameStarting(args);
 
-                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
-                {
-                    return;
-                }
-
-                if (!IsAnikiThemeActive())
-                {
-                    return;
-                }
+                eventSoundService.PlayGameStarting();
 
                 var game = args?.Game;
                 if (game == null)
                 {
+                    DebugLog("[AnikiHelper][GameStarting][STOP] Game is null.");
                     return;
                 }
 
-                HoldUniPlaySongGameStartingPause(game.Id);
+                var splashEnabled = Settings?.GameLaunchSplashEnabled ?? false;
+                var isFullscreen = PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
+                var isAnikiTheme = IsAnikiThemeActive();
+
+                DebugLog(
+                    $"[AnikiHelper][GameStarting][State] " +
+                    $"Game='{game.Name}', " +
+                    $"Fullscreen={isFullscreen}, " +
+                    $"AnikiTheme={isAnikiTheme}, " +
+                    $"SplashEnabled={splashEnabled}"
+                );
+
+                if (!splashEnabled)
+                {
+                    DebugLog($"[AnikiHelper][GameStarting][STOP] Splash disabled in settings. Game='{game.Name}'");
+                    return;
+                }
+
+                if (!isFullscreen)
+                {
+                    DebugLog($"[AnikiHelper][GameStarting][STOP] Playnite is not in Fullscreen mode. Game='{game.Name}'");
+                    return;
+                }
+
+                if (!isAnikiTheme)
+                {
+                    DebugLog($"[AnikiHelper][GameStarting][STOP] Aniki theme is not active. Game='{game.Name}'");
+                    return;
+                }
+
+                var pauseUps = Settings?.GameLaunchSplashPauseUniPlaySong ?? true;
+
+                DebugLog(
+                    $"[AnikiHelper][Splash][UPS] " +
+                    $"PauseUniPlaySong={pauseUps}, " +
+                    $"Game='{game.Name}'"
+                );
+
+                if (pauseUps)
+                {
+                    HoldUniPlaySongGameStartingPause(game.Id);
+                    DebugLog($"[AnikiHelper][Splash][UPS] Hold pause requested. Game='{game.Name}' Id={game.Id}");
+                }
 
                 var bgPath = GetBestGameLaunchSplashBackground(game);
                 var fallbackBackgroundPath = GetPlayniteGameBackground(game);
+
+                DebugLog(
+                    $"[AnikiHelper][Splash][Background] " +
+                    $"Game='{game.Name}', " +
+                    $"Selected='{(string.IsNullOrEmpty(bgPath) ? "NULL" : bgPath)}', " +
+                    $"Fallback='{(string.IsNullOrEmpty(fallbackBackgroundPath) ? "NULL" : fallbackBackgroundPath)}'"
+                );
+
+                var showLogo = Settings?.GameLaunchSplashShowLogo ?? true;
+                var logoPosition = Settings?.GameLaunchSplashLogoPosition ?? SplashScreenLogoPosition.LeftCenter;
+                var videoSoundEnabled = Settings?.GameLaunchSplashVideoSoundEnabled ?? false;
+                var videoEndBehavior = Settings?.GameLaunchSplashVideoEndBehavior ?? SplashScreenVideoEndBehavior.ShowGameBackground;
+                var videoVolume = Settings?.GameLaunchSplashVideoVolume ?? 0.5;
+
+                DebugLog(
+                    $"[AnikiHelper][Splash][Settings] " +
+                    $"ShowLogo={showLogo}, " +
+                    $"LogoPosition={logoPosition}, " +
+                    $"VideoSound={videoSoundEnabled}, " +
+                    $"VideoEndBehavior={videoEndBehavior}, " +
+                    $"VideoVolume={videoVolume}"
+                );
 
                 splashScreenRuntimeService.Show(
                     game,
                     bgPath,
                     fallbackBackgroundPath,
-                    Settings?.GameLaunchSplashShowLogo ?? true,
-                    Settings?.GameLaunchSplashLogoPosition ?? SplashScreenLogoPosition.LeftCenter,
-                    Settings?.GameLaunchSplashVideoSoundEnabled ?? false,
-                    Settings?.GameLaunchSplashVideoEndBehavior ?? SplashScreenVideoEndBehavior.ShowGameBackground,
-                    Settings?.GameLaunchSplashVideoVolume ?? 0.5);
+                    showLogo,
+                    logoPosition,
+                    videoSoundEnabled,
+                    videoEndBehavior,
+                    videoVolume);
+
+                DebugLog($"[AnikiHelper][Splash][RESULT] Show requested. Game='{game.Name}'");
 
                 var minimumDuration = Settings?.GameLaunchSplashMinimumDurationMs ?? GameLaunchSplashMinimumDurationMs;
+                var defaultDuration = minimumDuration;
+                var hasCustomDuration = false;
 
                 if (Settings?.CustomGameLaunchSplashMinimumDurations != null &&
                     Settings.CustomGameLaunchSplashMinimumDurations.TryGetValue(game.Id, out var customDuration))
                 {
                     minimumDuration = customDuration;
+                    hasCustomDuration = true;
                 }
 
+                DebugLog(
+                    $"[AnikiHelper][Splash][Timer] " +
+                    $"Game='{game.Name}', " +
+                    $"Default={defaultDuration}, " +
+                    $"HasCustom={hasCustomDuration}, " +
+                    $"Final={minimumDuration}"
+                );
+
                 splashScreenRuntimeService.StartLaunchFailureSafety(minimumDuration);
+                DebugLog($"[AnikiHelper][Splash][Safety] Launch failure safety started. Duration={minimumDuration}ms");
+
                 StartUniPlaySongLaunchFailureRelease(game.Id, minimumDuration);
+                DebugLog($"[AnikiHelper][Splash][UPS] Launch failure release scheduled. Duration={minimumDuration}ms");
+
+                DebugLog($"[AnikiHelper][GameStarting][END] Game='{game.Name}'");
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] Failed to show game launch splash.");
+                logger.Warn(ex, $"[AnikiHelper][GameStarting][ERROR] Failed while starting game splash. Game='{args?.Game?.Name ?? "NULL"}'");
             }
         }
 
@@ -7695,7 +9480,7 @@ namespace AnikiHelper
 
                 File.Copy(legacyPath, destinationPath, false);
 
-                logger.Info($"[AnikiHelper] Migrated legacy custom splash to game folder: {destinationPath}");
+                DebugLog($"[AnikiHelper] Migrated legacy custom splash to game folder: {destinationPath}");
             }
             catch (Exception ex)
             {
@@ -8458,119 +10243,374 @@ namespace AnikiHelper
 
         public override void OnGameStarted(OnGameStartedEventArgs args)
         {
-            base.OnGameStarted(args);
-            eventSoundService.PlayGameStarted();
+            var swTotal = Stopwatch.StartNew();
 
-            var g = args?.Game;
+            DebugLog(
+                $"[AnikiHelper][GameStarted][START] " +
+                $"Game='{args?.Game?.Name ?? "NULL"}', " +
+                $"Id={args?.Game?.Id}, " +
+                $"StartedProcessId={args?.StartedProcessId}"
+            );
 
-            Task.Run(async () =>
+            DebugLogFocusState("GameStarted START");
+
+            try
             {
-                var minimumDuration = Settings?.GameLaunchSplashMinimumDurationMs ?? GameLaunchSplashMinimumDurationMs;
+                base.OnGameStarted(args);
 
-                if (g != null &&
-                    Settings?.CustomGameLaunchSplashMinimumDurations != null &&
-                    Settings.CustomGameLaunchSplashMinimumDurations.TryGetValue(g.Id, out var customDuration))
+                DebugLogFocusState("After base.OnGameStarted");
+
+                eventSoundService.PlayGameStarted();
+                DebugLog($"[AnikiHelper][GameStarted][Sound] Game started sound requested. Game='{args?.Game?.Name ?? "NULL"}'");
+
+                var g = args?.Game;
+                var isFullscreen = PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
+                var isAnikiTheme = IsAnikiThemeActive();
+
+                if (g != null && (Settings?.GameLaunchSplashPauseUniPlaySong ?? true))
                 {
-                    minimumDuration = customDuration;
+                    HoldUniPlaySongGameStartingPause(g.Id);
+                    DebugLog($"[AnikiHelper][UPS][GameSession] Hold pause requested while game is running. Game='{g.Name}' Id={g.Id}");
                 }
 
-                var maximumWait = Settings?.GameLaunchSplashMaximumWaitMs ?? GameLaunchSplashMaxWaitAfterGameStartedMs;
+                DebugLog(
+                    $"[AnikiHelper][GameStarted][State] " +
+                    $"Fullscreen={isFullscreen}, " +
+                    $"AnikiTheme={isAnikiTheme}, " +
+                    $"GameNull={g == null}"
+                );
 
-                await splashScreenRuntimeService.CloseAfterGameStartedAsync(minimumDuration, maximumWait);
-            });
+                if (isFullscreen && isAnikiTheme)
+                {
+                    inGameOverlayService?.SetCurrentGame(g, args?.StartedProcessId);
 
-            if (g == null)
-            {
-                return;
+                    DebugLog(
+                        $"[AnikiHelper][Overlay][SetCurrentGame] " +
+                        $"Requested. Game='{g?.Name ?? "NULL"}', " +
+                        $"ProcessId={args?.StartedProcessId}"
+                    );
+                }
+                else
+                {
+                    DebugLog(
+                        $"[AnikiHelper][Overlay][SkipSetCurrentGame] " +
+                        $"Reason={(isFullscreen ? "ThemeNotActive" : "NotFullscreen")}, " +
+                        $"Game='{g?.Name ?? "NULL"}'"
+                    );
+                }
+
+                Task.Run(async () =>
+                {
+                    DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][START] Game='{g?.Name ?? "NULL"}'");
+
+                    try
+                    {
+                        var minimumDuration = Settings?.GameLaunchSplashMinimumDurationMs ?? GameLaunchSplashMinimumDurationMs;
+                        var hasCustomDuration = false;
+
+                        if (g != null &&
+                            Settings?.CustomGameLaunchSplashMinimumDurations != null &&
+                            Settings.CustomGameLaunchSplashMinimumDurations.TryGetValue(g.Id, out var customDuration))
+                        {
+                            minimumDuration = customDuration;
+                            hasCustomDuration = true;
+                        }
+
+                        var maximumWait = Settings?.GameLaunchSplashMaximumWaitMs ?? GameLaunchSplashMaxWaitAfterGameStartedMs;
+
+                        DebugLog(
+                            $"[AnikiHelper][Splash][CloseAfterGameStartedTask][Settings] " +
+                            $"Game='{g?.Name ?? "NULL"}', " +
+                            $"MinimumDuration={minimumDuration}, " +
+                            $"HasCustomDuration={hasCustomDuration}, " +
+                            $"MaximumWait={maximumWait}"
+                        );
+
+                        await splashScreenRuntimeService.CloseAfterGameStartedAsync(minimumDuration, maximumWait);
+
+                        DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][Result] CloseAfterGameStartedAsync finished. Game='{g?.Name ?? "NULL"}'");
+
+                        DebugLog($"[AnikiHelper][UPS][KeepHeld] UniPlaySong pause kept while game is running. Game='{g?.Name ?? "NULL"}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, $"[AnikiHelper][Splash][CloseAfterGameStartedTask][ERROR] Failed. Game='{g?.Name ?? "NULL"}'");
+                    }
+
+                    DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][END] Game='{g?.Name ?? "NULL"}'");
+                });
+
+                DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][Schedule] Task scheduled. Game='{g?.Name ?? "NULL"}'");
+
+                if (g == null)
+                {
+                    DebugLog($"[AnikiHelper][GameStarted][STOP] Game is null. Session tracking skipped. TotalDuration={swTotal.ElapsedMilliseconds}ms");
+                    return;
+                }
+
+                sessionStartAt[g.Id] = DateTime.Now;
+                sessionStartPlaytimeMinutes[g.Id] = (g.Playtime / 60UL);
+
+                DebugLog(
+                    $"[AnikiHelper][Session][StartTracking] " +
+                    $"Game='{g.Name}', " +
+                    $"Start='{sessionStartAt[g.Id]:yyyy-MM-dd HH:mm:ss}', " +
+                    $"StartPlaytimeMinutes={sessionStartPlaytimeMinutes[g.Id]}"
+                );
+
+                DebugLog(
+                    $"[AnikiHelper][GameStarted][END] " +
+                    $"Game='{g.Name}', Id={g.Id}, " +
+                    $"TotalDuration={swTotal.ElapsedMilliseconds}ms"
+                );
             }
-
-            sessionStartAt[g.Id] = DateTime.Now;
-            sessionStartPlaytimeMinutes[g.Id] = (g.Playtime / 60UL);
+            catch (Exception ex)
+            {
+                logger.Error(
+                    ex,
+                    $"[AnikiHelper][GameStarted][FATAL] " +
+                    $"Unexpected error after {swTotal.ElapsedMilliseconds}ms. " +
+                    $"Game='{args?.Game?.Name ?? "NULL"}'"
+                );
+            }
         }
 
 
         public override void OnGameStopped(OnGameStoppedEventArgs args)
         {
-            base.OnGameStopped(args);
-            eventSoundService.PlayGameStopped();
-            splashScreenRuntimeService.Close();
-            ReleaseUniPlaySongGameStartingPause(args?.Game?.Id);
+            var swTotal = Stopwatch.StartNew();
 
-            var g = args?.Game;
-            if (g == null)
+            DebugLog(
+                $"[AnikiHelper][GameStopped][START] " +
+                $"Game='{args?.Game?.Name ?? "NULL"}', " +
+                $"Id={args?.Game?.Id}"
+            );
+
+            DebugLogFocusState("GameStopped START");
+            StartPostGameFocusDebugTrace(args?.Game?.Name ?? "NULL");
+
+            try
             {
-                return;
-            }
+                base.OnGameStopped(args);
+                DebugLogFocusState("After base.OnGameStopped");
 
-            // 1) Session duration
-            var start = sessionStartAt.ContainsKey(g.Id) ? sessionStartAt[g.Id] : DateTime.Now;
-            var elapsed = DateTime.Now - start;
-            var sessionMinutes = (int)Math.Max(0, Math.Round(elapsed.TotalMinutes));
+                var g = args?.Game;
 
-            // 2) Total playtime
-            var totalMinutes = (int)(g.Playtime / 60UL);
-            if (totalMinutes <= 0 && sessionStartPlaytimeMinutes.ContainsKey(g.Id))
-            {
-                totalMinutes = (int)sessionStartPlaytimeMinutes[g.Id] + sessionMinutes;
-            }
+                eventSoundService.PlayGameStopped();
+                DebugLog($"[AnikiHelper][GameStopped][Sound] Game stopped sound requested. Game='{g?.Name ?? "NULL"}'");
 
-            // 3) Push vers Settings 
-            System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
-            {
-                var s = Settings;
+                splashScreenRuntimeService.Close();
+                DebugLog($"[AnikiHelper][Splash][Close] Close requested after game stop. Game='{g?.Name ?? "NULL"}'");
 
-                s.SessionGameId = g.Id;
-                s.SessionGameName = string.IsNullOrWhiteSpace(g.Name) ? "(Unnamed Game)" : g.Name;
-                s.SessionDurationString = FormatHhMmFromMinutes(sessionMinutes);
-                s.SessionTotalPlaytimeString = FormatHhMmFromMinutes(Math.Max(0, totalMinutes));
+                ReleaseUniPlaySongGameStartingPause(g?.Id);
+                DebugLog($"[AnikiHelper][UPS][Release] Game starting pause released. Game='{g?.Name ?? "NULL"}', Id={g?.Id}");
 
-                string bgPath = null;
+                var isFullscreen = PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
+                var isAnikiTheme = IsAnikiThemeActive();
 
-                if (!string.IsNullOrEmpty(g.BackgroundImage) &&
-                    !g.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                {
-                    bgPath = PlayniteApi.Database.GetFullFilePath(g.BackgroundImage);
-                }
-
-                if (string.IsNullOrEmpty(bgPath) &&
-                    !string.IsNullOrEmpty(g.CoverImage) &&
-                    !g.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                {
-                    bgPath = PlayniteApi.Database.GetFullFilePath(g.CoverImage);
-                }
-
-                if (string.IsNullOrEmpty(bgPath) &&
-                    !string.IsNullOrEmpty(g.Icon) &&
-                    !g.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                {
-                    bgPath = PlayniteApi.Database.GetFullFilePath(g.Icon);
-                }
-
-                s.SessionGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
-
-                s.SessionNotificationStamp = Guid.NewGuid().ToString();
-                s.SessionNotificationFlip = !s.SessionNotificationFlip;
-                s.SessionNotificationArmed = true;
-
-                AddLastNotificationOnUi(
-                    title: "Game session ended",
-                    message: $"{s.SessionGameName} - {s.SessionDurationString}",
-                    type: "gameEnded",
-                    imagePath: s.SessionGameBackgroundPath
+                DebugLog(
+                    $"[AnikiHelper][GameStopped][State] " +
+                    $"Fullscreen={isFullscreen}, " +
+                    $"AnikiTheme={isAnikiTheme}, " +
+                    $"GameNull={g == null}"
                 );
 
-                SaveSettingsSafe();
-            }));
+                if (isFullscreen && isAnikiTheme)
+                {
+                    inGameOverlayService?.ClearCurrentGame(g);
+                    DebugLogFocusState("After ClearCurrentGame");
+                    DebugLog($"[AnikiHelper][Overlay][ClearCurrentGame] Requested after game stop. Game='{g?.Name ?? "NULL"}'");
+                }
+                else
+                {
+                    DebugLog(
+                        $"[AnikiHelper][Overlay][SkipClearCurrentGame] " +
+                        $"Reason={(isFullscreen ? "ThemeNotActive" : "NotFullscreen")}"
+                    );
+                }
 
-            EnsureGameInCurrentMonthSnapshot(g, sessionMinutes);
+                if (g == null)
+                {
+                    DebugLog("[AnikiHelper][GameStopped][STOP] Game is null. Session, stats, media and achievements refresh skipped.");
+                    return;
+                }
 
-            // 4) Cache cleanup
-            sessionStartAt.Remove(g.Id);
-            sessionStartPlaytimeMinutes.Remove(g.Id);
+                var start = sessionStartAt.ContainsKey(g.Id) ? sessionStartAt[g.Id] : DateTime.Now;
+                var memorySessionStart = start;
+                var memorySessionEnd = DateTime.Now;
+                var elapsed = DateTime.Now - start;
+                var sessionMinutes = (int)Math.Max(0, Math.Round(elapsed.TotalMinutes));
 
-            // 5) Recalcul stats + snapshot
-            EnsureMonthlySnapshotSafe();
-            RecalcStatsSafe(true);
+                var totalMinutes = (int)(g.Playtime / 60UL);
+                var totalPlaytimeFallbackUsed = false;
+
+                if (totalMinutes <= 0 && sessionStartPlaytimeMinutes.ContainsKey(g.Id))
+                {
+                    totalMinutes = (int)sessionStartPlaytimeMinutes[g.Id] + sessionMinutes;
+                    totalPlaytimeFallbackUsed = true;
+                }
+
+                DebugLog(
+                    $"[AnikiHelper][Session][Computed] " +
+                    $"Game='{g.Name}', " +
+                    $"SessionStart='{memorySessionStart:yyyy-MM-dd HH:mm:ss}', " +
+                    $"SessionEnd='{memorySessionEnd:yyyy-MM-dd HH:mm:ss}', " +
+                    $"SessionMinutes={sessionMinutes}, " +
+                    $"TotalMinutes={totalMinutes}, " +
+                    $"FallbackUsed={totalPlaytimeFallbackUsed}"
+                );
+
+                System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                {
+                    DebugLog($"[AnikiHelper][SessionNotification][START] Preparing UI notification. Game='{g.Name}'");
+
+                    try
+                    {
+                        var s = Settings;
+
+                        if (s == null)
+                        {
+                            DebugLog($"[AnikiHelper][SessionNotification][STOP] Settings is null. Game='{g.Name}'");
+                            return;
+                        }
+
+                        s.SessionGameId = g.Id;
+                        s.SessionGameName = string.IsNullOrWhiteSpace(g.Name) ? "(Unnamed Game)" : g.Name;
+                        s.SessionDurationString = FormatHhMmFromMinutes(sessionMinutes);
+                        s.SessionTotalPlaytimeString = FormatHhMmFromMinutes(Math.Max(0, totalMinutes));
+
+                        DebugLog(
+                            $"[AnikiHelper][SessionNotification][Data] " +
+                            $"Game='{s.SessionGameName}', " +
+                            $"SessionDuration='{s.SessionDurationString}', " +
+                            $"TotalPlaytime='{s.SessionTotalPlaytimeString}'"
+                        );
+
+                        s.SessionGameBackgroundPath = GetBestHubCardBackgroundPath(g);
+
+                        AddLastNotificationOnUi(
+                            title: "Game session ended",
+                            message: $"{s.SessionGameName} - {s.SessionDurationString}",
+                            type: "gameEnded",
+                            imagePath: s.SessionGameBackgroundPath
+                        );
+
+                        DebugLog(
+                            $"[AnikiHelper][SessionNotification][History] " +
+                            $"Notification added to history. " +
+                            $"Title='Game session ended', " +
+                            $"Message='{s.SessionGameName} - {s.SessionDurationString}'"
+                        );
+
+                        SaveSettingsSafe();
+                        DebugLog("[AnikiHelper][SessionNotification][Save] Settings save requested after session notification.");
+
+                        s.SessionNotificationStamp = Guid.NewGuid().ToString();
+                        s.SessionNotificationFlip = !s.SessionNotificationFlip;
+
+                        DebugLogFocusState("Before SessionNotificationArmed");
+
+                        s.SessionNotificationArmed = true;
+
+                        DebugLogFocusState("After SessionNotificationArmed");
+
+                        DebugLog(
+                            $"[AnikiHelper][SessionNotification][Popup] " +
+                            $"Popup armed. " +
+                            $"Stamp='{s.SessionNotificationStamp}', " +
+                            $"Flip={s.SessionNotificationFlip}, " +
+                            $"Armed={s.SessionNotificationArmed}"
+                        );
+
+                        DebugLog($"[AnikiHelper][SessionNotification][END] UI notification prepared. Game='{s.SessionGameName}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Error(ex, $"[AnikiHelper][SessionNotification][ERROR] Failed to prepare session notification. Game='{g.Name}'");
+                    }
+                }));
+
+                DebugLog($"[AnikiHelper][SessionNotification][Schedule] UI notification scheduled. Game='{g.Name}'");
+
+                EnsureGameInCurrentMonthSnapshot(g, sessionMinutes);
+
+                DebugLog(
+                    $"[AnikiHelper][Stats][MonthlySnapshot] " +
+                    $"Game ensured in current month snapshot. " +
+                    $"Game='{g.Name}', SessionMinutes={sessionMinutes}"
+                );
+
+                sessionStartAt.Remove(g.Id);
+                sessionStartPlaytimeMinutes.Remove(g.Id);
+
+                DebugLog($"[AnikiHelper][Session][Cleanup] Session dictionaries cleaned. Game='{g.Name}', Id={g.Id}");
+
+                EnsureMonthlySnapshotSafe();
+                DebugLog("[AnikiHelper][Stats][MonthlySnapshot] Monthly snapshot refresh requested.");
+
+                RecalcStatsSafe(true);
+                DebugLog("[AnikiHelper][Stats][Recalc] Stats recalculation requested. Force=True");
+
+                try
+                {
+                    var refreshAllowed =
+                        PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen &&
+                        IsAnikiThemeActive();
+
+                    DebugLog(
+                        $"[AnikiHelper][PostGameRefresh][State] " +
+                        $"Allowed={refreshAllowed}, " +
+                        $"Fullscreen={PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen}, " +
+                        $"AnikiTheme={IsAnikiThemeActive()}, " +
+                        $"Game='{g.Name}'"
+                    );
+
+                    if (refreshAllowed)
+                    {
+                        DebugLogFocusState("Before Schedule MediaRefresh");
+                        _ = Settings?.RefreshStoppedGameMediaSilentAsync(g.Id, 6000, memorySessionStart, memorySessionEnd);
+
+                        DebugLog(
+                            $"[AnikiHelper][MediaRefresh][Schedule] " +
+                            $"Stopped game media refresh scheduled. " +
+                            $"Game='{g.Name}', Delay=6000ms, " +
+                            $"SessionStart='{memorySessionStart:yyyy-MM-dd HH:mm:ss}', " +
+                            $"SessionEnd='{memorySessionEnd:yyyy-MM-dd HH:mm:ss}'"
+                        );
+
+                        _ = Settings?.RefreshAchievementMemoriesForGameAsync(g.Id);
+                        DebugLogFocusState("After Schedule AchievementsRefresh");
+
+                        DebugLog(
+                            $"[AnikiHelper][Achievements][ScheduleRefresh] " +
+                            $"Achievement memories refresh scheduled. Game='{g.Name}', Id={g.Id}"
+                        );
+                    }
+                    else
+                    {
+                        DebugLog($"[AnikiHelper][PostGameRefresh][SKIP] Refresh skipped. Game='{g.Name}'");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Error(ex, $"[AnikiHelper][PostGameRefresh][ERROR] Failed to schedule post-game refresh. Game='{g.Name}'");
+                }
+
+                DebugLog(
+                    $"[AnikiHelper][GameStopped][END] " +
+                    $"Game='{g.Name}', Id={g.Id}, " +
+                    $"TotalDuration={swTotal.ElapsedMilliseconds}ms"
+                );
+            }
+            catch (Exception ex)
+            {
+                logger.Error(
+                    ex,
+                    $"[AnikiHelper][GameStopped][FATAL] " +
+                    $"Unexpected error after {swTotal.ElapsedMilliseconds}ms. " +
+                    $"Game='{args?.Game?.Name ?? "NULL"}'"
+                );
+            }
         }
 
         #endregion
@@ -8754,8 +10794,17 @@ namespace AnikiHelper
 
                 s.AveragePlaytimeMinutes = (ulong)(played.Count == 0 ? 0 : played.Sum(g => (long)ToMinutes(g.Playtime)) / played.Count);
 
-                s.ProfileGenreKey = BuildProfileGenreKey(played);
-                s.ProfileGenreLabel = GetLocalizedProfileGenreLabel(s.ProfileGenreKey);
+                if (string.IsNullOrWhiteSpace(s.ProfileGenreKey) ||
+                    s.LastProfileGenreScanUtc == DateTime.MinValue ||
+                    (DateTime.UtcNow - s.LastProfileGenreScanUtc).TotalDays >= 30)
+                {
+                    DebugLog("[ProfileGenre] Cache empty or expired, recalculating.");
+                    RecalcProfileGenre(played);
+                }
+                else
+                {
+                    DebugLog("[ProfileGenre] Cache valid, skipping recalculation.");
+                }
                 s.ProfileTopPlatformName = topPlatform;
                 s.ProfileTopFranchiseName = topFranchise;
                 s.ProfileTopTagName = topTag;
@@ -9187,7 +11236,7 @@ namespace AnikiHelper
 
                 hubPage3CardsInitialized = true;
             }
-        
+
 
             if (!runtimeOnly)
             {
@@ -9266,10 +11315,25 @@ namespace AnikiHelper
             eventSoundService.PlayLibraryUpdated();
         }
 
+        private async void GenerateThumbnailsForGame(Guid gameId, string gameName)
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            await Settings.GenerateMediaThumbnailsForGameAsync(gameId, gameName);
+        }
+
         public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
         {
             var game = args?.Games?.FirstOrDefault();
             if (game == null)
+            {
+                yield break;
+            }
+
+            if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen && !IsAnikiThemeActive())
             {
                 yield break;
             }
@@ -9299,6 +11363,17 @@ namespace AnikiHelper
                     }
                 }
             }
+
+            // ===== MEDIA GALLERY =====
+            yield return new GameMenuItem
+            {
+                MenuSection = "Aniki Helper|Media Gallery",
+                Description = ResourceProvider.GetString("LOCAnikiHelperGenerateThumbnailsForGame"),
+                Action = (_) =>
+                {
+                    GenerateThumbnailsForGame(game.Id, game.Name);
+                }
+            };
 
             // ===== SPLASH SCREEN =====
             if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Desktop)

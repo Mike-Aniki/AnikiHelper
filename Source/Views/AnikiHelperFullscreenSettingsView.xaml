@@ -53,7 +53,46 @@
             <TextBlock Text="{DynamicResource StatsHelp}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
+            <!-- MEDIA GALLERY -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource MediaGallery_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
 
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <TextBlock Text="{DynamicResource MediaGallery_Desc}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <TextBlock Text="{DynamicResource MediaGallery_Provider_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,10,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            Margin="0,0,20,0">
+                    <TextBlock Text="{DynamicResource MediaGallery_GenerateThumbnails}"
+                               Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                               Margin="0"/>
+
+                    <TextBlock Text="{DynamicResource MediaGallery_GenerateThumbnails_Help}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                               Margin="0,8,0,0"/>
+                </StackPanel>
+
+                <pctrls:ButtonEx Grid.Column="1"
+                                 Content="{DynamicResource MediaGallery_GenerateThumbnails_Button}"
+                                 Command="{Binding Settings.GenerateMediaThumbnailsCommand}"
+                                 Height="52"
+                                 MinWidth="320"
+                                 HorizontalAlignment="Stretch"
+                                 VerticalAlignment="Center"/>
+            </Grid>
 
             <!-- VIDEO -->
             <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
@@ -388,6 +427,13 @@
             <TextBlock Text="{DynamicResource GameLaunchSplash_VideoEndBehavior_Help}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
+            <pctrls:CheckBoxEx Content="{DynamicResource GameLaunchSplash_PauseUniPlaySong_Enable}"
+                               IsChecked="{Binding Settings.GameLaunchSplashPauseUniPlaySong}"
+                               Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_PauseUniPlaySong_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
             <pctrls:CheckBoxEx Content="{DynamicResource GameLaunchSplash_VideoSound_Enable}"
                                IsChecked="{Binding Settings.GameLaunchSplashVideoSoundEnabled}"
                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
@@ -426,6 +472,71 @@
             </Grid>
 
 
+            <!-- IN-GAME OVERLAY -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource GroupOverlay}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
+
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <pctrls:CheckBoxEx Content="{DynamicResource InGameOverlay_Enable}"
+                               IsChecked="{Binding Settings.InGameOverlayEnabled}"
+                               Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource InGameOverlay_Enable_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,20,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{DynamicResource InGameOverlay_Hotkey_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                           Margin="0"/>
+
+                <pctrls:ComboBoxEx Grid.Column="1"
+                                   SelectedValue="{Binding Settings.InGameOverlayHotkey, UpdateSourceTrigger=PropertyChanged}"
+                                   SelectedValuePath="Tag"
+                                   Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+                    <ComboBoxItem Content="Ctrl + Shift + F12" Tag="CtrlShiftF12"/>
+                    <ComboBoxItem Content="Ctrl + Alt + F12" Tag="CtrlAltF12"/>
+                    <ComboBoxItem Content="Ctrl + F12" Tag="CtrlF12"/>
+                    <ComboBoxItem Content="Alt + F12" Tag="AltF12"/>
+                </pctrls:ComboBoxEx>
+            </Grid>
+
+            <Grid Margin="10,20,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{DynamicResource InGameOverlay_ControllerShortcut_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                           Margin="0"/>
+
+                <pctrls:ComboBoxEx Grid.Column="1"
+                                   SelectedValue="{Binding Settings.InGameOverlayControllerShortcut, UpdateSourceTrigger=PropertyChanged}"
+                                   SelectedValuePath="Tag"
+                                   Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_StartBack}" Tag="StartBack"/>
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_BackY}" Tag="BackY"/>
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_Guide}" Tag="Guide"/>
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_Disabled}" Tag="Disabled"/>
+                </pctrls:ComboBoxEx>
+            </Grid>
+
+            <TextBlock Text="{DynamicResource InGameOverlay_ControllerShortcut_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <TextBlock Text="{DynamicResource InGameOverlay_Hotkey_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
 
             <!-- DYNAMIC COLORS -->

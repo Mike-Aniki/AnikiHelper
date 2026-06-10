@@ -36,6 +36,10 @@
       <SpecificVersion>False</SpecificVersion>
       <Private>True</Private>
     </Reference>
+    <Reference Include="SQLNado, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>packages\SQLNado.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="Playnite.SDK, Version=6.16.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>packages\PlayniteSDK.6.16.0\lib\net462\Playnite.SDK.dll</HintPath>
     </Reference>
@@ -45,6 +49,7 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
     <Reference Include="System.Xaml" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -57,15 +62,39 @@
     <Compile Include="AnikiHelper.cs" />
     <Compile Include="AnikiHelperSettings.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Services\AddonsUpdateStyler.cs" />
-    <Compile Include="Services\AnikiVideoOverlayWindow.cs" />
-    <Compile Include="Services\AnikiWindowManager.cs" />
-    <Compile Include="Services\DynamicAuto.cs" />
-    <Compile Include="Services\EventSoundService.cs" />
-    <Compile Include="Services\FastScrollViewerBehavior.cs" />
-    <Compile Include="Services\FullscreenShutdownVideoHook.cs" />
+    <Compile Include="Services\Achievements\AchievementMemoriesCacheService.cs" />
+    <Compile Include="Services\Achievements\AnikiAchievementMemoryItem.cs" />
+    <Compile Include="Services\Achievements\PlayniteAchievementsReader.cs" />
+    <Compile Include="Services\Achievements\RarestAchievementCacheService.cs" />
+    <Compile Include="Services\AnikiThemeSettings\AnikiDynamicProperties.cs" />
+    <Compile Include="Services\AnikiThemeSettings\AnikiThemeSettingsModels.cs" />
+    <Compile Include="Services\AnikiThemeSettings\AnikiThemeSettingsService.cs" />
+    <Compile Include="Services\InGameOverlay\AnikiInGameOverlayWindow.cs" />
+    <Compile Include="Services\InGameOverlay\AnikiOverlayInputListener.cs" />
+    <Compile Include="Services\InGameOverlay\InGameOverlayHotkeyService.cs" />
+    <Compile Include="Services\InGameOverlay\InGameOverlayService.cs" />
+    <Compile Include="Services\MediaGallery\AnikiMemoryGroup.cs" />
+    <Compile Include="Services\UI\AddonsUpdateStyler.cs" />
+    <Compile Include="Services\UI\MainMenuStyler.cs" />
+    <Compile Include="Services\UI\NavigationFixService.cs" />
+    <Compile Include="Services\UI\SettingsWindowStyler.cs" />
+    <Compile Include="Services\Video\AnikiVideoOverlayWindow.cs" />
+    <Compile Include="Services\UI\AnikiWindowManager.cs" />
+    <Compile Include="Services\Controller\AnikiControllerCommandsControl.cs" />
+    <Compile Include="Services\Controller\AnikiControllerInput.cs" />
+    <Compile Include="Services\Controller\AnikiControllerShortcutControl.cs" />
+    <Compile Include="Services\UI\DynamicAuto.cs" />
+    <Compile Include="Services\Audio\EventSoundService.cs" />
+    <Compile Include="Services\UI\FastScrollViewerBehavior.cs" />
+    <Compile Include="Services\Video\FullscreenShutdownVideoHook.cs" />
+    <Compile Include="Services\MediaGallery\AnikiMediaGameItem.cs" />
+    <Compile Include="Services\MediaGallery\AnikiMediaItem.cs" />
+    <Compile Include="Services\MediaGallery\AnikiMediaProviderMode.cs" />
+    <Compile Include="Services\MediaGallery\AnikiMediaThumbnailService.cs" />
+    <Compile Include="Services\MediaGallery\ScreenshotMediaCacheService.cs" />
+    <Compile Include="Services\MediaGallery\ScreenshotsVisualizerReader.cs" />
+    <Compile Include="Services\MediaGallery\ScreenshotUtilitiesReader.cs" />
     <Compile Include="Services\SplashScreen\GameLaunchSplashWindow.cs" />
-    <Compile Include="Services\SettingsWindowStyler.cs" />
     <Compile Include="Services\SplashScreen\SplashScreenFolderService.cs" />
     <Compile Include="Services\SplashScreen\SplashScreenGameSettings.cs" />
     <Compile Include="Services\SplashScreen\SplashScreenLogoPosition.cs" />
@@ -80,15 +109,15 @@
     <Compile Include="Services\SplashScreen\SplashScreenTarget.cs" />
     <Compile Include="Services\SplashScreen\SplashScreenTargetPickerWindow.cs" />
     <Compile Include="Services\SplashScreen\SplashScreenVideoEndBehavior.cs" />
-    <Compile Include="Services\SteamAppDetailsCacheEntry.cs" />
-    <Compile Include="Services\SteamGlobalNewsService.cs" />
-    <Compile Include="Services\SteamPlayerCountService.cs" />
-    <Compile Include="Services\SteamStoreCacheEntry.cs" />
-    <Compile Include="Services\SteamStoreItem.cs" />
-    <Compile Include="Services\SteamStoreService.cs" />
-    <Compile Include="Services\SteamUpdateLiteService.cs" />
-    <Compile Include="Services\SuccessStoryBridge.cs" />
-    <Compile Include="Services\VisualPackBackgroundComposer.cs" />
+    <Compile Include="Services\Steam\SteamAppDetailsCacheEntry.cs" />
+    <Compile Include="Services\News\SteamGlobalNewsService.cs" />
+    <Compile Include="Services\Steam\SteamPlayerCountService.cs" />
+    <Compile Include="Services\Steam\SteamStoreCacheEntry.cs" />
+    <Compile Include="Services\Steam\SteamStoreItem.cs" />
+    <Compile Include="Services\Steam\SteamStoreService.cs" />
+    <Compile Include="Services\News\SteamUpdateLiteService.cs" />
+    <Compile Include="Services\Achievements\SuccessStoryBridge.cs" />
+    <Compile Include="Services\UI\VisualPackBackgroundComposer.cs" />
     <Compile Include="Views\AnikiHelperSettingsView.xaml.cs">
       <DependentUpon>AnikiHelperSettingsView.xaml</DependentUpon>
     </Compile>
@@ -121,6 +150,7 @@
       <SubType>Designer</SubType>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <Resource Include="Views\AnikiThemeSettingsFullscreenView.xaml" />
     <Resource Include="Views\AnikiHelperFullscreenSettingsView.xaml" />
     <Page Include="Views\AnikiHelperSettingsView.xaml">
       <Generator>MSBuild:Compile</Generator>
@@ -132,8 +162,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Models\" />
-  </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

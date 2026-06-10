@@ -13,6 +13,13 @@
     <sys:String x:Key="GroupDynamicColors">Colores dinámicos</sys:String>
     <sys:String x:Key="GameLaunchSplash_VideoVolume_Title">Volumen del vídeo</sys:String>
 
+    <sys:String x:Key="LOCDebugLogsTitle">Depuración</sys:String>
+    <sys:String x:Key="LOCDebugLogsDescription">Activa esta opción solo para diagnosticar un problema y si necesitas enviar un informe de depuración. Escribe información detallada de Aniki Helper en extensions.log y puede generar muchas entradas de registro.</sys:String>
+    <sys:String x:Key="LOCEnableDebugLogs">Activar registros de depuración</sys:String>
+    <sys:String x:Key="LOCDebugLogsInfo">Para un informe de depuración limpio: limpia el archivo de registro, activa el modo de depuración, reproduce el error y envía el archivo extensions.log.</sys:String>
+    <sys:String x:Key="LOCClearLogFile">Limpiar archivo log</sys:String>
+    <sys:String x:Key="LOCOpenLogsFolder">Abrir carpeta de logs</sys:String>
+    
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Pantalla de inicio</sys:String>
     <sys:String x:Key="WelcomeHubStartup_Desc">Elige qué pantalla se muestra al iniciar Playnite: tu biblioteca o el Hub.</sys:String>
@@ -28,6 +35,60 @@
     <sys:String x:Key="Installed">Instalados:</sys:String>
     <sys:String x:Key="NotInstalled">No instalados:</sys:String>
 
+    <!-- ========= MEDIA GALLERY ========= -->
+    <sys:String x:Key="MediaGallery_Title">Galería multimedia</sys:String>
+    <sys:String x:Key="MediaGallery_Desc">Aniki Helper lee los medios desde Screenshots Visualizer y Screenshot Utilities. Configura tus carpetas de capturas en esos plugins; Aniki Helper solo lee sus datos y genera miniaturas para acelerar la navegación en el tema.</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Title">Proveedor de capturas</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Visualizer">Screenshots Visualizer</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pregenera miniaturas para todas las imágenes de los plugins de capturas. La primera generación puede tardar un poco, pero las siguientes deberían ser más rápidas.</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_UtilitiesLocal">Screenshot Utilities - Local</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Help">El tema usará la lista multimedia de Aniki Helper en lugar de enlazarse directamente al plugin de capturas seleccionado.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Generar miniaturas para este juego</sys:String>
+    <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Analizando archivos multimedia de este juego...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Generación de miniaturas cancelada.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Generando miniaturas para {0}... {1}/{2}</sys:String>
+    <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Actualizando caché multimedia...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Miniaturas generadas.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Generando miniaturas del juego</sys:String>
+
+    <!-- ========= CUSTOM ICONS ========= -->
+    <sys:String x:Key="CustomIcons_Title">Iconos personalizados</sys:String>
+    <sys:String x:Key="CustomIcons_Desc">Elige carpetas externas para los iconos personalizados de filtros y fuentes. Estos iconos sustituyen a los iconos predeterminados del tema sin modificar sus archivos.</sys:String>
+    <sys:String x:Key="CustomIcons_FilterFolder">Carpeta de iconos de filtros</sys:String>
+    <sys:String x:Key="CustomIcons_SourceFolder">Carpeta de iconos de fuentes</sys:String>
+    <sys:String x:Key="CustomIcons_Help">Los archivos PNG deben usar exactamente los mismos nombres que los filtros o fuentes mostrados en Playnite. Ejemplo: Installed.png, Favorites.png, Steam.png.</sys:String>
+    <sys:String x:Key="BrowseFolder">Examinar...</sys:String>
+    <sys:String x:Key="CustomIcons_SelectFilterFolderDialog">Selecciona la carpeta que contiene tus iconos PNG de filtros.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectSourceFolderDialog">Selecciona la carpeta que contiene tus iconos PNG de fuentes.</sys:String>
+
+    <!-- ========= GameOverlay ========= -->
+    <sys:String x:Key="InGameOverlay_Tab">Overlay en juego</sys:String>
+    <sys:String x:Key="InGameOverlay_Title">Overlay en juego</sys:String>
+    <sys:String x:Key="InGameOverlay_Desc">Muestra un panel de acciones rápidas de Aniki encima del juego actual.</sys:String>
+    
+    <sys:String x:Key="InGameOverlay_Settings_Title">Ajustes del overlay</sys:String>
+    <sys:String x:Key="InGameOverlay_Settings_Desc">Configura el overlay en juego de Aniki y su atajo de teclado.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Enable">Activar overlay en juego</sys:String>
+    <sys:String x:Key="InGameOverlay_Enable_Help">Activa el overlay en juego propio de Aniki Helper. Desactiva esta opción si prefieres usar el overlay de Playnite u otra solución de overlay.</sys:String>
+    
+    <sys:String x:Key="InGameOverlay_Hotkey_Title">Atajo del overlay</sys:String>
+    <sys:String x:Key="InGameOverlay_Hotkey_Help">Elige el atajo de teclado utilizado para abrir el overlay en juego. Reinicia Playnite después de cambiar este ajuste.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Title">Atajo del mando</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Help">Elige el atajo del mando utilizado para abrir el overlay en juego. El botón Guide es experimental y puede ser capturado por Steam, Windows o herramientas de mando.</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_StartBack">Start + Back</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_BackY">Back + Y</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Guide">Botón Guide</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Disabled">Desactivado</sys:String>
+    
+    <sys:String x:Key="InGameOverlay_Limitations_Title">Limitaciones</sys:String>
+    <sys:String x:Key="InGameOverlay_Limitations_Desc">Este overlay es una ventana transparente mostrada encima del juego. No se inyecta directamente en el juego como los overlays de Steam o Discord.</sys:String>
+    <sys:String x:Key="InGameOverlay_Limitations_Help">Funciona mejor con juegos en modo ventana sin bordes o pantalla completa en ventana. Algunos juegos en pantalla completa exclusiva, anti-cheats o juegos ejecutados como administrador pueden impedir que el overlay se muestre correctamente.</sys:String>
+
+    <sys:String x:Key="LOCInGameOverlayCancel">Cancelar</sys:String>
+    <sys:String x:Key="LOCInGameOverlayConfirmQuit">Salir del juego</sys:String>
+    
     <!-- ========= TRACK PLAYTIME FEATURES ========= -->
     <sys:String x:Key="GroupMonthly">Historial mensual</sys:String>
     <sys:String x:Key="ResetSectionTitle">Restablecer el seguimiento del mes actual</sys:String>

@@ -179,6 +179,45 @@
                                 Background="{StaticResource SeparatorBrush}"
                                 Margin="0,6,0,10"/>
 
+                        <!-- ========= HUB ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource WelcomeHubStartup_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource WelcomeHubStartup_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource WelcomeHubStartup_Enable}"
+                                              IsChecked="{Binding Settings.OpenWelcomeHubOnStartup, UpdateSourceTrigger=PropertyChanged}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource WelcomeHubStartup_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- ========= LIBRARY STATS ========= -->
                         <Border Style="{StaticResource SectionCard}">
                             <StackPanel>
@@ -235,6 +274,113 @@
                                                    FontWeight="Bold"
                                                    Margin="6,0,0,0"/>
                                     </WrapPanel>
+
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========= VIDEO ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource Video}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+
+                                    <!-- ========= Video ========= -->
+                                    <TextBlock Text="{DynamicResource StartupIntro_Title}"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource StartupIntro_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource StartupIntro_Enable}"
+                                              IsChecked="{Binding Settings.StartupIntroVideoEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource IntroVideo_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource ShutdownVideo_Title}"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource ShutdownVideo_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource ShutdownVideo_Enable}"
+                                              IsChecked="{Binding Settings.ShutdownVideoEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource ShutdownVideo_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========= SOUNDS ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource EventSounds_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+
+                                    <TextBlock Text="{DynamicResource EventSounds_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource EventSounds_Enable}"
+                                              IsChecked="{Binding Settings.EventSoundsEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource EventSounds_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"/>
 
                                 </StackPanel>
                             </StackPanel>
@@ -346,6 +492,126 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- ========= CUSTOM ICONS ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource CustomIcons_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource CustomIcons_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource CustomIcons_FilterFolder}"
+                                               Style="{StaticResource SectionTitle}"
+                                               Margin="0,12,0,4"/>
+
+                                    <DockPanel LastChildFill="True"
+                                               Margin="0,4,0,8">
+
+                                        <Button Content="{DynamicResource BrowseFolder}"
+                                                Width="100"
+                                                Margin="8,0,0,0"
+                                                DockPanel.Dock="Right"
+                                                Click="BrowseFilterIconsFolder_Click"/>
+
+                                        <TextBox Text="{Binding Settings.CustomFilterIconsFolder, UpdateSourceTrigger=PropertyChanged}"
+                                                 MinHeight="28"/>
+                                    </DockPanel>
+
+                                    <TextBlock Text="{DynamicResource CustomIcons_SourceFolder}"
+                                               Style="{StaticResource SectionTitle}"
+                                               Margin="0,12,0,4"/>
+
+                                    <DockPanel LastChildFill="True"
+                                               Margin="0,4,0,8">
+
+                                        <Button Content="{DynamicResource BrowseFolder}"
+                                                Width="100"
+                                                Margin="8,0,0,0"
+                                                DockPanel.Dock="Right"
+                                                Click="BrowseSourceIconsFolder_Click"/>
+
+                                        <TextBox Text="{Binding Settings.CustomSourceIconsFolder, UpdateSourceTrigger=PropertyChanged}"
+                                                 MinHeight="28"/>
+                                    </DockPanel>
+
+                                    <TextBlock Text="{DynamicResource CustomIcons_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,8,0,0"/>
+
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========= MEDIA GALLERY ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource MediaGallery_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource MediaGallery_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <Border Style="{StaticResource SectionSeparator}"/>
+
+                                    <TextBlock Text="{DynamicResource MediaGallery_GenerateThumbnails}"
+                                               Style="{StaticResource SectionTitle}"
+                                               Margin="0,4,0,4"/>
+
+                                    <TextBlock Text="{DynamicResource MediaGallery_GenerateThumbnails_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,0,0,8"/>
+
+                                    <Button Content="{DynamicResource MediaGallery_GenerateThumbnails_Button}"
+                                            Command="{Binding Settings.GenerateMediaThumbnailsCommand}"
+                                            Style="{StaticResource PrimaryButton}"
+                                            Width="260"
+                                            Margin="0,4,0,8"/>
+
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- ========= DYNAMIC COLORS ========= -->
                         <Border Style="{StaticResource SectionCard}">
                             <StackPanel>
@@ -415,7 +681,7 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- ========= VIDEO ========= -->
+                        <!-- ========= DEBUG ========= -->
                         <Border Style="{StaticResource SectionCard}">
                             <StackPanel>
 
@@ -433,134 +699,39 @@
 
                                         <TextBlock Grid.Column="1"
                                                    Style="{StaticResource SectionHeaderTitle}"
-                                                   Text="{DynamicResource Video}"/>
+                                                   Text="{DynamicResource LOCDebugLogsTitle}"/>
                                     </Grid>
                                 </Border>
 
                                 <StackPanel Margin="12,10,12,12">
 
-
-                                    <!-- ========= Video ========= -->
-                                    <TextBlock Text="{DynamicResource StartupIntro_Title}"
-                                               FontWeight="SemiBold"
-                                               Foreground="White"
-                                               TextWrapping="Wrap"/>
-
-                                    <TextBlock Text="{DynamicResource StartupIntro_Desc}"
-                                               Style="{StaticResource SectionDescription}"
-                                               Margin="0,4,0,8"
-                                               TextWrapping="Wrap"/>
-
-                                    <CheckBox Content="{DynamicResource StartupIntro_Enable}"
-                                              IsChecked="{Binding Settings.StartupIntroVideoEnabled, UpdateSourceTrigger=PropertyChanged}"
-                                              Margin="0,4,0,8"/>
-
-                                    <TextBlock Text="{DynamicResource IntroVideo_Help}"
-                                               Style="{StaticResource SmallNoteText}"
-                                               Margin="0,4,0,8"/>
-
-                                    <TextBlock Text="{DynamicResource ShutdownVideo_Title}"
-                                               FontWeight="SemiBold"
-                                               Foreground="White"
-                                               TextWrapping="Wrap"/>
-
-                                    <TextBlock Text="{DynamicResource ShutdownVideo_Desc}"
-                                               Style="{StaticResource SectionDescription}"
-                                               Margin="0,4,0,8"
-                                               TextWrapping="Wrap"/>
-
-                                    <CheckBox Content="{DynamicResource ShutdownVideo_Enable}"
-                                              IsChecked="{Binding Settings.ShutdownVideoEnabled, UpdateSourceTrigger=PropertyChanged}"
-                                              Margin="0,4,0,8"/>
-
-                                    <TextBlock Text="{DynamicResource ShutdownVideo_Help}"
-                                               Style="{StaticResource SmallNoteText}"
-                                               Margin="0,4,0,8"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- ========= HUB ========= -->
-                        <Border Style="{StaticResource SectionCard}">
-                            <StackPanel>
-
-                                <Border Style="{StaticResource SectionHeaderBar}">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="3"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-
-                                        <Border Grid.Column="0"
-                                                Background="{StaticResource AccentBrush}"
-                                                CornerRadius="2"
-                                                Margin="0,2,8,2"/>
-
-                                        <TextBlock Grid.Column="1"
-                                                   Style="{StaticResource SectionHeaderTitle}"
-                                                   Text="{DynamicResource WelcomeHubStartup_Title}"/>
-                                    </Grid>
-                                </Border>
-
-                                <StackPanel Margin="12,10,12,12">
-
-                                    <TextBlock Text="{DynamicResource WelcomeHubStartup_Desc}"
+                                    <TextBlock Text="{DynamicResource LOCDebugLogsDescription}"
                                                Style="{StaticResource SectionDescription}"
                                                TextWrapping="Wrap"/>
 
-                                    <CheckBox Content="{DynamicResource WelcomeHubStartup_Enable}"
-                                              IsChecked="{Binding Settings.OpenWelcomeHubOnStartup, UpdateSourceTrigger=PropertyChanged}"
+                                    <CheckBox Content="{DynamicResource LOCEnableDebugLogs}"
+                                              IsChecked="{Binding Settings.EnableDebugLogs, UpdateSourceTrigger=PropertyChanged}"
                                               Margin="0,4,0,8"/>
 
-                                    <TextBlock Text="{DynamicResource WelcomeHubStartup_Help}"
+                                    <TextBlock Text="{DynamicResource LOCDebugLogsInfo}"
                                                Style="{StaticResource SmallNoteText}"
                                                Margin="0,4,0,8"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
 
-                        <!-- ========= SOUNDS ========= -->
-                        <Border Style="{StaticResource SectionCard}">
-                            <StackPanel>
+                                    <StackPanel Orientation="Horizontal"
+            Margin="0,4,0,0">
 
-                                <Border Style="{StaticResource SectionHeaderBar}">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="3"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
+                                        <Button Content="{DynamicResource LOCClearLogFile}"
+            Click="ClearLogFile_Click"
+            Margin="0,0,8,0"/>
 
-                                        <Border Grid.Column="0"
-                                                Background="{StaticResource AccentBrush}"
-                                                CornerRadius="2"
-                                                Margin="0,2,8,2"/>
+                                        <Button Content="{DynamicResource LOCOpenLogsFolder}"
+            Click="OpenLogsFolder_Click"/>
 
-                                        <TextBlock Grid.Column="1"
-                                                   Style="{StaticResource SectionHeaderTitle}"
-                                                   Text="{DynamicResource EventSounds_Title}"/>
-                                    </Grid>
-                                </Border>
-
-                                <StackPanel Margin="12,10,12,12">
-
-
-                                    <TextBlock Text="{DynamicResource EventSounds_Desc}"
-                                               Style="{StaticResource SectionDescription}"
-                                               Margin="0,4,0,8"
-                                               TextWrapping="Wrap"/>
-
-                                    <CheckBox Content="{DynamicResource EventSounds_Enable}"
-                                              IsChecked="{Binding Settings.EventSoundsEnabled, UpdateSourceTrigger=PropertyChanged}"
-                                              Margin="0,4,0,8"/>
-
-                                    <TextBlock Text="{DynamicResource EventSounds_Help}"
-                                               Style="{StaticResource SmallNoteText}"
-                                               Margin="0,4,0,8"/>
+                                    </StackPanel>
 
                                 </StackPanel>
                             </StackPanel>
                         </Border>
-
 
                     </StackPanel>
                 </ScrollViewer>
@@ -920,8 +1091,8 @@
 
                                 <!-- ENABLE -->
                                 <CheckBox Content="{DynamicResource NewsScan_Enable}"
-                                          IsChecked="{Binding Settings.EventSoundsEnabled, UpdateSourceTrigger=PropertyChanged}"
-                                          Margin="0,2,0,4"/>
+                                          IsChecked="{Binding Settings.NewsScanEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                          ToolTip="{DynamicResource NewsScan_Enable_Help}"/>
 
                                 <TextBlock Text="{DynamicResource NewsScan_Enable_Help}"
                                            Style="{StaticResource SmallNoteText}"
@@ -1337,14 +1508,25 @@
 
                                 <Border Style="{StaticResource SectionSeparator}"/>
 
+                                <TextBlock Text="{DynamicResource GameLaunchSplash_SoundTitle}"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"
+                                           TextWrapping="Wrap"/>
+
+                                <CheckBox Content="{DynamicResource GameLaunchSplash_PauseUniPlaySong_Enable}"
+                                          IsChecked="{Binding Settings.GameLaunchSplashPauseUniPlaySong, UpdateSourceTrigger=PropertyChanged}"
+                                          Margin="0,12,0,8"/>
+
+                                <TextBlock Text="{DynamicResource GameLaunchSplash_PauseUniPlaySong_Help}"
+                                           Style="{StaticResource SmallNoteText}"
+                                           Margin="0,0,0,6"
+                                           TextWrapping="Wrap"/>
+
                                 <CheckBox Content="{DynamicResource GameLaunchSplash_VideoSound_Enable}"
                                           IsChecked="{Binding Settings.GameLaunchSplashVideoSoundEnabled, UpdateSourceTrigger=PropertyChanged}"
-                                          Margin="0,4,0,8"/>
+                                          Margin="0,8,0,12"/>
 
-                                <TextBlock Text="{DynamicResource GameLaunchSplash_VideoSound_Help}"
-                                           Style="{StaticResource SectionDescription}"
-                                           Margin="0,4,0,6"
-                                           TextWrapping="Wrap"/>
+
 
                                 <StackPanel Orientation="Horizontal"
                                             VerticalAlignment="Center">
@@ -1361,8 +1543,193 @@
                                                Foreground="White"/>
                                 </StackPanel>
 
+                                <TextBlock Text="{DynamicResource GameLaunchSplash_VideoSound_Help}"
+                                           Style="{StaticResource SmallNoteText}"
+                                           Margin="0,4,0,6"
+                                           TextWrapping="Wrap"/>
+
                             </StackPanel>
                         </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ========== IN-GAME OVERLAY ========== -->
+            <TabItem Header="{DynamicResource InGameOverlay_Tab}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+
+                    <StackPanel Margin="0,0,0,16">
+
+                        <!-- Header -->
+                        <Border CornerRadius="14"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                Background="Transparent"
+                                Padding="14"
+                                Margin="0,0,0,5">
+                            <StackPanel HorizontalAlignment="Center">
+
+                                <TextBlock Text="{DynamicResource AppTitle}"
+                                           FontWeight="Bold"
+                                           FontSize="24"
+                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           HorizontalAlignment="Center"/>
+
+                                <Border Background="#2200AEEF"
+                                        CornerRadius="6"
+                                        Padding="10"
+                                        Margin="0,6,0,10"
+                                        MaxWidth="650"
+                                        HorizontalAlignment="Center">
+
+                                    <TextBlock Text="{DynamicResource AppInfo}"
+                                               Foreground="White"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"/>
+                                </Border>
+
+                            </StackPanel>
+                        </Border>
+
+                        <Border Height="1"
+                                Background="{StaticResource SeparatorBrush}"
+                                Margin="0,6,0,10"/>
+
+                        <!-- ========= OVERLAY SETTINGS ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="{StaticResource AccentBrush}"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Text="{DynamicResource InGameOverlay_Settings_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource InGameOverlay_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <CheckBox Content="{DynamicResource InGameOverlay_Enable}"
+                                              IsChecked="{Binding Settings.InGameOverlayEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                              Margin="0,4,0,8"/>
+
+                                    <TextBlock Text="{DynamicResource InGameOverlay_Enable_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,12"
+                                               TextWrapping="Wrap"/>
+
+                                    <Border Style="{StaticResource SectionSeparator}"/>
+
+                                    <!-- Keyboard shortcut -->
+                                    <TextBlock Text="{DynamicResource InGameOverlay_Hotkey_Title}"
+                                               Style="{StaticResource SectionTitle}"
+                                               Margin="0,10,0,2"/>
+
+                                    <ComboBox SelectedValue="{Binding Settings.InGameOverlayHotkey, UpdateSourceTrigger=PropertyChanged}"
+                                              SelectedValuePath="Tag"
+                                              Width="320"
+                                              HorizontalAlignment="Left"
+                                              Margin="0,4,0,8">
+                                        <ComboBoxItem Content="Ctrl + Shift + F12"
+                                                      Tag="CtrlShiftF12"/>
+                                        <ComboBoxItem Content="Ctrl + Alt + F12"
+                                                      Tag="CtrlAltF12"/>
+                                        <ComboBoxItem Content="Ctrl + F12"
+                                                      Tag="CtrlF12"/>
+                                        <ComboBoxItem Content="Alt + F12"
+                                                      Tag="AltF12"/>
+                                    </ComboBox>
+
+                                    <TextBlock Text="{DynamicResource InGameOverlay_Hotkey_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,12"
+                                               TextWrapping="Wrap"/>
+
+                                    <!-- Controller shortcut -->
+                                    <TextBlock Text="{DynamicResource InGameOverlay_ControllerShortcut_Title}"
+                                               Style="{StaticResource SectionTitle}"
+                                               Margin="0,10,0,2"/>
+
+                                    <ComboBox SelectedValue="{Binding Settings.InGameOverlayControllerShortcut, UpdateSourceTrigger=PropertyChanged}"
+                                              SelectedValuePath="Tag"
+                                              Width="320"
+                                              HorizontalAlignment="Left"
+                                              Margin="0,4,0,8">
+                                        <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_StartBack}"
+                                                      Tag="StartBack"/>
+                                        <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_BackY}"
+                                                      Tag="BackY"/>
+                                        <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_Guide}"
+                                                      Tag="Guide"/>
+                                        <ComboBoxItem Content="{DynamicResource InGameOverlay_ControllerShortcut_Disabled}"
+                                                      Tag="Disabled"/>
+                                    </ComboBox>
+
+                                    <TextBlock Text="{DynamicResource InGameOverlay_ControllerShortcut_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ========= WARNING / LIMITATIONS ========= -->
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+
+                                <Border Style="{StaticResource SectionHeaderBar}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0"
+                                                Background="DarkOrange"
+                                                CornerRadius="2"
+                                                Margin="0,2,8,2"/>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource SectionHeaderTitle}"
+                                                   Foreground="DarkOrange"
+                                                   Text="{DynamicResource InGameOverlay_Limitations_Title}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Margin="12,10,12,12">
+
+                                    <TextBlock Text="{DynamicResource InGameOverlay_Limitations_Desc}"
+                                               Style="{StaticResource SectionDescription}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                    <TextBlock Text="{DynamicResource InGameOverlay_Limitations_Help}"
+                                               Style="{StaticResource SmallNoteText}"
+                                               Margin="0,4,0,8"
+                                               TextWrapping="Wrap"/>
+
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

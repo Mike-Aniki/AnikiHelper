@@ -5,13 +5,21 @@
     <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
     <sys:String x:Key="AppSubtitle">Paramètres</sys:String>
     <sys:String x:Key="AppInfo">Conçu pour le thème Aniki ReMake. Certaines fonctionnalités nécessitent un thème compatible pour fonctionner.</sys:String>
-    <sys:String x:Key="GroupAdditionalFeatures">Fonctionnalités supplémentaires</sys:String>
+
     <sys:String x:Key="MoreOptionsDesktop">Plus d’options sont disponibles dans les paramètres du plugin en mode bureau.</sys:String>
+    <sys:String x:Key="GroupAdditionalFeatures">Fonctionnalités supplémentaires</sys:String>
 
     <sys:String x:Key="GroupGeneral">Général</sys:String>
     <sys:String x:Key="GroupNews">Actualités</sys:String>
     <sys:String x:Key="GroupDynamicColors">Couleurs dynamiques</sys:String>
     <sys:String x:Key="GameLaunchSplash_VideoVolume_Title">Volume de la vidéo</sys:String>
+
+    <sys:String x:Key="LOCDebugLogsTitle">Débogage</sys:String>
+    <sys:String x:Key="LOCDebugLogsDescription">Activez cette option uniquement pour diagnostiquer un problème et si vous devez envoyer un rapport debug. Elle écrit des informations détaillées d’Aniki Helper dans extensions.log et peut générer beaucoup de lignes.</sys:String>
+    <sys:String x:Key="LOCEnableDebugLogs">Activer les journaux de débogage</sys:String>
+    <sys:String x:Key="LOCDebugLogsInfo">Pour un rapport debug propre : videz le fichier log, activez le mode debug, reproduisez le bug, puis envoyez le fichier extensions.log.</sys:String>
+    <sys:String x:Key="LOCClearLogFile">Vider le fichier log</sys:String>
+    <sys:String x:Key="LOCOpenLogsFolder">Ouvrir le dossier des logs</sys:String>
 
     <!-- ========= HUB FEATURES ========= -->
     <sys:String x:Key="WelcomeHubStartup_Title">Écran d’accueil</sys:String>
@@ -27,6 +35,33 @@
     <sys:String x:Key="PreviewTotal">Aperçu — Total :</sys:String>
     <sys:String x:Key="Installed">Installés :</sys:String>
     <sys:String x:Key="NotInstalled">Non installés :</sys:String>
+
+    <!-- ========= MEDIA GALLERY ========= -->
+    <sys:String x:Key="MediaGallery_Title">Galerie média</sys:String>
+    <sys:String x:Key="MediaGallery_Desc">Aniki Helper lit les médias depuis Screenshots Visualizer et Screenshot Utilities. Configurez vos dossiers de captures dans ces plugins ; Aniki Helper lit uniquement leurs données et génère des miniatures pour accélérer la navigation dans le thème.</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Title">Plugin de captures</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Visualizer">Screenshots Visualizer</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_UtilitiesLocal">Screenshot Utilities - Local</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Help">Le thème utilisera la liste média d’Aniki Helper au lieu de se lier directement au plugin de captures sélectionné.</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails">Miniatures média</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Button">Générer les miniatures</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pré-génère les miniatures de toutes les images des plugins de captures. La première génération peut prendre du temps, mais les suivantes devraient être plus rapides.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Générer les miniatures pour ce jeu</sys:String>
+    <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Analyse des fichiers média pour ce jeu...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Génération de la miniature annulée.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Génération des vignettes pour {0}... {1}/{2}</sys:String>
+    <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Mise à jour du cache média...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Miniatures générées.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Générer les miniatures</sys:String>
+    <!-- ========= CUSTOM ICONS ========= -->
+    <sys:String x:Key="CustomIcons_Title">Icônes personnalisées</sys:String>
+    <sys:String x:Key="CustomIcons_Desc">Choisissez des dossiers externes pour les icônes de filtres et de sources. Ces icônes remplacent celles du thème sans modifier les fichiers du thème.</sys:String>
+    <sys:String x:Key="CustomIcons_FilterFolder">Dossier des icônes de filtres</sys:String>
+    <sys:String x:Key="CustomIcons_SourceFolder">Dossier des icônes de sources</sys:String>
+    <sys:String x:Key="CustomIcons_Help">Les fichiers PNG doivent utiliser exactement les mêmes noms que les filtres ou sources affichés dans Playnite. Exemple : Installed.png, Favorites.png, Steam.png.</sys:String>
+    <sys:String x:Key="BrowseFolder">Parcourir...</sys:String>
+    <sys:String x:Key="CustomIcons_SelectFilterFolderDialog">Sélectionnez le dossier contenant vos icônes PNG de filtres.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectSourceFolderDialog">Sélectionnez le dossier contenant vos icônes PNG de sources.</sys:String>
 
     <!-- ========= TRACK PLAYTIME FEATURES ========= -->
     <sys:String x:Key="GroupMonthly">Historique mensuel</sys:String>
@@ -48,7 +83,6 @@
     <sys:String x:Key="ImportMonthlyBackupTooltip">Importe une sauvegarde précédemment enregistrée du suivi mensuel.</sys:String>
     <sys:String x:Key="MonthlyBackupHelp">Utilisez ces boutons pour sauvegarder ou restaurer toutes les données de suivi mensuel. C’est utile avant de réinstaller Playnite ou de réinitialiser votre bibliothèque.</sys:String>
 
-
     <!-- ========= VIDEO FEATURES ========= -->
     <sys:String x:Key="Video">Vidéo</sys:String>
 
@@ -67,6 +101,41 @@
     <sys:String x:Key="EventSounds_Desc">Joue des effets sonores lors d’événements comme le lancement de jeux, l’ouverture/fermeture de Playnite ou les mises à jour de la bibliothèque. Fonctionne avec les sons inclus dans le thème.</sys:String>
     <sys:String x:Key="EventSounds_Enable">Activer les sons d’événements</sys:String>
     <sys:String x:Key="EventSounds_Help">Si activé, désactivez les sons UI/événements du plugin PlayniteSounds pour éviter les doublons.</sys:String>
+
+    <!-- ========= GameOverlay FEATURES ========= -->
+    <sys:String x:Key="InGameOverlay_Tab">Overlay en jeu</sys:String>
+    <sys:String x:Key="InGameOverlay_Title">Overlay en jeu</sys:String>
+    <sys:String x:Key="InGameOverlay_Desc">Affiche un panneau d’actions rapides Aniki au-dessus du jeu en cours.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Settings_Title">Réglages de l’overlay</sys:String>
+    <sys:String x:Key="InGameOverlay_Settings_Desc">Configure l’overlay en jeu d’Aniki et son raccourci clavier.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Enable">Activer l’overlay en jeu</sys:String>
+    <sys:String x:Key="InGameOverlay_Enable_Help">Active l’overlay en jeu propre à Aniki Helper. Désactive cette option si tu préfères utiliser l’overlay de Playnite ou une autre solution d’overlay.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Hotkey_Title">Raccourci de l’overlay</sys:String>
+    <sys:String x:Key="InGameOverlay_Hotkey_Help">Choisis le raccourci clavier utilisé pour ouvrir l’overlay en jeu. Redémarre Playnite après avoir modifié ce réglage.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Title">Raccourci manette</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Help">Choisis le raccourci manette utilisé pour ouvrir l’overlay en jeu. Le bouton Guide est expérimental et peut être capturé par Steam, Windows ou certains outils manette.</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_StartBack">Start + Select</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_BackY">Select + Y</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Guide">Bouton Guide</sys:String>
+    <sys:String x:Key="InGameOverlay_ControllerShortcut_Disabled">Désactivé</sys:String>
+
+    <sys:String x:Key="InGameOverlay_Limitations_Title">Limitation</sys:String>
+    <sys:String x:Key="InGameOverlay_Limitations_Desc">Cet overlay est une fenêtre transparente affichée au-dessus du jeu. Il n’est pas injecté directement dans le jeu comme les overlays Steam ou Discord.</sys:String>
+    <sys:String x:Key="InGameOverlay_Limitations_Help">Il fonctionne mieux avec les jeux en mode fenêtré sans bordure ou plein écran fenêtré. Certains jeux en plein écran exclusif, certains anti-cheats ou certains jeux lancés en administrateur peuvent empêcher l’overlay de s’afficher correctement.</sys:String>
+
+    <sys:String x:Key="LOCInGameOverlayFooterTitle">Aniki Overlay</sys:String>
+    <sys:String x:Key="LOCInGameOverlayNoGameRunning">Aucun jeu lancé</sys:String>
+    <sys:String x:Key="LOCInGameOverlayNoActiveGame">Aucun jeu actif détecté</sys:String>
+    <sys:String x:Key="LOCInGameOverlayLessThanOneMinute">moins de 1 min</sys:String>
+    <sys:String x:Key="LOCInGameOverlayQuitDialogTitle">Quitter {0} ?</sys:String>
+    <sys:String x:Key="LOCInGameOverlayQuitDialogMessage">Cela tentera de fermer la fenêtre du jeu actif.</sys:String>
+
+    <sys:String x:Key="LOCInGameOverlayCancel">Annuler</sys:String>
+    <sys:String x:Key="LOCInGameOverlayConfirmQuit">Quitter le jeu</sys:String>
 
     <!-- ========= SPLASH FEATURES ========= -->
     <sys:String x:Key="SplashScreen">Splash screen</sys:String>
@@ -100,8 +169,6 @@
     <sys:String x:Key="GameLaunchSplash_Mode_AlwaysGlobal">Toujours utiliser le global</sys:String>
     <sys:String x:Key="GameLaunchSplash_Mode_Help">Choisissez l’ordre utilisé pour afficher une image de lancement. En mode automatique : image personnalisée du jeu, fond Playnite, source, plateforme, puis splash global.</sys:String>
     <sys:String x:Key="LOCAnikiHelperOpenGameSplashFolder">Ouvrir le dossier splash du jeu</sys:String>
-    <sys:String x:Key="SplashManager_SearchImages">Rechercher des images</sys:String>
-    <sys:String x:Key="SplashManager_NoGameNameForSearch">Aucun nom de jeu n’est disponible pour cette recherche.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_LogoPosition_Title">Position du logo</sys:String>
     <sys:String x:Key="GameLaunchSplash_LogoPosition_Help">Choisissez où le logo du jeu apparaît sur l’écran de splash.</sys:String>
@@ -123,7 +190,6 @@
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Sécurité de fermeture automatique</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Définit le temps maximum pendant lequel Aniki Helper attend que le jeu prenne le focus. Si le jeu ne passe pas au premier plan, le splash se ferme automatiquement après ce délai.</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Réinitialiser</sys:String>
-
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Définir le timer minimum pour ce jeu</sys:String>
     <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Réinitialiser le timer minimum pour ce jeu</sys:String>
@@ -162,6 +228,8 @@
     <sys:String x:Key="SplashManager_RandomRestored">Le choix aléatoire est réactivé pour ce dossier.</sys:String>
     <sys:String x:Key="SplashManager_SelectSplashFiles">Sélectionner des fichiers splash</sys:String>
     <sys:String x:Key="SplashManager_DeleteConfirm">Supprimer ce fichier splash ?{0}{1}</sys:String>
+    <sys:String x:Key="SplashManager_SearchImages">Rechercher des images</sys:String>
+    <sys:String x:Key="SplashManager_NoGameNameForSearch">Aucun nom de jeu n’est disponible pour cette recherche.</sys:String>
 
     <sys:String x:Key="SplashPicker_NoItemFound">Aucun élément trouvé.</sys:String>
     <sys:String x:Key="SplashPicker_OpenFailed">Impossible d’ouvrir le sélecteur de splash screen :</sys:String>
@@ -171,8 +239,13 @@
     <sys:String x:Key="SplashPicker_PlatformTitle">Splash screens par plateforme</sys:String>
     <sys:String x:Key="SplashPicker_PlatformDescription">Sélectionnez une plateforme pour gérer ses images de lancement. Elles seront utilisées pour les jeux associés à cette plateforme.</sys:String>
     <sys:String x:Key="SplashPicker_PlatformOpenFailed">Impossible d’ouvrir le gestionnaire de splash screens par plateforme :</sys:String>
-    <sys:String x:Key="SplashPicker_GlobalTitle">Global</sys:String>
+    <sys:String x:Key="SplashPicker_GlobalTitle">Globale</sys:String>
     <sys:String x:Key="SplashPicker_GlobalOpenFailed">Impossible d’ouvrir le gestionnaire de splash screen global :</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_PauseUniPlaySong_Enable">Mettre UniPlaySong en pause pendant le splash</sys:String>
+    <sys:String x:Key="GameLaunchSplash_PauseUniPlaySong_Help">Met temporairement la musique UniPlaySong en pause pendant le splash de lancement du jeu, puis la reprend quand le splash se ferme.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_SoundTitle">Son</sys:String>
+
 
     <!-- ========= DYNAMIC COLORS FEATURES ========= -->
     <sys:String x:Key="GroupDynColors">Couleurs dynamiques</sys:String>
@@ -229,7 +302,7 @@
     <sys:String x:Key="SteamPlayers_Help">Active ou désactive l’affichage du nombre de joueurs dans le thème.</sys:String>
 
     <!-- Steam Store -->
-    <sys:String x:Key="SteamStore_GroupTitle">Steam Store</sys:String>
+    <sys:String x:Key="SteamStore_GroupTitle">Boutique Steam</sys:String>
     <sys:String x:Key="SteamStore_GroupDesc">Configure l’affichage du contenu Steam Store dans le thème.</sys:String>
 
     <sys:String x:Key="SteamStore_Language_Title">Langue du store</sys:String>
@@ -247,7 +320,7 @@
     <sys:String x:Key="SteamStore_Enable_Help">Lorsque cette option est désactivée, le bouton Store n’apparaît plus dans le thème.</sys:String>
 
     <!-- ========= News FEATURES ========= -->
-    <sys:String x:Key="GroupAnikiFeatures">Aniki News</sys:String>
+    <sys:String x:Key="GroupAnikiFeatures">Actualités d'Aniki</sys:String>
 
     <sys:String x:Key="AnikiNews_Title1">Paramètres des sources</sys:String>
     <sys:String x:Key="AnikiNews_Title">Paramètres des actualités</sys:String>

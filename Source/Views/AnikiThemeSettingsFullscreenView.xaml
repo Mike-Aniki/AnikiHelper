@@ -1,0 +1,513 @@
+﻿<UserControl x:Name="SettingsRoot"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ats="clr-namespace:AnikiHelper.Services.AnikiThemeSettings;assembly=AnikiHelper"
+             xmlns:pctrls="clr-namespace:Playnite.FullscreenApp.Controls;assembly=Playnite.FullscreenApp"
+             xmlns:views="clr-namespace:AnikiHelperFullscreen.Views;assembly=AnikiHelper"
+             FocusManager.IsFocusScope="True"
+             KeyboardNavigation.TabNavigation="Contained"
+             KeyboardNavigation.DirectionalNavigation="Contained">
+
+    <UserControl.Resources>
+
+        <!-- ==========================================================
+        HELPERS
+        ========================================================== -->
+
+        <Style x:Key="AnikiThemeSettingsOptionRowStyle" TargetType="Grid">
+            <Setter Property="Margin" Value="0,6,0,6"/>
+            <Setter Property="MinHeight" Value="64"/>
+            <Setter Property="KeyboardNavigation.TabNavigation" Value="Cycle"/>
+            <Setter Property="KeyboardNavigation.DirectionalNavigation" Value="Cycle"/>
+        </Style>
+
+        <Style x:Key="AnikiThemeSettingsOptionTitleStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource AnikiThemeSettingsSectionTextStyle}">
+            <Setter Property="Text" Value="{Binding DisplayName}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="MaxWidth" Value="900"/>
+            <Setter Property="Margin" Value="0,0,20,0"/>
+        </Style>
+
+        <Style x:Key="AnikiThemeSettingsOptionDescriptionStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource AnikiThemeSettingsTextMiniStyle}">
+            <Setter Property="Text" Value="{Binding DisplayDescription}"/>
+            <Setter Property="Margin" Value="0,2,20,0"/>
+            <Setter Property="MaxWidth" Value="900"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DisplayDescription}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding DisplayDescription}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="AnikiThemeSettingsRestartNoteStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource AnikiThemeSettingsTextMiniStyle}">
+            <Setter Property="Text" Value="Requires restart"/>
+            <Setter Property="Foreground" Value="OrangeRed"/>
+            <Setter Property="Opacity" Value="1"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="5,4,20,0"/>
+            <Setter Property="Visibility" Value="Collapsed"/>
+        </Style>
+
+        <!-- ==========================================================
+        VARIABLE / OPTION ITEM
+        ========================================================== -->
+
+        <DataTemplate DataType="{x:Type ats:AnikiThemeVariable}">
+            <Grid>
+                <!-- SECTION HEADER -->
+                <Grid IsHitTestVisible="False"
+                      Focusable="False"
+                      KeyboardNavigation.IsTabStop="False">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Setter Property="Width" Value="1120"/>
+                            <Setter Property="HorizontalAlignment" Value="Left"/>
+                            <Setter Property="Margin" Value="0,34,35,20"/>
+
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Type}" Value="Header"/>
+                                        <Condition Binding="{Binding HeaderKind}" Value="Section"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0"
+                               Text="{Binding DisplayName}"
+                               HorizontalAlignment="Left"
+                               TextAlignment="Left"
+                               TextWrapping="Wrap"
+                               FontSize="34"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextHighlightBrush}"
+                               MaxWidth="900"
+                               Margin="0,0,0,10"/>
+
+                    <Border Grid.Row="1"
+                            Height="2"
+                            CornerRadius="2"
+                            HorizontalAlignment="Stretch"
+                            Opacity="0.65"
+                            Margin="0,0,220,0">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="#AAFFFFFF" Offset="0"/>
+                                <GradientStop Color="#66FFFFFF" Offset="0.45"/>
+                                <GradientStop Color="#00FFFFFF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                </Grid>
+
+                <!-- BOOLEAN -->
+                <Grid>
+                    <Grid.Style>
+                        <Style TargetType="Grid"
+                               BasedOn="{StaticResource AnikiThemeSettingsOptionRowStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Type}" Value="Boolean">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Type}" Value="Bool">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+
+                    <pctrls:CheckBoxEx Style="{DynamicResource AnikiThemeSettingsCheckBoxStyle}"
+                                       IsChecked="{Binding CurrentBooleanValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                       HorizontalAlignment="Stretch"
+                                       HorizontalContentAlignment="Stretch"
+                                       VerticalContentAlignment="Center"
+                                       MinHeight="74"
+                                       Margin="0,0,35,0">
+
+                        <Grid Width="1120"
+                              VerticalAlignment="Center">
+
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="160"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0"
+                                        VerticalAlignment="Center"
+                                        Margin="0,0,35,0">
+
+                                <TextBlock Style="{StaticResource AnikiThemeSettingsOptionTitleStyle}"/>
+
+                                <TextBlock Style="{StaticResource AnikiThemeSettingsOptionDescriptionStyle}"/>
+
+                                <TextBlock Style="{StaticResource AnikiThemeSettingsRestartNoteStyle}"/>
+                            </StackPanel>
+
+                        </Grid>
+                    </pctrls:CheckBoxEx>
+                </Grid>
+
+                <!-- NUMERIC / SLIDER -->
+                <Grid>
+                    <Grid.Style>
+                        <Style TargetType="Grid"
+                               BasedOn="{StaticResource AnikiThemeSettingsOptionRowStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Type}" Value="Double">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Type}" Value="Float">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Type}" Value="Int32">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Type}" Value="Int">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Type}" Value="CornerRadius">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="460"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0"
+                                VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource AnikiThemeSettingsOptionTitleStyle}"/>
+                        <TextBlock Style="{StaticResource AnikiThemeSettingsOptionDescriptionStyle}"/>
+                        <TextBlock Style="{StaticResource AnikiThemeSettingsRestartNoteStyle}"/>
+                    </StackPanel>
+
+                    <Grid Grid.Column="1"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Center"
+                          Margin="0,0,35,0">
+
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+
+                            <pctrls:SliderEx
+                                Focusable="True"
+                                KeyboardNavigation.IsTabStop="True"
+                                Width="340"
+                                Margin="0,0,16,0"
+                                Style="{DynamicResource AnikiThemeSettingsSliderStyle}"
+                                Minimum="{Binding Slider.MinValue, FallbackValue=0}"
+                                Maximum="{Binding Slider.MaxValue, FallbackValue=100}"
+                                SmallChange="{Binding Slider.SmallChangeValue, FallbackValue=1}"
+                                LargeChange="{Binding Slider.LargeChangeValue, FallbackValue=5}"
+                                TickFrequency="{Binding Slider.StepValue, FallbackValue=1}"
+                                Value="{Binding CurrentDoubleValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+
+                            <TextBlock Text="{Binding CurrentDoubleValue, StringFormat={}{0:0.##}}"
+                                       Style="{DynamicResource AnikiThemeSettingsSectionTextStyle}"
+                                       VerticalAlignment="Center"
+                                       MinWidth="45"
+                                       TextAlignment="Left"
+                                       Margin="0,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+
+                <!-- STRING -->
+                <Grid>
+                    <Grid.Style>
+                        <Style TargetType="Grid"
+                               BasedOn="{StaticResource AnikiThemeSettingsOptionRowStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Type}" Value="String">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="500"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0"
+                                VerticalAlignment="Center"
+                                Margin="0,0,30,0">
+
+                        <TextBlock Style="{StaticResource AnikiThemeSettingsOptionTitleStyle}"/>
+                        <TextBlock Style="{StaticResource AnikiThemeSettingsOptionDescriptionStyle}"/>
+                        <TextBlock Style="{StaticResource AnikiThemeSettingsRestartNoteStyle}"/>
+                    </StackPanel>
+
+                    <pctrls:ButtonEx Grid.Column="1"
+                                     Width="460"
+                                     Height="58"
+                                     Margin="0,7,35,7"
+                                     Padding="0"
+                                     HorizontalAlignment="Right"
+                                     HorizontalContentAlignment="Stretch"
+                                     VerticalContentAlignment="Center"
+                                     Style="{DynamicResource AnikiThemeSettingsInputBoxStyle}"
+                                     Command="{x:Static views:FullscreenSettingsView.AnikiThemeTextInputCommand}"
+                                     CommandParameter="{Binding}">
+
+                        <Grid Width="410"
+                              Margin="24,0,24,0"
+                              VerticalAlignment="Center">
+
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding CurrentStringValue}"
+                                       FontSize="24"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Left"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource TextBrush}" />
+
+                            <TextBlock Grid.Column="1"
+                                       Text="✎"
+                                       FontSize="24"
+                                       Margin="18,0,0,0"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource TextBrush}" />
+                        </Grid>
+                    </pctrls:ButtonEx>
+                </Grid>
+
+            </Grid>
+        </DataTemplate>
+
+        <!-- ==========================================================
+        PRESET GROUP ITEM
+        ========================================================== -->
+
+        <DataTemplate DataType="{x:Type ats:AnikiPresetGroup}">
+            <Grid Style="{StaticResource AnikiThemeSettingsOptionRowStyle}">
+
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="460"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            VerticalAlignment="Center">
+                    <TextBlock Style="{StaticResource AnikiThemeSettingsOptionTitleStyle}"/>
+                    <TextBlock Style="{StaticResource AnikiThemeSettingsOptionDescriptionStyle}"/>
+                    <TextBlock Style="{StaticResource AnikiThemeSettingsRestartNoteStyle}"/>
+                </StackPanel>
+
+                <pctrls:ComboBoxEx Grid.Column="1"
+                                   Style="{DynamicResource AnikiThemeSettingsComboBoxStyle}"
+                                   ItemsSource="{Binding Items}"
+                                   DisplayMemberPath="DisplayName"
+                                   SelectedValuePath="Key"
+                                   SelectedValue="{Binding SelectedPresetKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                   VerticalAlignment="Center"/>
+            </Grid>
+        </DataTemplate>
+
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="70"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="350"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- CATEGORY HEADER -->
+        <Border Grid.Row="0"         Grid.ColumnSpan="2"
+                Height="70"
+                VerticalAlignment="Top"
+                Background="Transparent"
+                BorderBrush="{DynamicResource MenuBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Panel.ZIndex="5">
+
+            <TextBlock Text="{Binding Settings.SelectedCategoryDisplayName}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextAlignment="Center"
+                       FontSize="28"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextHighlightBrush}"/>
+        </Border>
+
+        <ScrollViewer Grid.Row="1"
+                      Grid.Column="0"
+                      Style="{DynamicResource AnikiThemeSettingsScrollViewerStyle}"
+                      Focusable="False"
+                      VerticalScrollBarVisibility="Hidden"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Margin="0,5,0,0"
+                      KeyboardNavigation.IsTabStop="False"
+                      Panel.ZIndex="1">
+
+            <StackPanel Margin="0,0,0,0"
+                        Focusable="False"
+                        KeyboardNavigation.IsTabStop="False"
+                        KeyboardNavigation.TabNavigation="Contained"
+                        KeyboardNavigation.DirectionalNavigation="Contained">
+
+                <ItemsControl ItemsSource="{Binding Settings.SelectedAnikiThemeSettingsCategoryItems}"
+                              Focusable="False"
+                              KeyboardNavigation.IsTabStop="False"
+                              KeyboardNavigation.TabNavigation="Contained"
+                              KeyboardNavigation.DirectionalNavigation="Contained">
+
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Focusable" Value="False"/>
+                            <Setter Property="KeyboardNavigation.IsTabStop" Value="False"/>
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
+
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <ContentPresenter Content="{Binding}"
+                                              Focusable="False"
+                                              KeyboardNavigation.IsTabStop="False"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- OPTION HELP PANEL -->
+        <Border Grid.Row="1"
+                Grid.Column="1"
+                Margin="0,15,0,15"
+                Padding="14"
+                VerticalAlignment="Top"
+                Height="600"
+                Background="#44000000"
+                BorderBrush="{DynamicResource MenuBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="18"
+                Panel.ZIndex="10">
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="1"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="310"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0"
+                           Text="Option Details"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextHighlightBrush}"
+                           Opacity="0.9"
+                           Margin="0,0,0,10"/>
+
+                <Border Grid.Row="1"
+                        Background="{DynamicResource MenuBorderBrush}"
+                        Opacity="0.55"/>
+
+                <StackPanel Grid.Row="2"
+            Margin="0,14,0,0">
+
+                    <TextBlock Text="{Binding ElementName=SettingsRoot, Path=(FocusManager.FocusedElement).DataContext.DisplayName}"
+               FontSize="20"
+               FontWeight="SemiBold"
+               Foreground="{DynamicResource TextBrush}"
+               TextWrapping="Wrap"
+               Margin="0,0,0,8"/>
+
+                    <TextBlock Text="{Binding ElementName=SettingsRoot, Path=(FocusManager.FocusedElement).DataContext.DisplayDescription}"
+               FontSize="16"
+               LineHeight="23"
+               Opacity="0.82"
+               Foreground="{DynamicResource TextBrush}"
+               TextWrapping="Wrap"/>
+
+                </StackPanel>
+
+                <TextBlock Grid.Row="3"
+                           Text="Requires restart"
+                           Foreground="OrangeRed"
+                           VerticalAlignment="Top"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Margin="0,12,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ElementName=SettingsRoot, Path=(FocusManager.FocusedElement).DataContext.NeedRestart}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <Border Grid.Row="4"
+                        CornerRadius="14"
+                        Background="#33000000"
+                        BorderBrush="{DynamicResource MenuBorderBrush}"
+                        BorderThickness="1"
+                        Padding="8">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Settings.AnikiThemeSettingsPreviewImage}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+
+                    <Image Style="{DynamicResource AnikiThemeSettingsPreviewImageStyle}"
+                           Stretch="UniformToFill"
+                           RenderOptions.BitmapScalingMode="Fant"
+                           Source="{Binding Settings.AnikiThemeSettingsPreviewImage, TargetNullValue={x:Null}}"/>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

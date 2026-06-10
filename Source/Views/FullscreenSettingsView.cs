@@ -8,12 +8,32 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Threading;
+using System.Collections;
+using AnikiHelper.Services.AnikiThemeSettings;
+using System.Diagnostics;
 
 namespace AnikiHelperFullscreen.Views
 {
+    public class AnikiThemeSettingsCategoryMenuHeaderModel
+    {
+        public string Title { get; set; }
+
+        public object BackButton { get; set; }
+    }
+
     public static class FullscreenSettingsView
     {
         private static readonly ILogger logger = LogManager.GetLogger();
+
+        private static List<UIElement> originalSettingsMenuChildren;
+
+
+        public static RelayCommand<object> AnikiThemeTextInputCommand { get; } =
+            new RelayCommand<object>((parameter) =>
+            {
+                TextInput(parameter as AnikiThemeVariable);
+            });
 
         public static void Init()
         {
@@ -38,12 +58,27 @@ namespace AnikiHelperFullscreen.Views
                 }));
         }
 
+        private static bool IsAnikiThemeActive()
+        {
+            try
+            {
+                return Application.Current?.TryFindResource("Aniki_ThemeMarker") is bool enabled && enabled;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static void Load(DependencyObject parent)
         {
+            var swTotal = Stopwatch.StartNew();
+            logger.Info("[AnikiHelper][SettingsPerf] Load started.");
+
             EnsureEnglishFallbackResources();
             EnsureDefaultStyleResources();
 
-            if (!(Application.Current.TryFindResource("SettingsMenuAnikiHelperButtonTemplate") is DataTemplate menuTemplate))
+            if (!IsAnikiThemeActive())
             {
                 return;
             }
@@ -53,7 +88,16 @@ namespace AnikiHelperFullscreen.Views
                 return;
             }
 
+            window.Closed -= OnSettingsWindowClosed;
+            window.Closed += OnSettingsWindowClosed;
+
+
             dynamic ctx = window.DataContext;
+
+            global::AnikiHelper.AnikiHelper.Instance?.SetAnikiThemeSettingsRestartRequiredAction(() =>
+            {
+                MarkFullscreenThemeEdited(ctx);
+            });
 
             dynamic sectionViews = ctx
                 .GetType()
@@ -69,20 +113,49 @@ namespace AnikiHelperFullscreen.Views
                 return;
             }
 
-            foreach (var child in stack.Children.OfType<ContentControl>())
-            {
-                if ((child.Content as string) == "Aniki Helper")
-                {
-                    return;
-                }
-            }
-
             var assembly = Application.Current.GetType().Assembly;
 
+            int anikiThemeSettingsCategorySectionKey = CreateHiddenSettingsSection(
+                assembly,
+                sectionViews,
+                new Func<UserControl>(LoadAnikiThemeSettingsView));
+
+            int anikiHelperSectionKey = CreateHiddenSettingsSection(
+                assembly,
+                sectionViews,
+                new Func<UserControl>(LoadFullscreenSettingsView));
+
+            InjectThemeSettingsMenuButton(
+                assembly,
+                ctx,
+                stack,
+                anikiThemeSettingsCategorySectionKey,
+                anikiHelperSectionKey,
+                insertIndex: 3);
+        }
+
+        private static void OnSettingsWindowClosed(object sender, EventArgs e)
+        {
+            try
+            {
+                originalSettingsMenuChildren = null;
+                global::AnikiHelper.AnikiHelper.Instance?.ShowAnikiThemeSettingsRestartPromptIfNeeded();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to handle settings window close for Aniki Theme Settings.");
+            }
+        }
+
+        private static int CreateHiddenSettingsSection(
+            Assembly assembly,
+            dynamic sectionViews,
+            Func<UserControl> viewFactory)
+        {
             Type sectionType = assembly.GetType("Playnite.FullscreenApp.Controls.SettingsSections.SettingsSectionControl");
             dynamic hostControl = Activator.CreateInstance(sectionType);
 
-            UserControl control = LoadFullscreenSettingsView();
+            UserControl control = viewFactory();
             control.DataContext = global::AnikiHelper.AnikiHelper.Instance.SettingsVM;
 
             hostControl.Content = control;
@@ -92,20 +165,394 @@ namespace AnikiHelperFullscreen.Views
                 hostElement.Loaded += OnLoad;
             }
 
-            int nextKey = (sectionViews.Keys as IEnumerable<int>).ToList().Max() + 1;
+            int nextKey = GetNextSectionKey(sectionViews);
             sectionViews[nextKey] = hostControl;
 
-            Type buttonExType = assembly.GetType("Playnite.FullscreenApp.Controls.ButtonEx");
-            dynamic newBtn = Activator.CreateInstance(buttonExType);
+            return nextKey;
+        }
 
-            newBtn.Content = "Aniki Helper";
-            newBtn.ContentTemplate = menuTemplate;
-            newBtn.Style = Application.Current.TryFindResource("SettingsMenuButton") as Style;
-            newBtn.Command = ctx.OpenSectionCommand;
-            newBtn.CommandParameter = nextKey.ToString();
+        private static void InjectThemeSettingsMenuButton(
+            Assembly assembly,
+            dynamic ctx,
+            StackPanel stack,
+            int categorySectionKey,
+            int anikiHelperSectionKey,
+            int insertIndex)
+        {
+            try
+            {
+                foreach (var child in stack.Children.OfType<ContentControl>())
+                {
+                    if ((child.Content as string) == "Theme Settings")
+                    {
+                        return;
+                    }
+                }
 
-            int insertIndex = Math.Min(3, stack.Children.Count);
-            stack.Children.Insert(insertIndex, newBtn);
+                Type buttonExType = assembly.GetType("Playnite.FullscreenApp.Controls.ButtonEx");
+                dynamic newBtn = Activator.CreateInstance(buttonExType);
+
+                newBtn.Content = "Theme Settings";
+                newBtn.ContentTemplate = Application.Current.TryFindResource("SettingsMenuAnikiThemeSettingsButtonTemplate") as DataTemplate;
+                newBtn.Style = Application.Current.TryFindResource("SettingsMenuButton") as Style;
+                newBtn.Command = new RelayCommand(() =>
+                {
+                    OpenAnikiThemeSettingsCategoryMenu(assembly, ctx, stack, categorySectionKey, anikiHelperSectionKey);
+                });
+
+                int finalIndex = Math.Min(insertIndex, stack.Children.Count);
+                stack.Children.Insert(finalIndex, newBtn);
+
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to inject Theme Settings submenu button.");
+            }
+        }
+
+        private static string GetThemeSettingCategoryTemplateKey(string categoryId)
+        {
+            if (string.IsNullOrWhiteSpace(categoryId))
+            {
+                return "AnikiThemeSettingsCategoryButtonTemplate";
+            }
+
+            var cleanId = new string(categoryId
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+
+            return "ThemeSettingCategory" + cleanId + "Template";
+        }
+
+        private static void OpenAnikiThemeSettingsCategoryMenu(Assembly assembly, dynamic ctx, StackPanel stack, int categorySectionKey, int anikiHelperSectionKey)
+        {
+            try
+            {
+                if (stack == null)
+                {
+                    logger.Warn("[AnikiHelper] Cannot open Theme Settings category menu: stack is null.");
+                    return;
+                }
+
+                originalSettingsMenuChildren = stack.Children
+                    .OfType<UIElement>()
+                    .ToList();
+
+                stack.Children.Clear();
+
+                Type buttonExType = assembly.GetType("Playnite.FullscreenApp.Controls.ButtonEx");
+
+                if (buttonExType == null)
+                {
+                    logger.Warn("[AnikiHelper] ButtonEx type not found.");
+                    return;
+                }
+
+                var settings = global::AnikiHelper.AnikiHelper.Instance?.Settings;
+
+                if (settings?.AnikiThemeSettingsCategories == null)
+                {
+                    logger.Warn("[AnikiHelper] AnikiThemeSettingsCategories is null.");
+                    return;
+                }
+
+                var titleText = Application.Current.TryFindResource("LOCAnikiThemeSettingsTitle") as string
+                    ?? "Theme Settings";
+
+                var backText = Application.Current.TryFindResource("LOCAnikiThemeSettingsBack") as string
+                    ?? Application.Current.TryFindResource("LOCInGameOverlayBack") as string
+                    ?? "← Back";
+
+                var window = Window.GetWindow(stack);
+                var panelHeight = stack.ActualHeight;
+
+                if (panelHeight < 700 && window != null && window.ActualHeight > 0)
+                {
+                    panelHeight = window.ActualHeight - 130;
+                }
+
+                if (panelHeight < 700)
+                {
+                    panelHeight = 950;
+                }
+
+                var rootGrid = new Grid
+                {
+                    Height = panelHeight,
+                    VerticalAlignment = VerticalAlignment.Stretch
+                };
+
+                // Row 0 = header
+                // Row 1 = categories
+                rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+                dynamic headerBackButton = Activator.CreateInstance(buttonExType);
+
+                headerBackButton.Content = "←";
+                headerBackButton.Style =
+                    Application.Current.TryFindResource("AnikiThemeSettingsCategoryMenuHeaderBackButtonStyle") as Style
+                    ?? Application.Current.TryFindResource("SettingsMenuButton") as Style;
+
+                headerBackButton.Command = new RelayCommand(() =>
+                {
+                    RestoreMainSettingsMenu(stack);
+                });
+
+                var headerContent = new AnikiThemeSettingsCategoryMenuHeaderModel
+                {
+                    Title = titleText,
+                    BackButton = null
+                };
+
+                var headerControl = new ContentControl
+                {
+                    Content = headerContent,
+                    ContentTemplate = Application.Current.TryFindResource("AnikiThemeSettingsCategoryMenuHeaderTemplate") as DataTemplate,
+                    HorizontalAlignment = HorizontalAlignment.Stretch
+                };
+
+                Grid.SetRow(headerControl, 0);
+                rootGrid.Children.Add(headerControl);
+
+                var categoriesPanel = new StackPanel
+                {
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 45, 0, 0)
+                };
+
+                Grid.SetRow(categoriesPanel, 1);
+                rootGrid.Children.Add(categoriesPanel);
+
+                Control firstCategoryButton = null;
+
+                foreach (var category in settings.AnikiThemeSettingsCategories)
+                {
+                    var categoryId = category?.Id;
+                    var categoryTitle = category?.Title;
+
+                    if (string.IsNullOrWhiteSpace(categoryId))
+                    {
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(categoryTitle))
+                    {
+                        categoryTitle = categoryId;
+                    }
+
+                    dynamic categoryButton = Activator.CreateInstance(buttonExType);
+
+                    categoryButton.Content = category;
+                    categoryButton.ContentTemplate =
+                        Application.Current.TryFindResource(GetThemeSettingCategoryTemplateKey(categoryTitle)) as DataTemplate
+                        ?? Application.Current.TryFindResource("AnikiThemeSettingsCategoryButtonTemplate") as DataTemplate;
+
+                    categoryButton.Style = Application.Current.TryFindResource("SettingsMenuButton") as Style;
+                    categoryButton.Command = new RelayCommand(() =>
+                    {
+                        settings.SelectAnikiThemeSettingsCategory(categoryId);
+                        ctx.OpenSectionCommand.Execute(categorySectionKey.ToString());
+                    });
+
+                    if (firstCategoryButton == null && categoryButton is Control control)
+                    {
+                        firstCategoryButton = control;
+                    }
+
+                    categoriesPanel.Children.Add(categoryButton);
+                }
+
+                dynamic anikiHelperButton = Activator.CreateInstance(buttonExType);
+
+                anikiHelperButton.Content = new AnikiThemeSettingsCategory
+                {
+                    Title = Application.Current.TryFindResource("LOCAnikiThemeSettingsAdvanced") as string ?? "Aniki Helper Settings",
+                    Icon = "\uE950"
+                };
+
+                anikiHelperButton.ContentTemplate = Application.Current.TryFindResource("AnikiThemeSettingsCategoryButtonTemplate") as DataTemplate;
+                anikiHelperButton.Style = Application.Current.TryFindResource("SettingsMenuButton") as Style;
+                anikiHelperButton.Command = ctx.OpenSectionCommand;
+                anikiHelperButton.CommandParameter = anikiHelperSectionKey.ToString();
+
+                categoriesPanel.Children.Add(anikiHelperButton);
+                stack.Children.Add(rootGrid);
+
+                if (firstCategoryButton != null)
+                {
+                    firstCategoryButton.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        firstCategoryButton.Focus();
+                        Keyboard.Focus(firstCategoryButton);
+                    }), DispatcherPriority.Input);
+                }
+
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to open Theme Settings category menu.");
+            }
+        }
+
+        private static void RestoreMainSettingsMenu(StackPanel stack)
+        {
+            try
+            {
+                if (originalSettingsMenuChildren == null || originalSettingsMenuChildren.Count == 0)
+                {
+                    return;
+                }
+
+                stack.Children.Clear();
+
+                foreach (var child in originalSettingsMenuChildren)
+                {
+                    stack.Children.Add(child);
+                }
+
+                stack.UpdateLayout();
+
+                originalSettingsMenuChildren = null;
+
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to restore main settings menu.");
+            }
+        }
+
+        private static void MarkFullscreenThemeEdited(dynamic ctx)
+        {
+            try
+            {
+                if (ctx == null)
+                {
+                    logger.Warn("[AnikiHelper] Cannot mark restart required: settings context is null.");
+                    return;
+                }
+
+                var field = ctx.GetType().GetField(
+                    "editedFields",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+
+                if (field == null)
+                {
+                    logger.Warn("[AnikiHelper] Cannot mark restart required: editedFields field not found.");
+                    return;
+                }
+
+                if (!(field.GetValue(ctx) is IList editedFields))
+                {
+                    logger.Warn("[AnikiHelper] Cannot mark restart required: editedFields is not an IList.");
+                    return;
+                }
+
+                if (!editedFields.Contains("Theme"))
+                {
+                    editedFields.Add("Theme");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to mark fullscreen Theme as edited.");
+            }
+        }
+
+        private static void InjectSettingsSection(
+             Assembly assembly,
+             dynamic ctx,
+             dynamic sectionViews,
+             StackPanel stack,
+             string content,
+             string templateKey,
+             Func<UserControl> viewFactory,
+             int insertIndex)
+        {
+            try
+            {
+                foreach (var child in stack.Children.OfType<ContentControl>())
+                {
+                    if ((child.Content as string) == content)
+                    {
+                        return;
+                    }
+                }
+
+                Type sectionType = assembly.GetType("Playnite.FullscreenApp.Controls.SettingsSections.SettingsSectionControl");
+                dynamic hostControl = Activator.CreateInstance(sectionType);
+
+                UserControl control;
+
+                try
+                {
+                    control = viewFactory();
+                }
+                catch (Exception ex)
+                {
+                    logger.Error(ex, $"[AnikiHelper] Failed to load fullscreen settings view for section: {content}");
+
+                    control = new UserControl
+                    {
+                        Content = new TextBlock
+                        {
+                            Text = $"Failed to load {content}. Check Aniki Helper logs.",
+                            Foreground = Brushes.White,
+                            FontSize = 28,
+                            Margin = new Thickness(40),
+                            TextWrapping = TextWrapping.Wrap
+                        }
+                    };
+                }
+
+                control.DataContext = global::AnikiHelper.AnikiHelper.Instance.SettingsVM;
+
+                hostControl.Content = control;
+
+                if (hostControl is FrameworkElement hostElement)
+                {
+                    hostElement.Loaded += OnLoad;
+                }
+
+                int nextKey = GetNextSectionKey(sectionViews);
+                sectionViews[nextKey] = hostControl;
+
+                Type buttonExType = assembly.GetType("Playnite.FullscreenApp.Controls.ButtonEx");
+                dynamic newBtn = Activator.CreateInstance(buttonExType);
+
+                newBtn.Content = content;
+                newBtn.ContentTemplate = Application.Current.TryFindResource(templateKey) as DataTemplate;
+                newBtn.Style = Application.Current.TryFindResource("SettingsMenuButton") as Style;
+                newBtn.Command = ctx.OpenSectionCommand;
+                newBtn.CommandParameter = nextKey.ToString();
+
+                var finalIndex = Math.Min(insertIndex, stack.Children.Count);
+                stack.Children.Insert(finalIndex, newBtn);
+
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, $"[AnikiHelper] Failed to inject fullscreen settings section: {content}");
+            }
+        }
+
+        private static int GetNextSectionKey(dynamic sectionViews)
+        {
+            try
+            {
+                var keys = (sectionViews.Keys as IEnumerable<int>)?.ToList();
+
+                if (keys == null || keys.Count == 0)
+                {
+                    return 1;
+                }
+
+                return keys.Max() + 1;
+            }
+            catch
+            {
+                return 999;
+            }
         }
 
         private static UserControl LoadFullscreenSettingsView()
@@ -128,10 +575,417 @@ namespace AnikiHelperFullscreen.Views
             }
         }
 
+        private static UserControl LoadAnikiThemeSettingsView()
+        {
+            string pluginAssemblyName = Assembly.GetExecutingAssembly().GetName().Name;
+            var resourceUri = new Uri(
+                $"pack://application:,,,/{pluginAssemblyName};component/Views/AnikiThemeSettingsFullscreenView.xaml",
+                UriKind.Absolute);
+
+            var resource = Application.GetResourceStream(resourceUri);
+
+            if (resource == null || resource.Stream == null)
+            {
+                throw new Exception("AnikiThemeSettingsFullscreenView.xaml resource not found.");
+            }
+
+            using (var stream = resource.Stream)
+            {
+                var control = (UserControl)XamlReader.Load(stream);
+
+                HookComboBoxNavigation(control);
+                HookAnikiThemeSettingsPreview(control);
+
+                return control;
+            }
+        }
+
+        private static void TextInput(AnikiThemeVariable input)
+        {
+            if (input == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var assembly = Application.Current.GetType().Assembly;
+                var type = assembly.GetType("Playnite.FullscreenApp.Windows.TextInputWindow");
+
+                if (type == null)
+                {
+                    logger.Warn("[AnikiHelper] TextInputWindow type not found.");
+                    return;
+                }
+
+                dynamic inputWindow = Activator.CreateInstance(type);
+
+                var oldValue = input.CurrentStringValue ?? string.Empty;
+                var title = input.DisplayName ?? input.Id ?? string.Empty;
+
+                Window owner = Application.Current.Windows
+                    .OfType<Window>()
+                    .FirstOrDefault(w => w.IsActive)
+                    ?? Application.Current.MainWindow;
+
+                dynamic result = inputWindow.ShowInput(
+                    owner,
+                    title,
+                    "",
+                    oldValue);
+
+                if (result != null && result.Result)
+                {
+                    input.CurrentStringValue = result.SelectedString;
+                }
+                else
+                {
+                    input.CurrentStringValue = oldValue;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open Playnite fullscreen text input.");
+            }
+        }
+
+        private static void HookComboBoxNavigation(UserControl control)
+        {
+            if (control == null)
+            {
+                return;
+            }
+
+            control.AddHandler(
+                Keyboard.PreviewKeyDownEvent,
+                new KeyEventHandler(OnAnikiThemeSettingsPreviewKeyDown),
+                true);
+        }
+
+        private static void HookAnikiThemeSettingsPreview(UserControl control)
+        {
+            if (control == null)
+            {
+                return;
+            }
+
+            // ThemeOptions-like behavior:
+            // Preview is shown only when a ComboBox item is focused inside the opened dropdown.
+            // The closed ComboBox itself does not show a preview.
+            control.AddHandler(
+                Keyboard.GotKeyboardFocusEvent,
+                new KeyboardFocusChangedEventHandler(OnAnikiThemeSettingsPreviewGotFocus),
+                true);
+
+            control.AddHandler(
+                Keyboard.LostKeyboardFocusEvent,
+                new KeyboardFocusChangedEventHandler(OnAnikiThemeSettingsPreviewLostFocus),
+                true);
+        }
+
+        private static void OnAnikiThemeSettingsPreviewGotFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            try
+            {
+                string preview = null;
+
+                var source = e.NewFocus as DependencyObject;
+
+                // 1. ComboBox item ouvert : preview du preset item.
+                var comboBoxItem = FindParentComboBoxItem(source);
+                if (comboBoxItem != null)
+                {
+                    preview = GetPreviewFromDataContext(comboBoxItem.DataContext);
+                }
+                else
+                {
+                    // 2. ComboBox fermée : pas de preview.
+                    var comboBox = FindParentComboBox(source);
+                    if (comboBox != null)
+                    {
+                        preview = null;
+                    }
+                    // 3. Checkbox / Slider / Button : preview de la variable.
+                    else if (e.NewFocus is FrameworkElement element)
+                    {
+                        preview = GetPreviewFromDataContext(element.DataContext);
+                    }
+                }
+
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings != null)
+                {
+                    global::AnikiHelper.AnikiHelper.Instance.Settings.AnikiThemeSettingsPreviewImage = preview;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to show Aniki Theme Settings preview.");
+            }
+        }
+
+        private static void OnAnikiThemeSettingsPreviewLostFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            try
+            {
+                // If focus moves to another ComboBoxItem, keep the preview alive.
+                var newComboBoxItem = FindParentComboBoxItem(e.NewFocus as DependencyObject);
+
+                if (newComboBoxItem != null)
+                {
+                    return;
+                }
+
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings != null)
+                {
+                    global::AnikiHelper.AnikiHelper.Instance.Settings.AnikiThemeSettingsPreviewImage = null;
+                }
+
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to clear Aniki Theme Settings preview.");
+            }
+        }
+
+        private static ComboBoxItem FindParentComboBoxItem(DependencyObject source)
+        {
+            while (source != null)
+            {
+                if (source is ComboBoxItem comboBoxItem)
+                {
+                    return comboBoxItem;
+                }
+
+                source = VisualTreeHelper.GetParent(source);
+            }
+
+            return null;
+        }
+
+        private static string GetPreviewFromDataContext(object data)
+        {
+            if (data is AnikiPresetItem preset)
+            {
+                return preset.Preview;
+            }
+
+            if (data is AnikiThemeVariable variable)
+            {
+                return variable.Preview;
+            }
+
+            return null;
+        }
+
+        private static void OnAnikiThemeSettingsPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            try
+            {
+                var source = e.OriginalSource as DependencyObject;
+
+                // Prevent focus from escaping / looping above the first setting control.
+                if (e.Key == Key.Up)
+                {
+                    var currentControl = FindParentSettingNavigationControl(source);
+
+                    if (currentControl != null)
+                    {
+                        var root = FindParentUserControl(currentControl);
+                        var controls = GetSettingNavigationControls(root);
+                        var index = controls.IndexOf(currentControl);
+
+                        if (index == 0)
+                        {
+                            e.Handled = true;
+                            return;
+                        }
+                    }
+                }
+
+                var comboBox = FindParentComboBox(source);
+
+                if (comboBox == null)
+                {
+                    return;
+                }
+
+                // If dropdown is open, let the ComboBox handle Up/Down normally.
+                if (comboBox.IsDropDownOpen)
+                {
+                    if (e.Key == Key.Escape || e.Key == Key.Back)
+                    {
+                        comboBox.IsDropDownOpen = false;
+                        e.Handled = true;
+                    }
+
+                    return;
+                }
+
+                // Open only with validation.
+                if (e.Key == Key.Enter || e.Key == Key.Space)
+                {
+                    comboBox.IsDropDownOpen = true;
+                    e.Handled = true;
+                    return;
+                }
+
+                // When closed, arrows must leave the ComboBox.
+                if (e.Key == Key.Down || e.Key == Key.Right)
+                {
+                    FocusNextControl(comboBox, forward: true);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.Up || e.Key == Key.Left)
+                {
+                    FocusNextControl(comboBox, forward: false);
+                    e.Handled = true;
+                    return;
+                }
+
+                // Prevent focus from escaping / looping above the first setting control.
+                if (e.Key == Key.Up)
+                {
+                    var currentControl = FindParentSettingNavigationControl(e.OriginalSource as DependencyObject);
+
+                    if (currentControl != null)
+                    {
+                        var root = FindParentUserControl(currentControl);
+                        var controls = GetSettingNavigationControls(root);
+                        var index = controls.IndexOf(currentControl);
+
+                        if (index == 0)
+                        {
+                            e.Handled = true;
+                            return;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to handle Aniki Theme Settings ComboBox navigation.");
+            }
+        }
+
+        private static ComboBox FindParentComboBox(DependencyObject source)
+        {
+            while (source != null)
+            {
+                if (source is ComboBox comboBox)
+                {
+                    return comboBox;
+                }
+
+                source = VisualTreeHelper.GetParent(source);
+            }
+
+            return null;
+        }
+
+        private static Control FindParentSettingNavigationControl(DependencyObject source)
+        {
+            while (source != null)
+            {
+                if (source is Control control && IsRealSettingNavigationControl(control))
+                {
+                    return control;
+                }
+
+                source = VisualTreeHelper.GetParent(source);
+            }
+
+            return null;
+        }
+
+        private static void FocusNextControl(Control currentControl, bool forward)
+        {
+            if (currentControl == null)
+            {
+                return;
+            }
+
+            var root = FindParentUserControl(currentControl);
+
+            if (root == null)
+            {
+                return;
+            }
+
+            var focusableControls = root
+                .FindVisualChildren<Control>()
+                .Where(control =>
+                    control != null &&
+                    control.Focusable &&
+                    control.IsVisible &&
+                    control.IsEnabled &&
+                    KeyboardNavigation.GetIsTabStop(control))
+                .ToList();
+
+            if (focusableControls.Count == 0)
+            {
+                return;
+            }
+
+            var currentIndex = focusableControls.IndexOf(currentControl);
+
+            if (currentIndex < 0)
+            {
+                // If focus is inside the ComboBox template, fallback to parent ComboBox index.
+                currentIndex = focusableControls.FindIndex(control => ReferenceEquals(control, currentControl));
+            }
+
+            if (currentIndex < 0)
+            {
+                return;
+            }
+
+            var nextIndex = forward
+                ? currentIndex + 1
+                : currentIndex - 1;
+
+            if (nextIndex >= focusableControls.Count)
+            {
+                nextIndex = 0;
+            }
+
+            if (nextIndex < 0)
+            {
+                nextIndex = focusableControls.Count - 1;
+            }
+
+            var nextControl = focusableControls[nextIndex];
+
+            nextControl.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                nextControl.Focus();
+                Keyboard.Focus(nextControl);
+            }), DispatcherPriority.Input);
+        }
+
+        private static UserControl FindParentUserControl(DependencyObject source)
+        {
+            while (source != null)
+            {
+                if (source is UserControl userControl)
+                {
+                    return userControl;
+                }
+
+                source = VisualTreeHelper.GetParent(source);
+            }
+
+            return null;
+        }
+
         private static void EnsureEnglishFallbackResources()
         {
             TryAddFallback("AppTitle", "Aniki Helper");
             TryAddFallback("AppInfo", "Quick settings for Aniki Helper.");
+            TryAddFallback("LOCAnikiThemeSettingsTitle", "Theme Settings");
+            TryAddFallback("LOCAnikiThemeSettingsBack", "← Back");
+            TryAddFallback("LOCAnikiThemeSettingsAdvanced", "Advanced");
             TryAddFallback("GroupGeneral", "General");
             TryAddFallback("GroupNews", "News");
             TryAddFallback("GroupDynamicColors", "Dynamic colors");
@@ -147,6 +1001,49 @@ namespace AnikiHelperFullscreen.Views
             TryAddFallback("GroupDynColors", "Dynamic colors");
             TryAddFallback("L_EnableDynamicAutoPrecache", "Pre-load dynamic colors in the background");
             TryAddFallback("L_EnableDynamicAutoPrecache_Note", "Builds the dynamic color cache in the background to reduce delays while browsing.");
+
+            TryAddFallback("GroupOverlay", "In-game overlay");
+            TryAddFallback("InGameOverlay_Enable", "Enable in-game overlay");
+            TryAddFallback("InGameOverlay_Enable_Help", "Displays a quick action overlay on top of the current game.");
+            TryAddFallback("InGameOverlay_Hotkey_Title", "Overlay shortcut");
+            TryAddFallback("InGameOverlay_Hotkey_Help", "Choose the keyboard shortcut used to open the in-game overlay. Restart Playnite after changing this setting.");
+            TryAddFallback("LOCInGameOverlaySession", "Session");
+
+            TryAddFallback("LOCInGameOverlaySource", "Source");
+            TryAddFallback("LOCInGameOverlayPlatform", "Platform");
+            TryAddFallback("LOCInGameOverlayPlaytime", "Playtime");
+            TryAddFallback("LOCInGameOverlaySession", "Session");
+
+            TryAddFallback("LOCInGameOverlayFooterTitle", "Aniki Overlay");
+            TryAddFallback("LOCInGameOverlayNoGameRunning", "No game running");
+            TryAddFallback("LOCInGameOverlayNoActiveGame", "No active game detected");
+            TryAddFallback("LOCInGameOverlayLessThanOneMinute", "less than 1 min");
+            TryAddFallback("LOCInGameOverlayQuitDialogTitle", "Quit {0}?");
+            TryAddFallback("LOCInGameOverlayQuitDialogMessage", "This will try to close the active game window.");
+
+            TryAddFallback("LOCInGameOverlayCancel", "Cancel");
+            TryAddFallback("LOCInGameOverlayConfirmQuit", "Quit Game");
+
+            TryAddFallback("InGameOverlay_ControllerShortcut_Title", "Controller shortcut");
+            TryAddFallback("InGameOverlay_ControllerShortcut_Help", "Choose the controller shortcut used to open the in-game overlay. Guide button support is experimental and may be captured by Steam, Windows, or controller tools.");
+            TryAddFallback("InGameOverlay_ControllerShortcut_StartBack", "Start + Back");
+            TryAddFallback("InGameOverlay_ControllerShortcut_BackY", "Back + Y");
+            TryAddFallback("InGameOverlay_ControllerShortcut_Guide", "Guide button");
+            TryAddFallback("InGameOverlay_ControllerShortcut_Disabled", "Disabled");
+
+            TryAddFallback("LOCInGameOverlayCurrentGame", "Current game");
+            TryAddFallback("LOCInGameOverlayQuickActions", "QUICK ACTIONS");
+            TryAddFallback("LOCInGameOverlayResumeGame", "Resume Game");
+            TryAddFallback("LOCInGameOverlayReturnToPlaynite", "Return to Playnite");
+            TryAddFallback("LOCInGameOverlayQuitGame", "Quit Game");
+            TryAddFallback("LOCInGameOverlayGameInfo", "GAME INFO");
+            TryAddFallback("LOCInGameOverlayBack", "Back");
+
+            TryAddFallback("MediaGallery_Title", "Media gallery");
+            TryAddFallback("MediaGallery_Desc", "Aniki Helper reads media from Screenshots Visualizer and Screenshot Utilities. Configure your screenshot folders in those plugins; Aniki Helper only reads their data and generates thumbnails for faster navigation in the theme.");
+            TryAddFallback("MediaGallery_GenerateThumbnails", "Media thumbnails");
+            TryAddFallback("MediaGallery_GenerateThumbnails_Button", "Generate thumbnails");
+            TryAddFallback("MediaGallery_GenerateThumbnails_Help", "Pre-generates thumbnails for all images found through the supported screenshot plugins. The first generation can take a while, but future openings should be faster.");
 
             TryAddFallback("Video", "Intro and outro videos");
             TryAddFallback("StartupIntro_Enable", "Enable intro video");
@@ -348,6 +1245,83 @@ namespace AnikiHelperFullscreen.Views
                 style.Setters.Add(new Setter(UIElement.OpacityProperty, 0.6d));
                 style.Setters.Add(new Setter(Border.BackgroundProperty, brush));
             });
+
+            // === Aniki Theme Settings style aliases ===
+            // These keys can be overridden by the theme.
+            // If the theme does not provide them, reuse Aniki Helper / Playnite settings styles.
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsScrollViewerStyle",
+                "AnikiHelperSettingsScrollViewerStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsInputBoxStyle",
+                "SettingsSectionInputBoxStyle",
+                "AnikiHelperSettingsTextBoxStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsTextTitleStyle",
+                "TextAnikiHelperSettingsStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsTextSubtitleStyle",
+                "TextAnikiHelperSettingsStyleSousTitre");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsTextMiniStyle",
+                "TextAnikiHelperSettingsStyleMini");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsSectionTitleStyle",
+                "AnikiHelperSettingsSectionTitleSectionStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsSectionTextStyle",
+                "SettingsSectionText",
+                "AnikiHelperSettingsSectionTitleOptionComboBoxStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsHeaderDockPanelStyle",
+                "AnikiHelperSettingsHeaderDockPanelStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsHeaderDockPanelMiniStyle",
+                "AnikiHelperSettingsHeaderDockPanelStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsSectionHeaderStyle",
+                "AnikiHelperSettingsSectionHeaderStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsSeparatorStyle",
+                "AnikiHelperSettingsSectionSeparatorStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsComboBoxStyle",
+                "SettingsSectionCombobox",
+                "AnikiHelperSettingsComboBoxStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsCheckBoxStyle",
+                "SettingsSectionCheckbox",
+                "AnikiHelperSettingsCheckBoxStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsSliderStyle",
+                "SettingsSectionSlider",
+                "AnikiHelperSettingsSliderStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsTextBoxStyle",
+                "AnikiHelperSettingsTextBoxStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsPreviewImageGridStyle",
+                "ThemeOptionsPreviewImageGridStyle");
+
+            TryAddStyleAlias(
+                "AnikiThemeSettingsPreviewImageStyle",
+                "ThemeOptionsPreviewImageStyle");
         }
 
         private static void TryAddDefaultStyle(string key, Type targetType, Action<Style> configure)
@@ -362,6 +1336,54 @@ namespace AnikiHelperFullscreen.Views
                 var style = new Style(targetType);
                 configure(style);
                 Application.Current.Resources[key] = style;
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryAddStyleAlias(string newKey, params string[] fallbackKeys)
+        {
+            try
+            {
+                if (Application.Current.TryFindResource(newKey) != null)
+                {
+                    return;
+                }
+
+                foreach (var fallbackKey in fallbackKeys)
+                {
+                    if (Application.Current.TryFindResource(fallbackKey) is Style style)
+                    {
+                        Application.Current.Resources[newKey] = style;
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryAddResourceAlias(string newKey, params string[] fallbackKeys)
+        {
+            try
+            {
+                if (Application.Current.TryFindResource(newKey) != null)
+                {
+                    return;
+                }
+
+                foreach (var fallbackKey in fallbackKeys)
+                {
+                    var resource = Application.Current.TryFindResource(fallbackKey);
+
+                    if (resource != null)
+                    {
+                        Application.Current.Resources[newKey] = resource;
+                        return;
+                    }
+                }
             }
             catch
             {
@@ -386,14 +1408,148 @@ namespace AnikiHelperFullscreen.Views
         {
             try
             {
-                (sender as DependencyObject)
-                    .FindVisualChildren<Control>()
-                    .FirstOrDefault(ctrl => ctrl.Focusable && ctrl.IsVisible)
-                    ?.Focus();
+                var root = sender as DependencyObject;
+
+                if (root == null)
+                {
+                    return;
+                }
+
+                root.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    FocusFirstSettingControl(root);
+                }), DispatcherPriority.ApplicationIdle);
             }
             catch
             {
             }
+        }
+
+        private static void FocusFirstSettingControl(DependencyObject root)
+        {
+            try
+            {
+                var firstControl = GetSettingNavigationControls(root).FirstOrDefault();
+
+                if (firstControl == null)
+                {
+                    return;
+                }
+
+                firstControl.Focus();
+                Keyboard.Focus(firstControl);
+            }
+            catch
+            {
+            }
+        }
+
+        private static List<Control> GetSettingNavigationControls(DependencyObject root)
+        {
+            if (root == null)
+            {
+                return new List<Control>();
+            }
+
+            var rootElement = root as UIElement;
+
+            return root
+                .FindVisualChildren<Control>()
+                .Where(IsRealSettingNavigationControl)
+                .Select(control =>
+                {
+                    try
+                    {
+                        var point = rootElement != null
+                            ? control.TranslatePoint(new Point(0, 0), rootElement)
+                            : new Point(0, 0);
+
+                        return new
+                        {
+                            Control = control,
+                            X = point.X,
+                            Y = point.Y
+                        };
+                    }
+                    catch
+                    {
+                        return new
+                        {
+                            Control = control,
+                            X = 0d,
+                            Y = 0d
+                        };
+                    }
+                })
+                .OrderBy(item => Math.Round(item.Y / 10d) * 10d)
+                .ThenBy(item => item.X)
+                .Select(item => item.Control)
+                .ToList();
+        }
+
+        private static bool IsRealSettingNavigationControl(Control control)
+        {
+            if (control == null ||
+                !control.IsVisible ||
+                !control.IsEnabled)
+            {
+                return false;
+            }
+
+            // Ignore controls inside another setting control template.
+            // Example: internal buttons inside ComboBoxEx, Slider parts, etc.
+            if (HasParentSettingNavigationControl(control))
+            {
+                return false;
+            }
+
+            if (control is Slider)
+            {
+                return true;
+            }
+
+            if (control is ComboBox)
+            {
+                return true;
+            }
+
+            if (control is CheckBox)
+            {
+                return true;
+            }
+
+            if (control is Button)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasParentSettingNavigationControl(Control control)
+        {
+            try
+            {
+                DependencyObject parent = VisualTreeHelper.GetParent(control);
+
+                while (parent != null)
+                {
+                    if (parent is Slider ||
+                        parent is ComboBox ||
+                        parent is CheckBox ||
+                        parent is Button)
+                    {
+                        return true;
+                    }
+
+                    parent = VisualTreeHelper.GetParent(parent);
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         private static IEnumerable<T> FindVisualChildren<T>(this DependencyObject parent, string typeName = null)
