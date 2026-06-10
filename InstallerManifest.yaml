@@ -257,3 +257,13 @@ Packages:
       - A global minimum splash display timer has been added in the plugin settings and can be adjusted.
       - A custom minimum splash display timer can now be set per game.
       - Splash files are now organized into cleaner dedicated folders.
+  - Version: 1.4.0
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-06-10
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.4.0/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_4_0.pext
+    Changelog:
+      - Added support for custom folders for filter and source images.
+      - Added a system to read screenshot data from Screenshot Utilities and Screenshot Visualizer.
+      - Added an in-game overlay system.
+      - Added a new theme options system.
+      - Added a debug mode.
