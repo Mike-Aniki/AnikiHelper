@@ -34,6 +34,8 @@ namespace AnikiHelper.Services.InGameOverlay
         private TextBlock clockText;
 
         private Button returnButton;
+        private TextBlock returnButtonIconText;
+        private TextBlock returnButtonLabelText;
         private Button quitButton;
         private Button cancelQuitButton;
         private Button confirmQuitButton;
@@ -188,7 +190,33 @@ namespace AnikiHelper.Services.InGameOverlay
                 useControllerFocusVisual = true;
             }
 
+            RefreshReturnButtonMode();
             UpdateAllButtonVisualStates();
+        }
+
+        private void RefreshReturnButtonMode()
+        {
+            try
+            {
+                if (returnButtonIconText == null || returnButtonLabelText == null)
+                {
+                    return;
+                }
+
+                if (service.OverlayOpenedFromPlaynite)
+                {
+                    returnButtonIconText.Text = "↩";
+                    returnButtonLabelText.Text = Loc("LOCInGameOverlayReturnToGame", "Return to Game");
+                }
+                else
+                {
+                    returnButtonIconText.Text = "⌂";
+                    returnButtonLabelText.Text = Loc("LOCInGameOverlayReturnToPlaynite", "Return to Playnite");
+                }
+            }
+            catch
+            {
+            }
         }
 
         private void RefreshInfoValues()
@@ -1167,6 +1195,11 @@ namespace AnikiHelper.Services.InGameOverlay
             Grid.SetColumn(iconText, 0);
             contentGrid.Children.Add(iconText);
 
+            if (action == service.ReturnToPlaynite)
+            {
+                returnButtonIconText = iconText;
+            }
+
             var labelText = new TextBlock
             {
                 Text = text,
@@ -1181,10 +1214,29 @@ namespace AnikiHelper.Services.InGameOverlay
             Grid.SetColumn(labelText, 1);
             contentGrid.Children.Add(labelText);
 
+            if (action == service.ReturnToPlaynite)
+            {
+                returnButtonLabelText = labelText;
+            }
+
             button.Content = contentGrid;
 
             button.Click += (s, e) =>
             {
+                if (button == returnButton)
+                {
+                    if (service.OverlayOpenedFromPlaynite)
+                    {
+                        service.ReturnToGame();
+                    }
+                    else
+                    {
+                        service.ReturnToPlaynite();
+                    }
+
+                    return;
+                }
+
                 action?.Invoke();
             };
 
@@ -1547,7 +1599,11 @@ namespace AnikiHelper.Services.InGameOverlay
                     break;
 
                 case ControllerInput.A:
-                    ClickForcedControllerFocusedButton();
+                    Dispatcher.BeginInvoke(new Action(async () =>
+                    {
+                        await System.Threading.Tasks.Task.Delay(180);
+                        ClickForcedControllerFocusedButton();
+                    }), DispatcherPriority.Background);
                     break;
 
                 case ControllerInput.B:
@@ -1715,7 +1771,15 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 if (button == returnButton)
                 {
-                    service.ReturnToPlaynite();
+                    if (service.OverlayOpenedFromPlaynite)
+                    {
+                        service.ReturnToGame();
+                    }
+                    else
+                    {
+                        service.ReturnToPlaynite();
+                    }
+
                     return;
                 }
 

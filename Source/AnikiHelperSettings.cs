@@ -316,6 +316,81 @@ namespace AnikiHelper
         public RelayCommand<object> InitializeWelcomeHubCommand { get; }
 
         [DontSerialize]
+        private bool gameClosing;
+
+        [DontSerialize]
+        public bool GameClosing
+        {
+            get => gameClosing;
+            set => SetValue(ref gameClosing, value);
+        }
+
+        [DontSerialize]
+        private string selectedGameInstallSizeNoDecimal = string.Empty;
+
+        [DontSerialize]
+        public string SelectedGameInstallSizeNoDecimal
+        {
+            get => selectedGameInstallSizeNoDecimal;
+            set => SetValue(ref selectedGameInstallSizeNoDecimal, value);
+        }
+
+        public void UpdateSelectedGameInstallSizeNoDecimal(Playnite.SDK.Models.Game game)
+        {
+            try
+            {
+                if (game == null || game.InstallSize == null || game.InstallSize == 0)
+                {
+                    SelectedGameInstallSizeNoDecimal = string.Empty;
+                    return;
+                }
+
+                double size = game.InstallSize.Value;
+                string unit = "B";
+
+                if (size >= 1024)
+                {
+                    size /= 1024;
+                    unit = "KB";
+                }
+
+                if (size >= 1024)
+                {
+                    size /= 1024;
+                    unit = "MB";
+                }
+
+                if (size >= 1024)
+                {
+                    size /= 1024;
+                    unit = "GB";
+                }
+
+                if (size >= 1024)
+                {
+                    size /= 1024;
+                    unit = "TB";
+                }
+
+                SelectedGameInstallSizeNoDecimal = $"{size:0} {unit}";
+            }
+            catch
+            {
+                SelectedGameInstallSizeNoDecimal = string.Empty;
+            }
+        }
+
+        [DontSerialize]
+        private string closingGameName = string.Empty;
+
+        [DontSerialize]
+        public string ClosingGameName
+        {
+            get => closingGameName;
+            set => SetValue(ref closingGameName, value);
+        }
+
+        [DontSerialize]
         public RelayCommand RefreshMediaGalleryCommand { get; }
 
         [DontSerialize]

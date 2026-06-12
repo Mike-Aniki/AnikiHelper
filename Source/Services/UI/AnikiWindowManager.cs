@@ -117,6 +117,23 @@ namespace AnikiHelper.Services
             {
                 CleanupClosedWindows();
 
+                if (IsPlayniteSettingsWindowOpen())
+                {
+                    return;
+                }
+
+                var existingWindow = windows.FirstOrDefault(w =>
+                    w != null &&
+                    w.IsVisible &&
+                    string.Equals(w.Tag as string, styleKey, StringComparison.OrdinalIgnoreCase));
+
+                if (existingWindow != null)
+                {
+                    existingWindow.Activate();
+                    existingWindow.Focus();
+                    return;
+                }
+
                 if (!string.Equals(styleKey, QuickAccessWindowStyleName, StringComparison.OrdinalIgnoreCase))
                 {
                     CloseWindowByStyleKey(QuickAccessWindowStyleName);
@@ -207,6 +224,17 @@ namespace AnikiHelper.Services
                     }), DispatcherPriority.ApplicationIdle);
                 }
             });
+        }
+
+        private static bool IsPlayniteSettingsWindowOpen()
+        {
+            return Application.Current.Windows
+                .OfType<Window>()
+                .Any(w =>
+                    w.IsVisible &&
+                    (w.GetType().FullName ?? "").IndexOf(
+                        "SettingsWindow",
+                        StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         private static T FindVisualChildByName<T>(DependencyObject parent, string name) where T : FrameworkElement

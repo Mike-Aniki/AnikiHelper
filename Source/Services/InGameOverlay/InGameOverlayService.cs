@@ -1,4 +1,5 @@
-﻿using AnikiHelper.Services.MediaGallery;
+﻿using AnikiHelper.Services.Achievements;
+using AnikiHelper.Services.MediaGallery;
 using Playnite.SDK;
 using Playnite.SDK.Data;
 using Playnite.SDK.Events;
@@ -11,7 +12,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
-using AnikiHelper.Services.Achievements;
+using System.Windows.Input;
 
 namespace AnikiHelper.Services.InGameOverlay
 {
@@ -24,6 +25,7 @@ namespace AnikiHelper.Services.InGameOverlay
         private InGameOverlayHotkeyService hotkeyService;
         private AnikiOverlayInputListener inputListener;
         private AnikiInGameOverlayWindow overlayWindow;
+        private bool overlayOpenedFromPlaynite;
 
         private readonly object overlayToggleLock = new object();
         private bool overlayToggleQueued;
@@ -62,6 +64,16 @@ namespace AnikiHelper.Services.InGameOverlay
         public bool IsOverlayVisible
         {
             get { return overlayWindow != null && overlayWindow.IsVisible; }
+        }
+
+        public bool IsPlayniteForeground
+        {
+            get { return IsPlayniteCurrentlyForeground(); }
+        }
+
+        public bool OverlayOpenedFromPlaynite
+        {
+            get { return overlayOpenedFromPlaynite; }
         }
 
         public string CurrentGameName
@@ -387,6 +399,9 @@ namespace AnikiHelper.Services.InGameOverlay
 
         public void ClearCurrentGame(Game game)
         {
+            settings.GameClosing = false;
+            settings.ClosingGameName = string.Empty;
+
             if (game == null || currentGame == null || game.Id == currentGame.Id)
             {
                 currentGame = null;
@@ -573,7 +588,12 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
-            CaptureCurrentForegroundGameWindow();
+            overlayOpenedFromPlaynite = IsPlayniteCurrentlyForeground();
+
+            if (!overlayOpenedFromPlaynite)
+            {
+                CaptureCurrentForegroundGameWindow();
+            }
 
             if (overlayWindow == null)
             {
@@ -686,13 +706,35 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
-        private void HideOverlayImmediate()
+        private bool IsPlayniteCurrentlyForeground()
         {
             try
             {
-                if (overlayWindow != null)
+                var foregroundWindow = GetForegroundWindow();
+                var playniteWindow = Application.Current?.MainWindow;
+
+                if (foregroundWindow == IntPtr.Zero || playniteWindow == null)
                 {
-                    overlayWindow.HideImmediately();
+                    return false;
+                }
+
+                var playniteHandle = new System.Windows.Interop.WindowInteropHelper(playniteWindow).Handle;
+
+                return playniteHandle != IntPtr.Zero && foregroundWindow == playniteHandle;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void OverlayDebugLog(string message)
+        {
+            try
+            {
+                if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Info("[AnikiHelper]" + message);
                 }
             }
             catch
@@ -700,24 +742,124 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
+
+        private void HideOverlayImmediate()
+        {
+            try
+            {
+                if (overlayWindow != null)
+                {
+                    overlayWindow.Close();
+                    overlayWindow = null;
+                }
+            }
+            catch
+            {
+                overlayWindow = null;
+            }
+        }
+
+        public void ReturnToGame()
+        {
+            OverlayDebugLog("[Overlay][ReturnToGame] START");
+
+            try
+            {
+                HideOverlayImmediate();
+
+                if (lastForegroundWindow != IntPtr.Zero)
+                {
+                    ShowWindow(lastForegroundWindow, SW_RESTORE);
+                    ForceFocusWindow(lastForegroundWindow);
+
+                    OverlayDebugLog("[Overlay][ReturnToGame] Tried lastForegroundWindow.");
+                    return;
+                }
+
+                if (lastForegroundWindowProcessId.HasValue)
+                {
+                    var process = Process.GetProcessById(lastForegroundWindowProcessId.Value);
+
+                    if (process != null && !process.HasExited && process.MainWindowHandle != IntPtr.Zero)
+                    {
+                        ShowWindow(process.MainWindowHandle, SW_RESTORE);
+                        ForceFocusWindow(process.MainWindowHandle);
+
+                        OverlayDebugLog("[Overlay][ReturnToGame] Focused lastForegroundWindowProcessId.");
+                        return;
+                    }
+                }
+
+                if (currentGameProcessId.HasValue)
+                {
+                    var process = Process.GetProcessById(currentGameProcessId.Value);
+
+                    if (process != null && !process.HasExited && process.MainWindowHandle != IntPtr.Zero)
+                    {
+                        ShowWindow(process.MainWindowHandle, SW_RESTORE);
+                        ForceFocusWindow(process.MainWindowHandle);
+
+                        OverlayDebugLog("[Overlay][ReturnToGame] Focused currentGameProcessId.");
+                        return;
+                    }
+                }
+
+                OverlayDebugLog("[Overlay][ReturnToGame] No valid game window found.");
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] ReturnToGame failed.");
+            }
+        }
+
         public void ReturnToPlaynite()
         {
+            OverlayDebugLog("[Overlay][ReturnToPlaynite] START");
+
             HideOverlayImmediate();
 
             try
             {
-                var window = playniteApi.Dialogs.GetCurrentAppWindow();
+                if (lastForegroundWindow != IntPtr.Zero)
+                {
+                    OverlayDebugLog("[Overlay][ReturnToPlaynite] Minimizing captured game window before restoring Playnite.");
+                    ShowWindow(lastForegroundWindow, SW_MINIMIZE);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to minimize captured game window before returning to Playnite.");
+            }
+
+            OverlayDebugLog("[Overlay][ReturnToPlaynite] After HideOverlayImmediate");
+
+            try
+            {
+                var window = Application.Current?.MainWindow;
+
+                OverlayDebugLog($"[Overlay][ReturnToPlaynite] MainWindow null = {window == null}");
+
                 if (window != null)
                 {
-                    var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+                    OverlayDebugLog(
+                        $"[Overlay][ReturnToPlaynite] Before restore | " +
+                        $"IsVisible={window.IsVisible}, IsActive={window.IsActive}, " +
+                        $"WindowState={window.WindowState}, Topmost={window.Topmost}, " +
+                        $"IsFocused={window.IsFocused}, IsKeyboardFocusWithin={window.IsKeyboardFocusWithin}"
+                    );
 
-                    if (handle != IntPtr.Zero)
+                    RestoreAndFocusPlayniteWindow(window);
+
+                    window.Dispatcher.BeginInvoke(new Action(async () =>
                     {
-                        ForceFocusWindow(handle);
-                    }
+                        await TryFocusGameStatusButtonAsync(window);
+                    }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 
-                    window.Activate();
+
+                    OverlayDebugLog("[Overlay][ReturnToPlaynite] After RestoreAndFocusPlayniteWindow");
                 }
+
+                OverlayDebugLog("[Overlay][ReturnToPlaynite] END");
             }
             catch (Exception ex)
             {
@@ -763,6 +905,8 @@ namespace AnikiHelper.Services.InGameOverlay
             {
             }
 
+            settings.GameClosing = true;
+            settings.ClosingGameName = currentGame?.Name ?? string.Empty;
             var capturedWindow = lastForegroundWindow;
             var capturedWindowPid = lastForegroundWindowProcessId;
             var startedPid = currentGameProcessId;
@@ -1528,6 +1672,118 @@ namespace AnikiHelper.Services.InGameOverlay
             return fallback;
         }
 
+        private static T FindVisualChildByName<T>(DependencyObject parent, string name) where T : FrameworkElement
+        {
+            if (parent == null)
+            {
+                return null;
+            }
+
+            var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+
+            for (int i = 0; i < count; i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+
+                if (child is T element && element.Name == name)
+                {
+                    return element;
+                }
+
+                var result = FindVisualChildByName<T>(child, name);
+
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task TryFocusGameStatusButtonAsync(Window window)
+        {
+            if (window == null)
+            {
+                return;
+            }
+
+            for (int attempt = 1; attempt <= GameStatusFocusMaxAttempts; attempt++)
+            {
+                try
+                {
+                    await Task.Delay(GameStatusFocusRetryDelayMs);
+
+                    var gameStatusButton = FindVisualChildByName<FrameworkElement>(window, "GameStatusButton");
+
+                    if (gameStatusButton != null &&
+                        gameStatusButton.IsVisible &&
+                        gameStatusButton.IsEnabled &&
+                        gameStatusButton.Focusable)
+                    {
+                        OverlayDebugLog($"[Overlay][ReturnToPlaynite] Focusing GameStatusButton. Attempt={attempt}");
+
+                        gameStatusButton.Focus();
+                        Keyboard.Focus(gameStatusButton);
+                        return;
+                    }
+
+                    OverlayDebugLog($"[Overlay][ReturnToPlaynite] GameStatusButton not ready. Attempt={attempt}");
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, $"[AnikiHelper] Failed to focus GameStatusButton. Attempt={attempt}");
+                }
+            }
+
+            OverlayDebugLog("[Overlay][ReturnToPlaynite] GameStatusButton focus failed after retries.");
+        }
+
+        private void RestoreAndFocusPlayniteWindow(Window window)
+        {
+            if (window == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+
+                if (handle == IntPtr.Zero)
+                {
+                    window.Show();
+                    window.Activate();
+                    return;
+                }
+
+                if (window.WindowState == WindowState.Minimized)
+                {
+                    window.WindowState = WindowState.Normal;
+                }
+
+                if (IsIconic(handle))
+                {
+                    ShowWindow(handle, SW_RESTORE);
+                }
+                else
+                {
+                    ShowWindow(handle, SW_SHOW);
+                }
+
+                BringWindowToTop(handle);
+                ForceFocusWindow(handle);
+
+                window.Show();
+                window.Activate();
+                window.Focus();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to restore and focus Playnite window.");
+            }
+        }
+
         private static void ForceFocusWindow(IntPtr windowHandle)
         {
             if (windowHandle == IntPtr.Zero)
@@ -1580,6 +1836,15 @@ namespace AnikiHelper.Services.InGameOverlay
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         [DllImport("user32.dll")]
@@ -1591,6 +1856,11 @@ namespace AnikiHelper.Services.InGameOverlay
         private const uint WM_CLOSE = 0x0010;
         private const uint WM_SYSCOMMAND = 0x0112;
         private const int SC_CLOSE = 0xF060;
+        private const int SW_RESTORE = 9;
+        private const int SW_SHOW = 5;
+        private const int SW_MINIMIZE = 6;
+        private const int GameStatusFocusRetryDelayMs = 250;
+        private const int GameStatusFocusMaxAttempts = 6;
         private sealed class SsFile
         {
             public string Name { get; set; }

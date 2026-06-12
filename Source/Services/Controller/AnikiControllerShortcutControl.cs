@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace AnikiHelper.Services.Controller
 {
@@ -268,6 +269,11 @@ namespace AnikiHelper.Services.Controller
                         continue;
                     }
 
+                    if (IsStartOrBack(pressedButton) && IsAnikiOrSettingsWindowOpen())
+                    {
+                        return;
+                    }
+
                     if (gamepadBinding.Command != null &&
                         gamepadBinding.Command.CanExecute(gamepadBinding.CommandParameter))
                     {
@@ -290,6 +296,26 @@ namespace AnikiHelper.Services.Controller
             {
                 logger.Warn(ex, "[AnikiHelper] Failed to process controller shortcut.");
             }
+        }
+
+        private static bool IsStartOrBack(string button)
+        {
+            return button.Equals("Start", StringComparison.OrdinalIgnoreCase) ||
+                   button.Equals("Back", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAnikiOrSettingsWindowOpen()
+        {
+            return Application.Current.Windows
+                .OfType<Window>()
+                .Any(w =>
+                    w.IsVisible &&
+                    (
+                        w.Tag is string ||
+                        (w.GetType().FullName ?? "").IndexOf(
+                            "SettingsWindow",
+                            StringComparison.OrdinalIgnoreCase) >= 0
+                    ));
         }
 
         private static bool IsParentFocused(DependencyObject current)

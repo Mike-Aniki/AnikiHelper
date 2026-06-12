@@ -8856,10 +8856,6 @@ namespace AnikiHelper
                     return;
                 }
 
-                if (inGameOverlayService != null && inGameOverlayService.IsGameRunning)
-                {
-                    return;
-                }
             }
 
             AnikiControllerInput.SetState(args);
@@ -9221,6 +9217,8 @@ namespace AnikiHelper
             Interlocked.Exchange(ref lastSteamUpdateUserActivityTicks, Environment.TickCount);
 
             var g = args?.NewValue?.FirstOrDefault();
+
+            Settings?.UpdateSelectedGameInstallSizeNoDecimal(g);
 
             DynamicAuto.NotifyGameSelected(g);
 
