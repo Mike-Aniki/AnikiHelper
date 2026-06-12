@@ -267,3 +267,12 @@ Packages:
       - Added an in-game overlay system.
       - Added a new theme options system.
       - Added a debug mode.
+  - Version: 1.4.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-06-12
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.4.1/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_4_1.pext
+    Changelog:
+      - Improved the in-game overlay behavior, allowing you to return to Playnite or quit the current game from in-game, and return to the running game or quit it from Playnite.
+      - Added a new property for game install size display, allowing sizes to be shown without decimals.
+      - Fixed an issue where Start and Back could be spammed, causing multiple menus to open at the same time.
+      - Fixed an issue where the Return to Playnite button in the in-game overlay did not work when Playnite was minimized.
