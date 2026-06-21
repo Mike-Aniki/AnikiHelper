@@ -276,3 +276,18 @@ Packages:
       - Added a new property for game install size display, allowing sizes to be shown without decimals.
       - Fixed an issue where Start and Back could be spammed, causing multiple menus to open at the same time.
       - Fixed an issue where the Return to Playnite button in the in-game overlay did not work when Playnite was minimized.
+  - Version: 1.4.2
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-06-21
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.4.2/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_4_2.pext
+    Changelog:
+      - Fixed an issue where the **Start** button did not work correctly on the theme’s virtual keyboard.
+      - Fixed controller double-input issues when using Windows Task View or switching between applications.
+      - Fixed cases where controller shortcuts could still trigger while Playnite was not the active window.
+      - Added new Store sources.
+      - Added a focus management system for custom theme windows.
+      - Added a plugin version verification system to detect missing or outdated Aniki Helper versions.
+      - Improved controller shortcut handling in Fullscreen mode.
+      - Improved navigation stability inside custom theme windows.
+      - Improved Store source handling and data loading.
+      - Improved fullscreen/theme compatibility checks.
