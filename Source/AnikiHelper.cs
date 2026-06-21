@@ -58,12 +58,64 @@ namespace AnikiHelper
             }
         }
 
+        private void InitializeLuckyDaySession()
+        {
+            try
+            {
+                var sw = Stopwatch.StartNew();
+
+                OnUi(() =>
+                {
+                    var swUi = Stopwatch.StartNew();
+                    var rand = new Random();
+                    const int max = 42;
+
+                    int pick;
+                    if (Settings.LastLoginRandomIndex >= 1 && Settings.LastLoginRandomIndex <= max && max > 1)
+                    {
+                        do
+                        {
+                            pick = rand.Next(1, max + 1);
+                        }
+                        while (pick == Settings.LastLoginRandomIndex);
+                    }
+                    else
+                    {
+                        pick = rand.Next(1, max + 1);
+                    }
+
+                    Settings.LoginRandomIndex = pick;
+                    Settings.LastLoginRandomIndex = pick;
+
+                    if (Settings.IsLuckyDay)
+                    {
+                        eventSoundService?.PlayLuckyDay();
+                    }
+
+                    DebugLog($"[AnikiHelper][LuckyDay] Random login pick took {swUi.ElapsedMilliseconds}ms | pick={pick} | lucky={Settings.IsLuckyDay}");
+                });
+
+                SaveSettingsSafe();
+                DebugLog($"[AnikiHelper][LuckyDay] Session init took {sw.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Lucky Day session init failed.");
+            }
+        }
+
         private readonly SteamGlobalNewsService rssNewsService;
         private readonly EventSoundService eventSoundService;
         private readonly AnikiWindowManager anikiWindowManager;
         private readonly InGameOverlayService inGameOverlayService;
         private readonly AnikiThemeSettingsService anikiThemeSettingsService;
         private readonly NavigationFixService horizontalFocusFixService;
+
+        private const string RequiredAnikiAuthorCredit = "Mike Aniki";
+        private const string RequiredAnikiBrandName = "Aniki";
+
+        private string cachedAnikiThemeId;
+        private bool? cachedAnikiThemeAuthorization;
 
         private readonly bool isFullscreenMode;
 
@@ -92,6 +144,10 @@ namespace AnikiHelper
 
         private readonly System.Threading.SemaphoreSlim steamStoreOpenLock = new System.Threading.SemaphoreSlim(1, 1);
         private DateTime lastSteamStoreOpenRequestUtc = DateTime.MinValue;
+        private DateTime lastMediaGalleryRefreshShortcutUtc = DateTime.MinValue;
+
+        // Steam Store loading progress animation
+        private int steamStoreProgressAnimationToken = 0;
 
         public static AnikiHelper Instance { get; private set; }
 
@@ -1106,6 +1162,14 @@ namespace AnikiHelper
 
         private void AddLastNotificationOnUi(string title, string message, string type = null, string imagePath = null)
         {
+            // Do not store game session ended notifications in the notification history.
+            // The session popup still works because it uses SessionNotificationArmed,
+            // not LastNotifications.
+            if (string.Equals(type, "gameEnded", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             try
             {
                 if (Settings == null)
@@ -1463,6 +1527,7 @@ namespace AnikiHelper
         // Steam current players
         private readonly SteamPlayerCountService steamPlayerCountService = new SteamPlayerCountService();
         private SteamStoreService steamStoreService;
+        private SteamUpcomingGamesService steamUpcomingGamesService;
 
         // GUID plugin Steam officiel
         private static readonly Guid SteamPluginId = Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab");
@@ -5359,10 +5424,15 @@ namespace AnikiHelper
                 GetPluginUserDataPath());
 
             steamStoreService = new SteamStoreService(api, GetPluginUserDataPath());
+            steamUpcomingGamesService = new SteamUpcomingGamesService(logger, GetPluginUserDataPath(), steamStoreService);
             splashScreenService = new SplashScreenService(GetPluginUserDataPath());
             splashScreenRuntimeService = new SplashScreenRuntimeService(IsPlayniteForegroundWindow);
 
-            horizontalFocusFixService = new NavigationFixService(api, () => Settings.IsWelcomeHubOpen);
+            horizontalFocusFixService = new NavigationFixService(
+                api,
+                () => Settings.IsWelcomeHubOpen,
+                () => Settings.HubCurrentPage,
+                page => Settings.HubCurrentPage = page);
 
             CleanupLegacyNewsCache();
 
@@ -5385,7 +5455,6 @@ namespace AnikiHelper
                         Settings.SteamStoreDeals.Clear();
                         Settings.SteamStoreNewReleases.Clear();
                         Settings.SteamStoreTopSellers.Clear();
-                        Settings.SteamStoreSpotlight.Clear();
 
                         Settings.SteamStoreDetailsVisible = false;
                         Settings.SteamStoreDetailsLoading = false;
@@ -5404,6 +5473,8 @@ namespace AnikiHelper
                         Settings.SteamStoreDetailsScreenshot1 = string.Empty;
                         Settings.SteamStoreDetailsScreenshot2 = string.Empty;
                         Settings.SteamStoreDetailsScreenshot3 = string.Empty;
+                        Settings.SteamStoreDetailsScreenshot4 = string.Empty;
+                        Settings.SteamStoreDetailsScreenshot5 = string.Empty;
                         Settings.SteamStoreDetailsReleaseDate = string.Empty;
                         Settings.SteamStoreDetailsIsPreorder = false;
                         Settings.SteamStoreDetailsDevelopers = string.Empty;
@@ -5533,6 +5604,52 @@ namespace AnikiHelper
             return "US";
         }
 
+        public void OpenSteamStoreScreenshotViewer(object image)
+        {
+            try
+            {
+                var imagePath = image?.ToString();
+
+                if (string.IsNullOrWhiteSpace(imagePath))
+                {
+                    return;
+                }
+
+                var finalImage = FirstSteamStoreImage(imagePath);
+
+                if (string.IsNullOrWhiteSpace(finalImage))
+                {
+                    return;
+                }
+
+                OnUi(() =>
+                {
+                    Settings.SteamStoreScreenshotViewerImage = finalImage;
+                    Settings.SteamStoreScreenshotViewerVisible = true;
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open Steam Store screenshot viewer.");
+            }
+        }
+
+        public void CloseSteamStoreScreenshotViewer()
+        {
+            try
+            {
+                OnUi(() =>
+                {
+                    Settings.SteamStoreScreenshotViewerVisible = false;
+                    Settings.SteamStoreScreenshotViewerImage = string.Empty;
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to close Steam Store screenshot viewer.");
+            }
+        }
+
         public async void OpenSteamStoreDetails(SteamStoreItem item)
         {
             if (Settings?.SteamStoreEnabled != true)
@@ -5564,8 +5681,16 @@ namespace AnikiHelper
 
                 OnUi(() =>
                 {
+                    Settings.SteamStoreScreenshotViewerVisible = false;
+                    Settings.SteamStoreScreenshotViewerImage = string.Empty;
+
                     Settings.SteamStoreDetailsTitle = item.Name ?? string.Empty;
-                    Settings.SteamStoreDetailsImage = item.HeaderImageLocalPath ?? item.HeaderImageUrl ?? string.Empty;
+                    Settings.SteamStoreDetailsImage = FirstSteamStoreImage(
+                        item.HeaderImageLocalPath,
+                        item.HeaderImageUrl,
+                        item.CapsuleImageLocalPath,
+                        item.CapsuleImageUrl
+                    );
                     Settings.SteamStoreDetailsBackgroundImage =
                         item.BackgroundImageLocalPath ??
                         item.BackgroundImageUrl ??
@@ -5594,13 +5719,20 @@ namespace AnikiHelper
 
                 OnUi(() =>
                 {
-                    Settings.SteamStoreDetailsBackgroundImage =
-                        item.BackgroundImageLocalPath ??
-                        item.BackgroundImageUrl ??
-                        item.HeaderImageLocalPath ??
-                        item.HeaderImageUrl ??
-                        Settings.SteamStoreDetailsImage ??
-                        string.Empty;
+                    Settings.SteamStoreDetailsImage = FirstSteamStoreImage(
+                        item.HeaderImageLocalPath,
+                        item.HeaderImageUrl,
+                        item.CapsuleImageLocalPath,
+                        item.CapsuleImageUrl
+                    );
+
+                    Settings.SteamStoreDetailsBackgroundImage = FirstSteamStoreImage(
+                        item.BackgroundImageLocalPath,
+                        item.BackgroundImageUrl,
+                        item.HeaderImageLocalPath,
+                        item.HeaderImageUrl,
+                        Settings.SteamStoreDetailsImage
+                    );
 
                     Settings.SteamStoreDetailsDescription = string.IsNullOrWhiteSpace(item.ShortDescription)
                         ? "No description available for this title."
@@ -5657,9 +5789,11 @@ namespace AnikiHelper
                         ? item.DlcCount.ToString()
                         : string.Empty;
 
-                    Settings.SteamStoreDetailsScreenshot1 = item.Screenshot1LocalPath ?? item.Screenshot1Url ?? string.Empty;
-                    Settings.SteamStoreDetailsScreenshot2 = item.Screenshot2LocalPath ?? item.Screenshot2Url ?? string.Empty;
-                    Settings.SteamStoreDetailsScreenshot3 = item.Screenshot3LocalPath ?? item.Screenshot3Url ?? string.Empty;
+                    Settings.SteamStoreDetailsScreenshot1 = FirstSteamStoreImage(item.Screenshot1LocalPath, item.Screenshot1Url);
+                    Settings.SteamStoreDetailsScreenshot2 = FirstSteamStoreImage(item.Screenshot2LocalPath, item.Screenshot2Url);
+                    Settings.SteamStoreDetailsScreenshot3 = FirstSteamStoreImage(item.Screenshot3LocalPath, item.Screenshot3Url);
+                    Settings.SteamStoreDetailsScreenshot4 = FirstSteamStoreImage(item.Screenshot4LocalPath, item.Screenshot4Url);
+                    Settings.SteamStoreDetailsScreenshot5 = FirstSteamStoreImage(item.Screenshot5LocalPath, item.Screenshot5Url);
                     Settings.SteamStoreDetailsLoading = false;
                 });
 
@@ -5670,6 +5804,9 @@ namespace AnikiHelper
 
                 OnUi(() =>
                 {
+                    Settings.SteamStoreScreenshotViewerVisible = false;
+                    Settings.SteamStoreScreenshotViewerImage = string.Empty;
+
                     Settings.SteamStoreDetailsLoading = false;
                     Settings.SteamStoreDetailsVisible = true;
 
@@ -5684,6 +5821,528 @@ namespace AnikiHelper
                 });
             }
         }
+
+        private SteamStoreItem ConvertUpcomingToStoreItem(SteamUpcomingGameItem item)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+
+            return new SteamStoreItem
+            {
+                AppId = item.AppId,
+                Name = item.Name,
+                StoreUrl = item.StoreUrl,
+                Source = item.Source,
+
+                HeaderImageUrl = !string.IsNullOrWhiteSpace(item.HeaderImage)
+                    ? item.HeaderImage
+                    : item.CapsuleImageUrl,
+
+                HeaderImageLocalPath = !string.IsNullOrWhiteSpace(item.HeaderImageLocalPath)
+                    ? item.HeaderImageLocalPath
+                    : item.CapsuleImageLocalPath,
+
+                CapsuleImageUrl = !string.IsNullOrWhiteSpace(item.CapsuleImageUrl)
+                    ? item.CapsuleImageUrl
+                    : item.HeaderImage,
+
+                CapsuleImageLocalPath = !string.IsNullOrWhiteSpace(item.CapsuleImageLocalPath)
+                    ? item.CapsuleImageLocalPath
+                    : item.HeaderImageLocalPath,
+
+                BackgroundImageUrl = item.BackgroundImageUrl,
+                BackgroundImageLocalPath = item.BackgroundImageLocalPath,
+
+                ShortDescription = item.ShortDescription,
+                ReleaseDateDisplay = item.ReleaseDateDisplay,
+                FinalPriceDisplay = item.FinalPriceDisplay,
+                OriginalPriceDisplay = item.OriginalPriceDisplay,
+                DiscountDisplay = item.DiscountDisplay,
+                ComingSoon = item.ComingSoon,
+                IsPreorder = item.IsPreorder,
+                Genres = item.Genres ?? new List<string>(),
+                Categories = item.Categories ?? new List<string>(),
+                Developers = item.Developers ?? new List<string>(),
+                Publishers = item.Publishers ?? new List<string>(),
+                Screenshot1Url = item.Screenshot1Url,
+                Screenshot1LocalPath = item.Screenshot1LocalPath,
+                Screenshot2Url = item.Screenshot2Url,
+                Screenshot2LocalPath = item.Screenshot2LocalPath,
+                Screenshot3Url = item.Screenshot3Url,
+                Screenshot3LocalPath = item.Screenshot3LocalPath,
+                Screenshot4Url = item.Screenshot4Url,
+                Screenshot4LocalPath = item.Screenshot4LocalPath,
+                Screenshot5Url = item.Screenshot5Url,
+                Screenshot5LocalPath = item.Screenshot5LocalPath
+            };
+        }
+
+        public void SetSteamStoreSection(string section)
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(section))
+            {
+                section = "Featured";
+            }
+
+            Settings.SteamStoreSelectedSection = section;
+            UpdateSteamStoreActiveSection();
+        }
+
+        public void SwitchSteamStoreSection(int direction)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (Settings == null)
+                        {
+                            return;
+                        }
+
+                        if (Settings.SteamStoreLoading || Settings.SteamStoreDetailsVisible)
+                        {
+                            return;
+                        }
+
+                        if (!IsSteamStoreViewVisible())
+                        {
+                            return;
+                        }
+
+                        string[] sections =
+                        {
+                    "Deals",
+                    "New",
+                    "Upcoming",
+                    "Wishlisted",
+                    "Popular"
+                };
+
+                        var currentSection = Settings.SteamStoreSelectedSection ?? "Deals";
+
+                        var currentIndex = Array.FindIndex(
+                            sections,
+                            x => string.Equals(x, currentSection, StringComparison.OrdinalIgnoreCase)
+                        );
+
+                        if (currentIndex < 0)
+                        {
+                            currentIndex = 0;
+                        }
+
+                        var nextIndex = currentIndex + direction;
+
+                        if (nextIndex < 0)
+                        {
+                            nextIndex = sections.Length - 1;
+                        }
+
+                        if (nextIndex >= sections.Length)
+                        {
+                            nextIndex = 0;
+                        }
+
+                        SetSteamStoreSection(sections[nextIndex]);
+
+                        FocusSteamStoreHeroButton();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to switch Steam Store section.");
+                    }
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] SwitchSteamStoreSection failed.");
+            }
+        }
+
+        private bool IsSteamStoreViewVisible()
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher != null && !dispatcher.CheckAccess())
+                {
+                    return dispatcher.Invoke(new Func<bool>(IsSteamStoreViewVisible));
+                }
+
+                var app = Application.Current;
+
+                if (app == null)
+                {
+                    return false;
+                }
+
+                return app.Windows
+                    .OfType<Window>()
+                    .Where(w => w.IsVisible)
+                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                    .Any(x => x.Name == "SteamStoreOverlay" && x.IsVisible);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async void FocusSteamStoreHeroButton()
+        {
+            try
+            {
+                await Task.Delay(80);
+
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                _ = dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var app = Application.Current;
+
+                        if (app == null || Settings == null)
+                        {
+                            return;
+                        }
+
+                        var visibleElements = app.Windows
+                            .OfType<Window>()
+                            .Where(w => w.IsVisible)
+                            .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                            .ToList();
+
+                        var overlay = visibleElements
+                            .FirstOrDefault(x => x.Name == "SteamStoreOverlay");
+
+                        var heroButton = visibleElements
+                            .FirstOrDefault(x => x.Name == "SteamStoreHeroButton");
+
+                        var activeTabName = GetSteamStoreActiveTabButtonName();
+
+                        var activeTabButton = visibleElements
+                            .FirstOrDefault(x => x.Name == activeTabName);
+
+                        overlay?.UpdateLayout();
+
+                        // Important:
+                        // We first focus the active top tab to rebuild the directional focus path.
+                        // Directly focusing the Hero after a section change can leave D-Pad Down blocked.
+                        if (activeTabButton is UIElement tabElement && tabElement.IsVisible)
+                        {
+                            tabElement.Focus();
+                            Keyboard.Focus(tabElement);
+
+                            var tabFocusScope = FocusManager.GetFocusScope(tabElement);
+                            FocusManager.SetFocusedElement(tabFocusScope, tabElement);
+                        }
+
+                        overlay?.UpdateLayout();
+
+                        _ = dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try
+                            {
+                                overlay?.UpdateLayout();
+
+                                if (heroButton is UIElement heroElement && heroElement.IsVisible)
+                                {
+                                    heroElement.Focus();
+                                    Keyboard.Focus(heroElement);
+
+                                    var heroFocusScope = FocusManager.GetFocusScope(heroElement);
+                                    FocusManager.SetFocusedElement(heroFocusScope, heroElement);
+                                }
+                            }
+                            catch
+                            {
+                            }
+                        }), DispatcherPriority.ContextIdle);
+                    }
+                    catch
+                    {
+                    }
+                }), DispatcherPriority.ContextIdle);
+            }
+            catch
+            {
+            }
+        }
+
+        private string GetSteamStoreActiveTabButtonName()
+        {
+            var section = Settings?.SteamStoreSelectedSection ?? "Deals";
+
+            switch (section)
+            {
+                case "New":
+                    return "SteamStoreTabNewButton";
+
+                case "Upcoming":
+                    return "SteamStoreTabUpcomingButton";
+
+                case "Wishlisted":
+                    return "SteamStoreTabWishlistedButton";
+
+                case "Popular":
+                    return "SteamStoreTabPopularButton";
+
+                case "Deals":
+                default:
+                    return "SteamStoreTabDealsButton";
+            }
+        }
+
+        private void UpdateSteamStoreAvailabilityState()
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            var hasAnyData =
+                Settings.SteamStoreDeals.Count > 0 ||
+                Settings.SteamStoreTopSellers.Count > 0 ||
+                Settings.SteamStoreNewReleases.Count > 0 ||
+                Settings.SteamStoreUpcoming.Count > 0 ||
+                Settings.SteamStoreWishlisted.Count > 0;
+
+            Settings.SteamStoreAvailable = hasAnyData;
+
+            if (hasAnyData)
+            {
+                Settings.SteamStoreError = string.Empty;
+            }
+            else if (string.IsNullOrWhiteSpace(Settings.SteamStoreError))
+            {
+                Settings.SteamStoreError = "No store data available";
+            }
+        }
+
+        private void UpdateSteamStoreActiveSection()
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            var section = Settings.SteamStoreSelectedSection ?? "Featured";
+
+            IEnumerable<SteamStoreItem> source = null;
+            var title = "Featured";
+
+            switch (section)
+            {
+                case "New":
+                    source = Settings.SteamStoreNewReleases;
+                    title = "New Releases";
+                    break;
+
+                case "Upcoming":
+                    source = Settings.SteamStoreUpcoming;
+                    title = "Upcoming";
+                    break;
+
+                case "Wishlisted":
+                    source = Settings.SteamStoreWishlisted;
+                    title = "Most Wishlisted";
+                    break;
+
+                case "Popular":
+                    source = Settings.SteamStoreTopSellers;
+                    title = "Popular";
+                    break;
+
+                case "Deals":
+                default:
+                    source = Settings.SteamStoreDeals;
+                    title = "Deals";
+                    section = "Deals";
+                    break;
+            }
+
+            Settings.SteamStoreSelectedSection = section;
+            Settings.SteamStoreSelectedSectionTitle = title;
+
+            Settings.SteamStoreCurrentItems.Clear();
+            Settings.SteamStoreCurrentListItems.Clear();
+
+            if (source != null)
+            {
+                foreach (var item in source.Where(x => x != null))
+                {
+                    Settings.SteamStoreCurrentItems.Add(item);
+                }
+            }
+
+            Settings.SteamStoreHeroItem = Settings.SteamStoreCurrentItems.FirstOrDefault();
+
+            foreach (var item in Settings.SteamStoreCurrentItems.Where(x => x != null))
+            {
+                if (Settings.SteamStoreHeroItem != null && item.AppId == Settings.SteamStoreHeroItem.AppId)
+                {
+                    continue;
+                }
+
+                Settings.SteamStoreCurrentListItems.Add(item);
+            }
+
+            UpdateSteamStoreHeroProperties(Settings.SteamStoreHeroItem);
+        }
+
+        private void UpdateSteamStoreHeroProperties(SteamStoreItem hero)
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            if (hero == null)
+            {
+                Settings.SteamStoreHeroName = string.Empty;
+                Settings.SteamStoreHeroDescription = string.Empty;
+                Settings.SteamStoreHeroImage = string.Empty;
+                Settings.SteamStoreHeroBackgroundImage = string.Empty;
+                Settings.SteamStoreHeroPrice = string.Empty;
+                Settings.SteamStoreHeroOriginalPrice = string.Empty;
+                Settings.SteamStoreHeroDiscount = string.Empty;
+                Settings.SteamStoreHeroReleaseDate = string.Empty;
+                return;
+            }
+
+            Settings.SteamStoreHeroName = hero.Name ?? string.Empty;
+            Settings.SteamStoreHeroDescription = hero.ShortDescription ?? string.Empty;
+            Settings.SteamStoreHeroPrice = hero.FinalPriceDisplay ?? string.Empty;
+            Settings.SteamStoreHeroOriginalPrice = hero.OriginalPriceDisplay ?? string.Empty;
+            Settings.SteamStoreHeroDiscount = hero.DiscountDisplay ?? string.Empty;
+            Settings.SteamStoreHeroReleaseDate = hero.ReleaseDateDisplay ?? string.Empty;
+
+            Settings.SteamStoreHeroImage = FirstSteamStoreImage(
+                hero.HeaderImageLocalPath,
+                hero.HeaderImageUrl,
+                hero.CapsuleImageLocalPath,
+                hero.CapsuleImageUrl
+            );
+
+            // Fond du hero : vrai background/screenshot uniquement.
+            Settings.SteamStoreHeroBackgroundImage = FirstSteamStoreImage(
+                hero.BackgroundImageLocalPath,
+                hero.BackgroundImageUrl,
+                hero.Screenshot1LocalPath,
+                hero.Screenshot1Url
+            );
+        }
+
+        private async Task RefreshSteamStoreHeroDetailsAsync(SteamStoreItem hero)
+        {
+            if (hero == null || steamStoreService == null || Settings == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var alreadyHasDescription = !string.IsNullOrWhiteSpace(hero.ShortDescription);
+                var alreadyHasBackground =
+                    !string.IsNullOrWhiteSpace(hero.BackgroundImageLocalPath) ||
+                    !string.IsNullOrWhiteSpace(hero.BackgroundImageUrl) ||
+                    !string.IsNullOrWhiteSpace(hero.Screenshot1LocalPath) ||
+                    !string.IsNullOrWhiteSpace(hero.Screenshot1Url);
+
+                if (alreadyHasDescription && alreadyHasBackground)
+                {
+                    return;
+                }
+
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+
+                await steamStoreService.EnrichStoreItemDetailsAsync(hero, language, region);
+
+                OnUi(() =>
+                {
+                    if (Settings != null && Settings.SteamStoreHeroItem == hero)
+                    {
+                        UpdateSteamStoreHeroProperties(hero);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to refresh Steam Store hero details.");
+            }
+        }
+
+        private static string FirstSteamStoreImage(params string[] values)
+        {
+            if (values == null)
+            {
+                return string.Empty;
+            }
+
+            foreach (var value in values)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                if (IsBadSteamSharedImage(value))
+                {
+                    continue;
+                }
+
+                // Si l'image locale n'existe pas, on laisse vide pour forcer le problème à être visible.
+                if (!IsSteamStoreUrl(value) && File.Exists(value))
+                {
+                    return value;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static bool IsSteamStoreUrl(string value)
+        {
+            return value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                   value.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsBadSteamSharedImage(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            return value.IndexOf("/public/shared/images/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("footerLogo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("footer_logo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("valve_new", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
 
         private void ReplaceSteamStoreCollection(System.Collections.ObjectModel.ObservableCollection<SteamStoreItem> target, System.Collections.Generic.List<SteamStoreItem> items)
         {
@@ -5721,18 +6380,37 @@ namespace AnikiHelper
             var region = GetResolvedSteamStoreRegion();
 
             var dealsTask = steamStoreService.GetDealsFromCacheOnlyAsync(language, region);
-            var newTask = steamStoreService.GetNewReleasesFromCacheOnlyAsync(language, region);
             var topSellersTask = steamStoreService.GetTopSellersFromCacheOnlyAsync(language, region);
-            var spotlightTask = steamStoreService.GetSpotlightFromCacheOnlyAsync(language, region);
 
-            await Task.WhenAll(dealsTask, newTask, topSellersTask, spotlightTask);
+            var upcomingItems = steamUpcomingGamesService.LoadFromCacheOnly(language, region)
+                .Select(ConvertUpcomingToStoreItem)
+                .Where(x => x != null)
+                .ToList();
+
+            var wishlistedItems = steamUpcomingGamesService.LoadWishlistedFromCacheOnly(language, region)
+                .Select(ConvertUpcomingToStoreItem)
+                .Where(x => x != null)
+                .ToList();
+
+            var newReleaseItems = steamUpcomingGamesService.LoadNewReleasesFromCacheOnly(language, region)
+                .Select(ConvertUpcomingToStoreItem)
+                .Where(x => x != null)
+                .ToList();
+
+            await Task.WhenAll(dealsTask, topSellersTask);
 
             OnUi(() =>
             {
                 ReplaceSteamStoreCollection(Settings.SteamStoreDeals, dealsTask.Result);
-                ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newReleaseItems);
                 ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, topSellersTask.Result);
-                ReplaceSteamStoreCollection(Settings.SteamStoreSpotlight, spotlightTask.Result);
+                ReplaceSteamStoreCollection(Settings.SteamStoreUpcoming, upcomingItems);
+                ReplaceSteamStoreCollection(Settings.SteamStoreWishlisted, wishlistedItems);
+
+                UpdateSteamStoreActiveSection();
+                UpdateSteamStoreAvailabilityState();
+
+                SaveSettingsSafe();
             });
         }
 
@@ -5766,7 +6444,7 @@ namespace AnikiHelper
             }
         }
 
-        private async Task RefreshSteamStoreAllAsync()
+        private async Task RefreshSteamStoreAllAsync(bool manageLoading = true)
         {
             if (Settings?.SteamStoreEnabled != true)
             {
@@ -5783,11 +6461,21 @@ namespace AnikiHelper
                 return;
             }
 
-            OnUi(() =>
+            if (manageLoading)
             {
-                Settings.SteamStoreLoading = true;
-                Settings.SteamStoreError = string.Empty;
-            });
+                OnUi(() =>
+                {
+                    Settings.SteamStoreLoading = true;
+                    Settings.SteamStoreError = string.Empty;
+                });
+            }
+            else
+            {
+                OnUi(() =>
+                {
+                    Settings.SteamStoreError = string.Empty;
+                });
+            }
 
             try
             {
@@ -5795,33 +6483,33 @@ namespace AnikiHelper
                 var region = GetResolvedSteamStoreRegion();
 
                 var dealsTask = steamStoreService.GetDealsAsync(language, region, TimeSpan.FromDays(1));
-                var newTask = steamStoreService.GetNewReleasesAsync(language, region, TimeSpan.FromDays(1));
                 var topSellersTask = steamStoreService.GetTopSellersAsync(language, region, TimeSpan.FromDays(1));
-                var spotlightTask = steamStoreService.GetSpotlightAsync(language, region, TimeSpan.FromDays(1));
 
-                await Task.WhenAll(dealsTask, newTask, topSellersTask, spotlightTask);
+                await Task.WhenAll(dealsTask, topSellersTask);
 
                 await PreloadSteamStoreBackgroundsAsync(dealsTask.Result, language, region);
-                await PreloadSteamStoreBackgroundsAsync(newTask.Result, language, region);
                 await PreloadSteamStoreBackgroundsAsync(topSellersTask.Result, language, region);
-                await PreloadSteamStoreBackgroundsAsync(spotlightTask.Result, language, region);
 
                 OnUi(() =>
                 {
                     ReplaceSteamStoreCollection(Settings.SteamStoreDeals, dealsTask.Result);
-                    ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newTask.Result);
                     ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, topSellersTask.Result);
-                    ReplaceSteamStoreCollection(Settings.SteamStoreSpotlight, spotlightTask.Result);
+                    UpdateSteamStoreActiveSection();
 
                     var hasAnyData =
                         Settings.SteamStoreDeals.Count > 0 ||
-                        Settings.SteamStoreNewReleases.Count > 0 ||
                         Settings.SteamStoreTopSellers.Count > 0 ||
-                        Settings.SteamStoreSpotlight.Count > 0;
+                        Settings.SteamStoreNewReleases.Count > 0 ||
+                        Settings.SteamStoreUpcoming.Count > 0 ||
+                        Settings.SteamStoreWishlisted.Count > 0;
 
                     Settings.SteamStoreAvailable = hasAnyData;
                     Settings.SteamStoreError = hasAnyData ? string.Empty : "No store data available";
-                    Settings.SteamStoreLoading = false;
+
+                    if (manageLoading)
+                    {
+                        Settings.SteamStoreLoading = false;
+                    }
 
                     SaveSettingsSafe();
                 });
@@ -5832,10 +6520,72 @@ namespace AnikiHelper
 
                 OnUi(() =>
                 {
-                    Settings.SteamStoreLoading = false;
-                    Settings.SteamStoreAvailable = false;
-                    Settings.SteamStoreError = "Error while loading Steam Store";
+                    if (manageLoading)
+                    {
+                        Settings.SteamStoreLoading = false;
+                        Settings.SteamStoreAvailable = false;
+                        Settings.SteamStoreError = "Error while loading Steam Store";
+                    }
+                    else
+                    {
+                        Settings.SteamStoreError = "Error while loading Steam Store";
+                    }
                 });
+            }
+        }
+
+        private void SetSteamStoreLoadingProgress(int progress)
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            var targetProgress = Math.Max(0, Math.Min(100, progress));
+            var animationToken = System.Threading.Interlocked.Increment(ref steamStoreProgressAnimationToken);
+
+            _ = AnimateSteamStoreLoadingProgressAsync(targetProgress, animationToken);
+        }
+
+        private async Task AnimateSteamStoreLoadingProgressAsync(int targetProgress, int animationToken)
+        {
+            try
+            {
+                while (Settings != null)
+                {
+                    if (animationToken != steamStoreProgressAnimationToken)
+                    {
+                        return;
+                    }
+
+                    var currentProgress = Settings.SteamStoreLoadingProgress;
+
+                    if (currentProgress >= targetProgress)
+                    {
+                        return;
+                    }
+
+                    var remaining = targetProgress - currentProgress;
+
+                    var step = remaining > 25
+                        ? 2
+                        : 1;
+
+                    var nextProgress = Math.Min(targetProgress, currentProgress + step);
+
+                    OnUi(() =>
+                    {
+                        if (Settings != null)
+                        {
+                            Settings.SteamStoreLoadingProgress = nextProgress;
+                        }
+                    });
+
+                    await Task.Delay(35);
+                }
+            }
+            catch
+            {
             }
         }
 
@@ -5846,7 +6596,13 @@ namespace AnikiHelper
                 return;
             }
 
-            await steamStoreOpenLock.WaitAsync();
+            // Important:
+            // XAML bindings can call this several times while the Store view is visible.
+            // We do not queue refresh calls. If one refresh is already running, we ignore the new call.
+            if (!await steamStoreOpenLock.WaitAsync(0))
+            {
+                return;
+            }
 
             try
             {
@@ -5872,28 +6628,232 @@ namespace AnikiHelper
                 var language = GetResolvedSteamStoreLanguage();
                 var region = GetResolvedSteamStoreRegion();
 
-                var mustRefresh = await steamStoreService.IsAnyStoreCacheMissingOrExpiredAsync(
+                var storeMustRefresh = await steamStoreService.IsAnyStoreCacheMissingOrExpiredAsync(
                     language,
                     region,
                     TimeSpan.FromDays(1)
                 );
 
-                if (!mustRefresh)
+                var upcomingMustRefresh = steamUpcomingGamesService.IsCacheMissingOrExpired(
+                    language,
+                    region,
+                    TimeSpan.FromDays(1)
+                );
+
+                var wishlistedMustRefresh = steamUpcomingGamesService.IsWishlistedCacheMissingOrExpired(
+                    language,
+                    region,
+                    TimeSpan.FromDays(1)
+                );
+
+                var newReleasesMustRefresh = steamUpcomingGamesService.IsNewReleasesCacheMissingOrExpired(
+                    language,
+                    region,
+                    TimeSpan.FromDays(1)
+                );
+
+                if (!storeMustRefresh && !upcomingMustRefresh && !wishlistedMustRefresh && !newReleasesMustRefresh)
                 {
                     return;
                 }
 
-                _ = Task.Run(async () =>
+                OnUi(() =>
                 {
-                    try
-                    {
-                        await RefreshSteamStoreAllAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.Warn(ex, "[AnikiHelper] OnSteamStoreViewOpenedAsync refresh failed.");
-                    }
+                    Settings.SteamStoreLoading = true;
+                    Settings.SteamStoreError = string.Empty;
+                    Settings.SteamStoreLoadingProgress = 5;
                 });
+
+                try
+                {
+                    logger.Info(
+                        $"[AnikiHelper] Steam Store refresh START | Store={storeMustRefresh} | Upcoming={upcomingMustRefresh} | Wishlisted={wishlistedMustRefresh} | New={newReleasesMustRefresh} | Lang={language} | Region={region}"
+                    );
+
+                    var refreshTasks = new List<Task>();
+
+                    var totalRefreshSteps = 0;
+
+                    if (storeMustRefresh)
+                    {
+                        totalRefreshSteps++;
+                    }
+
+                    if (upcomingMustRefresh)
+                    {
+                        totalRefreshSteps++;
+                    }
+
+                    if (wishlistedMustRefresh)
+                    {
+                        totalRefreshSteps++;
+                    }
+
+                    if (newReleasesMustRefresh)
+                    {
+                        totalRefreshSteps++;
+                    }
+
+                    var completedRefreshSteps = 0;
+                    var progressLock = new object();
+
+                    Action reportRefreshStepDone = () =>
+                    {
+                        int completed;
+
+                        lock (progressLock)
+                        {
+                            completedRefreshSteps++;
+                            completed = completedRefreshSteps;
+                        }
+
+                        var progress = totalRefreshSteps <= 0
+                            ? 100
+                            : Math.Min(95, 10 + (int)Math.Round((completed / (double)totalRefreshSteps) * 85));
+
+                        SetSteamStoreLoadingProgress(progress);
+                    };
+
+                    SetSteamStoreLoadingProgress(10);
+
+                    if (storeMustRefresh)
+                    {
+                        refreshTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await RefreshSteamStoreAllAsync(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Steam Store classic refresh failed.");
+                            }
+                            finally
+                            {
+                                reportRefreshStepDone();
+                            }
+                        }));
+                    }
+
+                    if (upcomingMustRefresh)
+                    {
+                        refreshTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var upcoming = await steamUpcomingGamesService.RefreshAsync(language, region);
+
+                                var upcomingStoreItems = upcoming
+                                    .Select(ConvertUpcomingToStoreItem)
+                                    .Where(x => x != null)
+                                    .ToList();
+
+                                OnUi(() =>
+                                {
+                                    ReplaceSteamStoreCollection(Settings.SteamStoreUpcoming, upcomingStoreItems);
+                                    UpdateSteamStoreActiveSection();
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Steam Upcoming refresh failed.");
+                            }
+                            finally
+                            {
+                                reportRefreshStepDone();
+                            }
+                        }));
+                    }
+
+                    if (wishlistedMustRefresh)
+                    {
+                        refreshTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var wishlisted = await steamUpcomingGamesService.RefreshWishlistedAsync(language, region);
+
+                                var wishlistedStoreItems = wishlisted
+                                    .Select(ConvertUpcomingToStoreItem)
+                                    .Where(x => x != null)
+                                    .ToList();
+
+                                OnUi(() =>
+                                {
+                                    ReplaceSteamStoreCollection(Settings.SteamStoreWishlisted, wishlistedStoreItems);
+                                    UpdateSteamStoreActiveSection();
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Steam Wishlisted refresh failed.");
+                            }
+                            finally
+                            {
+                                reportRefreshStepDone();
+                            }
+                        }));
+                    }
+
+                    if (newReleasesMustRefresh)
+                    {
+                        refreshTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var newReleases = await steamUpcomingGamesService.RefreshNewReleasesAsync(language, region);
+
+                                var newReleaseStoreItems = newReleases
+                                    .Select(ConvertUpcomingToStoreItem)
+                                    .Where(x => x != null)
+                                    .ToList();
+
+                                OnUi(() =>
+                                {
+                                    ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newReleaseStoreItems);
+                                    UpdateSteamStoreActiveSection();
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Steam New Releases refresh failed.");
+                            }
+                            finally
+                            {
+                                reportRefreshStepDone();
+                            }
+                        }));
+                    }
+
+                    await Task.WhenAll(refreshTasks);
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] OnSteamStoreViewOpenedAsync global refresh failed.");
+
+                    OnUi(() =>
+                    {
+                        Settings.SteamStoreError = "Error while loading Steam Store";
+                    });
+                }
+                finally
+                {
+                    OnUi(() =>
+                    {
+                        UpdateSteamStoreActiveSection();
+                        UpdateSteamStoreAvailabilityState();
+                    });
+
+                    SetSteamStoreLoadingProgress(100);
+
+                    await Task.Delay(900);
+
+                    OnUi(() =>
+                    {
+                        Settings.SteamStoreLoading = false;
+                        SaveSettingsSafe();
+                    });
+                }
             }
             finally
             {
@@ -6021,44 +6981,6 @@ namespace AnikiHelper
             }
         }
 
-        public async Task RefreshSteamSpotlightAsync()
-        {
-            try
-            {
-                if (Settings?.SteamStoreEnabled != true)
-                {
-                    return;
-                }
-
-                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
-                {
-                    return;
-                }
-
-                if (!IsAnikiThemeActive())
-                {
-                    return;
-                }
-
-                var language = GetResolvedSteamStoreLanguage();
-                var region = GetResolvedSteamStoreRegion();
-
-                var items = await steamStoreService.GetSpotlightAsync(language, region, TimeSpan.FromDays(1));
-
-                Settings.SteamStoreSpotlight.Clear();
-
-                foreach (var item in items)
-                {
-                    Settings.SteamStoreSpotlight.Add(item);
-                }
-
-                SaveSettingsSafe();
-            }
-            catch (Exception ex)
-            {
-                logger.Error(ex, "[AnikiHelper] Failed to refresh Steam spotlight.");
-            }
-        }
 
         public void OpenSteamGameNewsWindow()
         {
@@ -6097,17 +7019,7 @@ namespace AnikiHelper
 
         public void OpenWindow(string parameter)
         {
-            var styleKey = parameter;
-            string focusTargetName = null;
-
-            if (!string.IsNullOrWhiteSpace(parameter) && parameter.Contains("|"))
-            {
-                var parts = parameter.Split('|');
-                styleKey = parts[0];
-                focusTargetName = parts.Length > 1 ? parts[1] : null;
-            }
-
-            anikiWindowManager?.OpenWindow(styleKey, focusTargetName);
+            anikiWindowManager?.OpenWindow(parameter);
         }
 
         public void OpenChildWindow(string styleKey)
@@ -7547,12 +8459,233 @@ namespace AnikiHelper
         {
             try
             {
-                return System.Windows.Application.Current?.TryFindResource("Aniki_ThemeMarker") is bool enabled && enabled;
+                // 1) First condition: the active theme must include your XAML marker.
+                var hasAnikiMarker = System.Windows.Application.Current?.TryFindResource("Aniki_ThemeMarker") is bool enabled && enabled;
+
+                if (!hasAnikiMarker)
+                {
+                    return false;
+                }
+
+                // 2) Second condition: the active theme must keep Aniki branding and Mike Aniki credit.
+                var activeThemeId = GetActiveThemeId();
+
+                if (string.IsNullOrWhiteSpace(activeThemeId))
+                {
+                    return false;
+                }
+
+                // Avoid reading theme.yaml every time.
+                if (cachedAnikiThemeAuthorization.HasValue &&
+                    string.Equals(cachedAnikiThemeId, activeThemeId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return cachedAnikiThemeAuthorization.Value;
+                }
+
+                string reason;
+                var isAuthorized = IsAnikiThemeManifestAuthorized(activeThemeId, out reason);
+
+                cachedAnikiThemeId = activeThemeId;
+                cachedAnikiThemeAuthorization = isAuthorized;
+
+                if (isAuthorized)
+                {
+                    DebugLog("[AnikiHelper] Aniki theme authorization OK: " + reason);
+                }
+                else
+                {
+                    logger.Warn("[AnikiHelper] Advanced features disabled: " + reason);
+                }
+
+                return isAuthorized;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to check Aniki theme authorization.");
+                return false;
+            }
+        }
+
+        private string GetActiveThemeId()
+        {
+            try
+            {
+                if (PlayniteApi == null || PlayniteApi.ApplicationSettings == null)
+                {
+                    return null;
+                }
+
+                // Aniki Helper is made for fullscreen themes.
+                // We always check the currently selected fullscreen theme.
+                return PlayniteApi.ApplicationSettings.FullscreenTheme;
             }
             catch
             {
+                return null;
+            }
+        }
+
+        private bool IsAnikiThemeManifestAuthorized(string activeThemeId, out string reason)
+        {
+            reason = "Unknown authorization state.";
+
+            try
+            {
+                var manifestPath = GetActiveThemeManifestPath(activeThemeId);
+
+                if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath))
+                {
+                    reason = "theme.yaml not found for active theme id: " + activeThemeId;
+                    return false;
+                }
+
+                var manifest = Serialization.FromYamlFile<Dictionary<string, object>>(manifestPath);
+
+                if (manifest == null)
+                {
+                    reason = "theme.yaml could not be read: " + manifestPath;
+                    return false;
+                }
+
+                var id = GetManifestValue(manifest, "Id");
+                var name = GetManifestValue(manifest, "Name");
+
+                // Playnite normally uses "Author", but "Authors" is also accepted here
+                // so the check stays tolerant if you ever change the metadata format.
+                var author = GetManifestValue(manifest, "Author");
+
+                if (string.IsNullOrWhiteSpace(author))
+                {
+                    author = GetManifestValue(manifest, "Authors");
+                }
+
+                var hasMikeAnikiCredit = ContainsIgnoreCase(author, RequiredAnikiAuthorCredit);
+                var hasAnikiBrand = ContainsIgnoreCase(name, RequiredAnikiBrandName) ||
+                                    ContainsIgnoreCase(id, RequiredAnikiBrandName);
+
+                if (!hasMikeAnikiCredit)
+                {
+                    reason = "theme marker found, but Author does not contain " + RequiredAnikiAuthorCredit + ". Current Author: " + (author ?? "") + ".";
+                    return false;
+                }
+
+                if (!hasAnikiBrand)
+                {
+                    reason = "theme marker found, but Name or Id does not contain " + RequiredAnikiBrandName + ". Current Name: " + (name ?? "") + ", Id: " + (id ?? "") + ".";
+                    return false;
+                }
+
+                reason = "theme authorized. Name=" + (name ?? "") + ", Id=" + (id ?? "") + ", Author=" + (author ?? "") + ".";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                reason = "theme manifest authorization failed: " + ex.Message;
                 return false;
             }
+        }
+
+        private string GetActiveThemeManifestPath(string activeThemeId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(activeThemeId) ||
+                    PlayniteApi == null ||
+                    PlayniteApi.ApplicationInfo == null ||
+                    PlayniteApi.Paths == null)
+                {
+                    return null;
+                }
+
+                var roots = new List<string>();
+
+                // Installed Playnite:
+                // Usually the user themes are in ConfigurationPath.
+                //
+                // Portable Playnite:
+                // ConfigurationPath is still the correct config root to check.
+                roots.Add(PlayniteApi.Paths.ConfigurationPath);
+
+                // Fallback:
+                // Useful in case a theme is stored near the Playnite executable,
+                // especially with portable/custom setups.
+                roots.Add(PlayniteApi.Paths.ApplicationPath);
+
+                var modeFolder = "Fullscreen";
+
+                foreach (var root in roots.Where(r => !string.IsNullOrWhiteSpace(r)).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var themesFolder = Path.Combine(root, "Themes", modeFolder);
+
+                    if (!Directory.Exists(themesFolder))
+                    {
+                        continue;
+                    }
+
+                    foreach (var themeDir in Directory.EnumerateDirectories(themesFolder))
+                    {
+                        var manifestPath = Path.Combine(themeDir, "theme.yaml");
+
+                        if (!File.Exists(manifestPath))
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            var manifest = Serialization.FromYamlFile<Dictionary<string, object>>(manifestPath);
+                            var id = GetManifestValue(manifest, "Id");
+
+                            if (string.Equals(id, activeThemeId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return manifestPath;
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore invalid theme manifests and continue scanning.
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to locate active theme manifest.");
+            }
+
+            return null;
+        }
+
+        private string GetManifestValue(Dictionary<string, object> manifest, string key)
+        {
+            if (manifest == null || string.IsNullOrWhiteSpace(key))
+            {
+                return null;
+            }
+
+            object value;
+
+            if (manifest.TryGetValue(key, out value))
+            {
+                return value == null ? null : value.ToString();
+            }
+
+            foreach (var pair in manifest)
+            {
+                if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return pair.Value == null ? null : pair.Value.ToString();
+                }
+            }
+
+            return null;
+        }
+
+        private bool ContainsIgnoreCase(string value, string expectedText)
+        {
+            return !string.IsNullOrWhiteSpace(value) &&
+                   !string.IsNullOrWhiteSpace(expectedText) &&
+                   value.IndexOf(expectedText, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         // --- Helpers focus / autorisation scan Steam ---
@@ -8443,6 +9576,11 @@ namespace AnikiHelper
                 var isAnikiThemeActive = IsAnikiThemeActive();
                 DebugLog($"[AnikiHelper][OnApplicationStarted] IsAnikiThemeActive took {sw.ElapsedMilliseconds}ms | active={isAnikiThemeActive}");
 
+                if (isAnikiThemeActive)
+                {
+                    InitializeLuckyDaySession();
+                }
+
                 try
                 {
                     if (isAnikiThemeActive)
@@ -8750,42 +9888,6 @@ namespace AnikiHelper
 
                 try
                 {
-                    sw.Restart();
-                    OnUi(() =>
-                    {
-                        var swUi = Stopwatch.StartNew();
-
-                        var rand = new Random();
-                        const int max = 41;
-
-                        int pick;
-                        if (Settings.LastLoginRandomIndex >= 1 && Settings.LastLoginRandomIndex <= max && max > 1)
-                        {
-                            do { pick = rand.Next(1, max + 1); } while (pick == Settings.LastLoginRandomIndex);
-                        }
-                        else
-                        {
-                            pick = rand.Next(1, max + 1);
-                        }
-
-                        Settings.LoginRandomIndex = pick;
-                        Settings.LastLoginRandomIndex = pick;
-
-                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI] Random login pick took {swUi.ElapsedMilliseconds}ms | pick={pick}");
-                    });
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] Random login OnUi took {sw.ElapsedMilliseconds}ms");
-
-                    sw.Restart();
-                    SaveSettingsSafe();
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] SaveSettingsSafe after random login took {sw.ElapsedMilliseconds}ms");
-                }
-                catch (Exception ex)
-                {
-                    logger.Warn(ex, "[AnikiHelper] Random login screen init failed.");
-                }
-
-                try
-                {
                     if (isAnikiThemeActive)
                     {
                         sw.Restart();
@@ -8810,7 +9912,7 @@ namespace AnikiHelper
                     {
                         logger.Warn(ex, "[AnikiHelper] ScheduleSteamRecentUpdatesScanAsync failed.");
                     }
-                }
+                }            
 
                 try
                 {
@@ -8842,6 +9944,338 @@ namespace AnikiHelper
             }
         }
 
+        private bool HandleMediaGalleryRefreshShortcut(OnControllerButtonStateChangedArgs args)
+        {
+            try
+            {
+                if (args == null)
+                {
+                    return false;
+                }
+
+                if (args.State != ControllerInputState.Pressed)
+                {
+                    return false;
+                }
+
+                if (args.Button != ControllerInput.Y)
+                {
+                    return false;
+                }
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return false;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return false;
+                }
+
+                if (!IsMediaGalleryGamesWindowOpen())
+                {
+                    return false;
+                }
+
+                var now = DateTime.UtcNow;
+
+                if ((now - lastMediaGalleryRefreshShortcutUtc).TotalMilliseconds < 600)
+                {
+                    return true;
+                }
+
+                lastMediaGalleryRefreshShortcutUtc = now;
+
+                if (Settings != null)
+                {
+                    _ = Settings.RefreshMediaGalleryLibraryAsync();
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Media Gallery refresh shortcut failed.");
+                return true;
+            }
+        }
+
+        private bool IsMediaGalleryGamesWindowOpen()
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher != null && !dispatcher.CheckAccess())
+                {
+                    return dispatcher.Invoke(new Func<bool>(IsMediaGalleryGamesWindowOpen));
+                }
+
+                return Application.Current.Windows
+                    .OfType<Window>()
+                    .Any(w =>
+                        w.IsVisible &&
+                        string.Equals(w.Tag as string, "MediaGalleryGamesWindowStyle", StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool HandleSteamStoreScreenshotViewerInput(OnControllerButtonStateChangedArgs args)
+        {
+            try
+            {
+                if (args == null)
+                {
+                    return false;
+                }
+
+                if (args.State != ControllerInputState.Pressed)
+                {
+                    return false;
+                }
+
+                // Important :
+                // Si le viewer plein écran screenshot n'est pas ouvert,
+                // on ne consomme PAS L1/R1, pour laisser la page Store changer d'onglet.
+                if (Settings?.SteamStoreScreenshotViewerVisible != true)
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(Settings.SteamStoreScreenshotViewerImage))
+                {
+                    return false;
+                }
+
+                if (Settings.SteamStoreDetailsVisible != true)
+                {
+                    return false;
+                }
+
+                if (args.Button == ControllerInput.B)
+                {
+                    CloseSteamStoreScreenshotViewer();
+                    return true;
+                }
+
+                if (args.Button == ControllerInput.RightShoulder)
+                {
+                    return SwitchSteamStoreScreenshotViewerImage(1);
+                }
+
+                if (args.Button == ControllerInput.LeftShoulder)
+                {
+                    return SwitchSteamStoreScreenshotViewerImage(-1);
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Steam Store screenshot viewer input failed.");
+                return false;
+            }
+        }
+
+        private bool SwitchSteamStoreScreenshotViewerImage(int direction)
+        {
+            try
+            {
+                if (Settings == null)
+                {
+                    return false;
+                }
+
+                if (Settings.SteamStoreScreenshotViewerVisible != true)
+                {
+                    return false;
+                }
+
+                var currentIndex = GetSteamStoreScreenshotIndex(Settings.SteamStoreScreenshotViewerImage);
+                var nextIndex = currentIndex + direction;
+
+                if (nextIndex < 1)
+                {
+                    nextIndex = 5;
+                }
+
+                if (nextIndex > 5)
+                {
+                    nextIndex = 1;
+                }
+
+                var nextImage = GetSteamStoreScreenshotByIndex(nextIndex);
+
+                for (var i = 0; i < 5 && string.IsNullOrWhiteSpace(nextImage); i++)
+                {
+                    nextIndex += direction;
+
+                    if (nextIndex < 1)
+                    {
+                        nextIndex = 5;
+                    }
+
+                    if (nextIndex > 5)
+                    {
+                        nextIndex = 1;
+                    }
+
+                    nextImage = GetSteamStoreScreenshotByIndex(nextIndex);
+                }
+
+                nextImage = FirstSteamStoreImage(nextImage);
+
+                if (string.IsNullOrWhiteSpace(nextImage))
+                {
+                    return false;
+                }
+
+                OnUi(() =>
+                {
+                    Settings.SteamStoreScreenshotViewerImage = nextImage;
+                });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to switch Steam Store screenshot viewer image.");
+                return false;
+            }
+        }
+
+        private int GetSteamStoreScreenshotIndex(string imagePath)
+        {
+            try
+            {
+                if (Settings == null || string.IsNullOrWhiteSpace(imagePath))
+                {
+                    return 1;
+                }
+
+                if (string.Equals(imagePath, Settings.SteamStoreDetailsScreenshot2, StringComparison.OrdinalIgnoreCase))
+                {
+                    return 2;
+                }
+
+                if (string.Equals(imagePath, Settings.SteamStoreDetailsScreenshot3, StringComparison.OrdinalIgnoreCase))
+                {
+                    return 3;
+                }
+
+                if (string.Equals(imagePath, Settings.SteamStoreDetailsScreenshot4, StringComparison.OrdinalIgnoreCase))
+                {
+                    return 4;
+                }
+
+                if (string.Equals(imagePath, Settings.SteamStoreDetailsScreenshot5, StringComparison.OrdinalIgnoreCase))
+                {
+                    return 5;
+                }
+
+                return 1;
+            }
+            catch
+            {
+                return 1;
+            }
+        }
+
+        private string GetSteamStoreScreenshotByIndex(int index)
+        {
+            if (Settings == null)
+            {
+                return string.Empty;
+            }
+
+            switch (index)
+            {
+                case 2:
+                    return Settings.SteamStoreDetailsScreenshot2 ?? string.Empty;
+
+                case 3:
+                    return Settings.SteamStoreDetailsScreenshot3 ?? string.Empty;
+
+                case 4:
+                    return Settings.SteamStoreDetailsScreenshot4 ?? string.Empty;
+
+                case 5:
+                    return Settings.SteamStoreDetailsScreenshot5 ?? string.Empty;
+
+                case 1:
+                default:
+                    return Settings.SteamStoreDetailsScreenshot1 ?? string.Empty;
+            }
+        }
+
+        private bool HandleSteamStoreShoulderNavigation(OnControllerButtonStateChangedArgs args)
+        {
+            try
+            {
+                if (args == null)
+                {
+                    return false;
+                }
+
+                if (args.State != ControllerInputState.Pressed)
+                {
+                    return false;
+                }
+
+                int direction = 0;
+
+                if (args.Button == ControllerInput.RightShoulder)
+                {
+                    direction = 1;
+                }
+                else if (args.Button == ControllerInput.LeftShoulder)
+                {
+                    direction = -1;
+                }
+                else
+                {
+                    return false;
+                }
+
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return false;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return false;
+                }
+
+                if (Settings?.SteamStoreEnabled != true)
+                {
+                    return false;
+                }
+
+                if (Settings.SteamStoreLoading || Settings.SteamStoreDetailsVisible)
+                {
+                    return false;
+                }
+
+                if (!IsSteamStoreViewVisible())
+                {
+                    return false;
+                }
+
+                SwitchSteamStoreSection(direction);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Steam Store shoulder navigation failed.");
+                return false;
+            }
+        }
+
         public override void OnControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
         {
             var allowInGameOverlay =
@@ -8858,7 +10292,30 @@ namespace AnikiHelper
 
             }
 
+            if (HandleMediaGalleryRefreshShortcut(args))
+            {
+                return;
+            }
+
             AnikiControllerInput.SetState(args);
+
+            if (horizontalFocusFixService != null &&
+                horizontalFocusFixService.HandleHubHorizontalControllerNavigation(
+                    args.Button.ToString(),
+                    args.State.ToString()))
+            {
+                return;
+            }
+
+            if (HandleSteamStoreScreenshotViewerInput(args))
+            {
+                return;
+            }
+
+            if (HandleSteamStoreShoulderNavigation(args))
+            {
+                return;
+            }
 
             if (args.Button == ControllerInput.B && args.State == ControllerInputState.Pressed)
             {
@@ -8873,6 +10330,8 @@ namespace AnikiHelper
 
             base.OnControllerButtonStateChanged(args);
         }
+
+
 
         private async Task CheckRequiredPluginVersionAfterFullscreenStartupAsync()
         {
@@ -8898,7 +10357,18 @@ namespace AnikiHelper
 
         public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
         {
-            eventSoundService.PlayApplicationStopped();
+            logger.Debug("AnikiHelper shutdown: start");
+
+            try
+            {
+                logger.Debug("AnikiHelper shutdown: before PlayApplicationStopped");
+                eventSoundService.PlayApplicationStopped();
+                logger.Debug("AnikiHelper shutdown: after PlayApplicationStopped");
+            }
+            catch (Exception e)
+            {
+                logger.Error(e, "AnikiHelper shutdown: PlayApplicationStopped failed");
+            }
 
             try { steamUpdateTimer?.Stop(); } catch { }
             try { steamUpdatesCacheFlushTimer?.Stop(); } catch { }
@@ -8923,14 +10393,31 @@ namespace AnikiHelper
 
             try
             {
+                logger.Debug("AnikiHelper shutdown: before FlushSteamGameNewsCacheIfNeeded");
                 FlushSteamGameNewsCacheIfNeeded();
+                logger.Debug("AnikiHelper shutdown: after FlushSteamGameNewsCacheIfNeeded");
             }
-            catch { }
+            catch (Exception e)
+            {
+                logger.Error(e, "AnikiHelper shutdown: FlushSteamGameNewsCacheIfNeeded failed");
+            }
 
             try { FullscreenShutdownVideoHook.Stop(); } catch { }
-            try { inGameOverlayService?.Stop(); } catch { }
+
+            try
+            {
+                logger.Debug("AnikiHelper shutdown: before inGameOverlayService.Stop");
+                inGameOverlayService?.Stop();
+                logger.Debug("AnikiHelper shutdown: after inGameOverlayService.Stop");
+            }
+            catch (Exception e)
+            {
+                logger.Error(e, "AnikiHelper shutdown: inGameOverlayService.Stop failed");
+            }
 
             base.OnApplicationStopped(args);
+
+            logger.Debug("AnikiHelper shutdown: end");
         }
 
 
@@ -9354,6 +10841,8 @@ namespace AnikiHelper
                     return;
                 }
 
+                splashScreenRuntimeService?.Close();
+                ReleaseUniPlaySongGameStartingPause(game.Id);
                 var pauseUps = Settings?.GameLaunchSplashPauseUniPlaySong ?? true;
 
                 DebugLog(
@@ -10346,6 +11835,13 @@ namespace AnikiHelper
                     return;
                 }
 
+                if (sessionStartAt.ContainsKey(g.Id))
+                {
+                    DebugLog($"[AnikiHelper][GameStarted][RESTART] Same game started again before previous stop cleanup. Resetting session. Game='{g.Name}', Id={g.Id}");
+                    sessionStartAt.Remove(g.Id);
+                    sessionStartPlaytimeMinutes.Remove(g.Id);
+                }
+
                 sessionStartAt[g.Id] = DateTime.Now;
                 sessionStartPlaytimeMinutes[g.Id] = (g.Playtime / 60UL);
 
@@ -10430,6 +11926,17 @@ namespace AnikiHelper
                 if (g == null)
                 {
                     DebugLog("[AnikiHelper][GameStopped][STOP] Game is null. Session, stats, media and achievements refresh skipped.");
+                    return;
+                }
+
+                if (!sessionStartAt.ContainsKey(g.Id))
+                {
+                    DebugLog($"[AnikiHelper][GameStopped][SKIP] Duplicate/unknown stop ignored. Game='{g.Name}', Id={g.Id}");
+
+                    splashScreenRuntimeService?.Close();
+                    ReleaseUniPlaySongGameStartingPause(g.Id);
+                    inGameOverlayService?.ClearCurrentGame(g);
+
                     return;
                 }
 
@@ -11323,6 +12830,31 @@ namespace AnikiHelper
             await Settings.GenerateMediaThumbnailsForGameAsync(gameId, gameName);
         }
 
+        private async void RefreshAchievementCacheForGame(Guid gameId, string gameName)
+        {
+            if (Settings == null || gameId == Guid.Empty)
+            {
+                return;
+            }
+
+            try
+            {
+                await Settings.RefreshAchievementMemoriesForGameAsync(gameId);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to refresh achievement cache for game.");
+
+                PlayniteApi.Dialogs.ShowErrorMessage(
+                    "Failed to refresh achievements cache for this game."
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + ex.Message,
+                    "Aniki Helper"
+                );
+            }
+        }
+
         public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
         {
             var game = args?.Games?.FirstOrDefault();
@@ -11370,6 +12902,17 @@ namespace AnikiHelper
                 Action = (_) =>
                 {
                     GenerateThumbnailsForGame(game.Id, game.Name);
+                }
+            };
+
+            // ===== ACHIEVEMENTS =====
+            yield return new GameMenuItem
+            {
+                MenuSection = "Aniki Helper|Achievements Memories",
+                Description = ResourceProvider.GetString("LOCAnikiHelperRefreshAchievementCacheForGame"),
+                Action = (_) =>
+                {
+                    RefreshAchievementCacheForGame(game.Id, game.Name);
                 }
             };
 

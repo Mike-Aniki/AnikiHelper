@@ -74,6 +74,8 @@
     <Compile Include="Services\InGameOverlay\InGameOverlayHotkeyService.cs" />
     <Compile Include="Services\InGameOverlay\InGameOverlayService.cs" />
     <Compile Include="Services\MediaGallery\AnikiMemoryGroup.cs" />
+    <Compile Include="Services\Steam\SteamUpcomingGameItem.cs" />
+    <Compile Include="Services\Steam\SteamUpcomingGamesService.cs" />
     <Compile Include="Services\UI\AddonsUpdateStyler.cs" />
     <Compile Include="Services\UI\MainMenuStyler.cs" />
     <Compile Include="Services\UI\NavigationFixService.cs" />

@@ -50,6 +50,8 @@ namespace AnikiHelper.Services.InGameOverlay
         private bool shortcutHeld;
         private DateTime lastShortcutTime = DateTime.MinValue;
         private DateTime lastRefreshTime = DateTime.MinValue;
+        private DateTime? guidePressedAt;
+        private const int GuideShortPressMaxMs = 350;
 
         public AnikiOverlayInputListener(
             AnikiHelperSettings settings,
@@ -296,6 +298,7 @@ namespace AnikiHelper.Services.InGameOverlay
             }
 
             var guidePressedNow = guide && !previousGuide;
+            var guideReleasedNow = !guide && previousGuide;
             var startPressedNow = start && !previousStart;
             var backPressedNow = back && !previousBack;
             var yPressedNow = y && !previousY;
@@ -360,6 +363,35 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
+            var shortcut = settings?.InGameOverlayControllerShortcut ?? "StartBack";
+
+            if (string.Equals(shortcut, "Guide", StringComparison.OrdinalIgnoreCase))
+            {
+                if (guidePressedNow)
+                {
+                    guidePressedAt = DateTime.Now;
+                    return;
+                }
+
+                if (guideReleasedNow && guidePressedAt.HasValue)
+                {
+                    var heldMs = (DateTime.Now - guidePressedAt.Value).TotalMilliseconds;
+                    guidePressedAt = null;
+
+                    if (heldMs <= GuideShortPressMaxMs)
+                    {
+                        shortcutHeld = true;
+                        TriggerShortcut();
+                        return;
+                    }
+
+                    logger?.Debug($"[AnikiHelper][OverlayInput] SDL Guide hold ignored. HeldMs={heldMs:0}");
+                    return;
+                }
+
+                return;
+            }
+
             if (IsShortcutTriggered(guide, start, back, y, guidePressedNow, startPressedNow, backPressedNow, yPressedNow))
             {
                 shortcutHeld = true;
@@ -404,7 +436,7 @@ namespace AnikiHelper.Services.InGameOverlay
             switch (shortcut)
             {
                 case "Guide":
-                    return guidePressedNow;
+                    return false;
 
                 case "BackY":
                     return back && y && (backPressedNow || yPressedNow);

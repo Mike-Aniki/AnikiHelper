@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 
 namespace AnikiHelper.Services
 {
@@ -38,6 +40,8 @@ namespace AnikiHelper.Services
 
         public string StoreUrl { get; set; }
 
+        public string Source { get; set; } = string.Empty;
+
         public List<string> Genres { get; set; } = new List<string>();
 
         public List<string> Categories { get; set; } = new List<string>();
@@ -74,6 +78,115 @@ namespace AnikiHelper.Services
 
         public string Screenshot3Url { get; set; }
         public string Screenshot3LocalPath { get; set; }
+
+        public string Screenshot4Url { get; set; }
+        public string Screenshot4LocalPath { get; set; }
+
+        public string Screenshot5Url { get; set; }
+        public string Screenshot5LocalPath { get; set; }
+
+        public string StoreCardImage
+        {
+            get
+            {
+                var useHeaderCard =
+                    ComingSoon ||
+                    string.Equals(Source, "Steam Popular Coming Soon", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Source, "Steam Popular New Releases", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Source, "Steam Most Wishlisted", StringComparison.OrdinalIgnoreCase);
+
+                if (useHeaderCard)
+                {
+                    return FirstValidImagePath(
+                        HeaderImageLocalPath,
+                        HeaderImageUrl,
+                        CapsuleImageLocalPath,
+                        CapsuleImageUrl
+                    );
+                }
+
+                return FirstValidImagePath(
+                    CapsuleImageLocalPath,
+                    CapsuleImageUrl,
+                    HeaderImageLocalPath,
+                    HeaderImageUrl
+                );
+            }
+        }
+
+        public string StoreHeroBackgroundImage
+        {
+            get
+            {
+                return FirstValidImagePath(
+                    BackgroundImageLocalPath,
+                    BackgroundImageUrl,
+                    Screenshot1LocalPath,
+                    Screenshot1Url
+                );
+            }
+        }
+
+        public string StoreHeroHeaderImage
+        {
+            get
+            {
+                return FirstValidImagePath(
+                    HeaderImageLocalPath,
+                    HeaderImageUrl,
+                    CapsuleImageLocalPath,
+                    CapsuleImageUrl
+                );
+            }
+        }
+
+        private static string FirstValidImagePath(params string[] values)
+        {
+            if (values == null)
+            {
+                return string.Empty;
+            }
+
+            foreach (var value in values)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                if (IsBadSteamSharedImage(value))
+                {
+                    continue;
+                }
+
+                // Le thème ne doit recevoir que du local.
+                if (!IsUrl(value) && File.Exists(value))
+                {
+                    return value;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static bool IsUrl(string value)
+        {
+            return value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                   value.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsBadSteamSharedImage(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            return value.IndexOf("/public/shared/images/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("footerLogo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("footer_logo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   value.IndexOf("valve_new", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
 
 
     }

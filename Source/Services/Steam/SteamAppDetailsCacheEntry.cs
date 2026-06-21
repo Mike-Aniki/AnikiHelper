@@ -45,6 +45,10 @@ namespace AnikiHelper.Services
 
         public int AchievementsTotal { get; set; }
 
+        public string HeaderImageUrl { get; set; }
+
+        public string HeaderImageLocalPath { get; set; }
+
         public int DlcCount { get; set; }
 
         public string Screenshot1Url { get; set; }
@@ -55,5 +59,11 @@ namespace AnikiHelper.Services
 
         public string Screenshot3Url { get; set; }
         public string Screenshot3LocalPath { get; set; }
+
+        public string Screenshot4Url { get; set; }
+        public string Screenshot4LocalPath { get; set; }
+
+        public string Screenshot5Url { get; set; }
+        public string Screenshot5LocalPath { get; set; }
     }
 }

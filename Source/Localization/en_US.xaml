@@ -4,8 +4,8 @@
 
     <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
     <sys:String x:Key="AppSubtitle">Settings</sys:String>
-    <sys:String x:Key="AppInfo">Designed for the Aniki ReMake theme. Some features may require theme support to work in other themes.</sys:String>
-
+    <sys:String x:Key="AppInfo">Aniki Helper is designed for Aniki-branded themes. Advanced features only work with Aniki themes.</sys:String>
+    
     <sys:String x:Key="MoreOptionsDesktop">More options are available in the plugin settings from Playnite desktop mode.</sys:String>
     <sys:String x:Key="GroupAdditionalFeatures">Additional features</sys:String>
 
@@ -37,22 +37,52 @@
     <sys:String x:Key="NotInstalled">Not installed:</sys:String>
 
     <!-- ========= MEDIA GALLERY ========= -->
-    <sys:String x:Key="MediaGallery_Title">Media gallery</sys:String>
-    <sys:String x:Key="MediaGallery_Desc">Aniki Helper reads media from Screenshots Visualizer and Screenshot Utilities. Configure your screenshot folders in those plugins; Aniki Helper only reads their data and generates thumbnails for faster navigation in the theme.</sys:String>
-    <sys:String x:Key="MediaGallery_Provider_Title">Screenshot provider</sys:String>
+
+    <sys:String x:Key="MediaGallery_Title">Galerie média</sys:String>
+    <sys:String x:Key="MediaGallery_Desc">Aniki Helper lit les médias depuis Screenshots Visualizer et Screenshot Utilities. Configurez vos dossiers de captures dans ces plugins ; Aniki Helper lit uniquement leurs données et génère des miniatures pour accélérer la navigation dans le thème.</sys:String>
+
+    <sys:String x:Key="MediaGallery_Provider_Title">Plugin de captures</sys:String>
     <sys:String x:Key="MediaGallery_Provider_Visualizer">Screenshots Visualizer</sys:String>
     <sys:String x:Key="MediaGallery_Provider_UtilitiesLocal">Screenshot Utilities - Local</sys:String>
-    <sys:String x:Key="MediaGallery_Provider_Help">The theme will use Aniki Helper's media list instead of binding directly to the selected screenshot plugin.</sys:String>
-    <sys:String x:Key="MediaGallery_GenerateThumbnails">Media thumbnails</sys:String>
-    <sys:String x:Key="MediaGallery_GenerateThumbnails_Button">Generate thumbnails</sys:String>
-    <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pre-generates thumbnails for all images from the screenshot plugins. The first generation may take some time, but later ones should be faster.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Generate thumbnails for this game</sys:String>
-    <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Scanning media files for this game...</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Thumbnail generation cancelled.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Generating thumbnails for {0}... {1}/{2}</sys:String>
-    <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Updating media cache...</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Thumbnails generated.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Generating game thumbnails</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Help">Le thème utilisera la liste média d’Aniki Helper au lieu de se lier directement au plugin de captures sélectionné.</sys:String>
+
+    <sys:String x:Key="MediaGallery_GenerateThumbnails">Miniatures média</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Button">Générer les miniatures</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pré-génère les miniatures de toutes les images des plugins de captures. La première génération peut prendre du temps, mais les suivantes devraient être plus rapides.</sys:String>
+
+    <sys:String x:Key="MediaGallery_Status_WindowTitle">Générer les miniatures</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Scanning">Analyse des fichiers média...</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Progress_Detailed">Génération des miniatures... {0}/{1} analysées, {2} ajoutées.</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Done_Detailed">Miniatures générées : {0} ajoutées / {1} analysées ({2} déjà en cache, {3} en échec).</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Cancelled_Detailed">Génération annulée : {0} miniatures ajoutées / {1} fichiers analysés.</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Failed">Échec de la génération des miniatures.</sys:String>
+
+    <!-- MEDIA GALLERY - THEME / FULLSCREEN OVERRIDES -->
+
+    <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Générer les miniatures pour ce jeu</sys:String>
+    <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Analyse des fichiers média pour ce jeu...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Génération des miniatures annulée.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Génération des miniatures pour {0}... {1}/{2}</sys:String>
+    <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Mise à jour du cache média...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Miniatures générées.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Générer les miniatures</sys:String>
+
+    <sys:String x:Key="LOCAnikiHelperScanningAllMedia">Analyse des fichiers média...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsProgress">Génération des miniatures... {0}/{1} analysées, {2} ajoutées.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGeneratedDetailed">Miniatures générées : {0} ajoutées / {1} analysées ({2} déjà en cache, {3} en échec).</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelledDetailed">Génération annulée : {0} miniatures ajoutées / {1} fichiers analysés.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationFailed">Échec de la génération des miniatures.</sys:String>
+  
+    <!-- ========= ACHIEVEMENTS CACHE ========= -->
+    <sys:String x:Key="AchievementCache_Title">Achievement Memories Cache</sys:String>
+    <sys:String x:Key="AchievementCache_Desc">Rebuilds achievement memories from PlayniteAchievements. Use this if icons, recent achievements, or rarity data are missing or outdated.</sys:String>
+    <sys:String x:Key="AchievementCache_Rebuild">Achievement Memories</sys:String>
+    <sys:String x:Key="AchievementCache_Rebuild_Button">Rebuild cache</sys:String>
+    <sys:String x:Key="AchievementCache_Rebuild_Help">Scans PlayniteAchievements and rebuilds the achievement memories displayed in the theme. This may take some time on large libraries.</sys:String>
+    <sys:String x:Key="AchievementCache_Status_Scanning">Scanning achievements...</sys:String>
+    <sys:String x:Key="AchievementCache_Status_Done">Achievement memories cache rebuilt: {0} items.</sys:String>
+    <sys:String x:Key="AchievementCache_Status_Failed">Failed to rebuild the achievement memories cache.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperRefreshAchievementCacheForGame">Refresh this game's memories</sys:String>
     <!-- ========= CUSTOM ICONS ========= -->
     <sys:String x:Key="CustomIcons_Title">Custom icons</sys:String>
     <sys:String x:Key="CustomIcons_Desc">Choose external folders for custom filter and source icons. These icons override the default theme icons without modifying the theme files.</sys:String>

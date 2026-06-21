@@ -47,6 +47,8 @@ namespace AnikiHelper.Services.InGameOverlay
         private bool controllerBack;
         private bool controllerY;
         private DateTime lastControllerShortcutTime = DateTime.MinValue;
+        private DateTime? controllerGuidePressedAt;
+        private const int GuideShortPressMaxMs = 350;
 
         public InGameOverlayService(IPlayniteAPI playniteApi, AnikiHelperSettings settings)
         {
@@ -411,7 +413,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 lastForegroundWindowProcessId = null;
             }
 
-            HideOverlay();
+            HideOverlayWithoutRestoringGameFocus();
         }
 
         public void ToggleOverlay()
@@ -468,6 +470,12 @@ namespace AnikiHelper.Services.InGameOverlay
         {
             logger?.Debug($"[AnikiHelper][OverlayInput] HandleOverlayControllerInput: {button}");
 
+            if (!IsOverlayWindowForeground(button))
+            {
+                logger?.Debug($"[AnikiHelper][OverlayInput] Ignored because overlay is not foreground. Button={button}");
+                return;
+            }
+
             try
             {
                 System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
@@ -501,6 +509,43 @@ namespace AnikiHelper.Services.InGameOverlay
                 return false;
             }
 
+            var shortcut = settings?.InGameOverlayControllerShortcut ?? "StartBack";
+
+            if (string.Equals(shortcut, "Guide", StringComparison.OrdinalIgnoreCase) &&
+                args.Button == ControllerInput.Guide)
+            {
+                if (args.State == ControllerInputState.Pressed)
+                {
+                    controllerGuidePressedAt = DateTime.Now;
+                    return true;
+                }
+
+                if (controllerGuidePressedAt.HasValue)
+                {
+                    var heldMs = (DateTime.Now - controllerGuidePressedAt.Value).TotalMilliseconds;
+                    controllerGuidePressedAt = null;
+
+                    if (heldMs <= GuideShortPressMaxMs)
+                    {
+                        var now = DateTime.Now;
+
+                        if ((now - lastControllerShortcutTime).TotalMilliseconds < 350)
+                        {
+                            return true;
+                        }
+
+                        lastControllerShortcutTime = now;
+                        ToggleOverlay();
+                        return true;
+                    }
+
+                    logger?.Debug($"[AnikiHelper][OverlayInput] Guide hold ignored. HeldMs={heldMs:0}");
+                    return false;
+                }
+
+                return false;
+            }
+
             var mostRecentPress = UpdateControllerState(args);
 
             if (overlayWindow != null && overlayWindow.IsVisible)
@@ -529,6 +574,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
             return false;
         }
+
         private ControllerInput? UpdateControllerState(OnControllerButtonStateChangedArgs args)
         {
             var pressed = args.State == ControllerInputState.Pressed;
@@ -598,6 +644,7 @@ namespace AnikiHelper.Services.InGameOverlay
             if (overlayWindow == null)
             {
                 overlayWindow = new AnikiInGameOverlayWindow(this);
+                overlayWindow.ShowInTaskbar = false;
                 overlayWindow.Closed += (s, e) => overlayWindow = null;
             }
 
@@ -692,6 +739,23 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
+        public void HideOverlayWithoutRestoringGameFocus()
+        {
+            try
+            {
+                if (overlayWindow != null)
+                {
+                    overlayWindow.HideImmediately();
+                }
+
+                lastForegroundWindow = IntPtr.Zero;
+                lastForegroundWindowProcessId = null;
+            }
+            catch
+            {
+            }
+        }
+
         private void RestoreGameFocus()
         {
             try
@@ -703,6 +767,77 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             catch
             {
+            }
+        }
+
+        private bool IsOverlayWindowForeground(ControllerInput button)
+        {
+            try
+            {
+                if (overlayWindow == null)
+                {
+                    return false;
+                }
+
+                bool isActive = false;
+                bool isKeyboardFocusWithin = false;
+
+                overlayWindow.Dispatcher.Invoke(() =>
+                {
+                    isActive = overlayWindow.IsActive;
+                    isKeyboardFocusWithin = overlayWindow.IsKeyboardFocusWithin;
+                });
+
+                logger?.Debug(
+                    $"[AnikiHelper][OverlayInput][FocusCheck] Button={button}, " +
+                    $"IsActive={isActive}, IsKeyboardFocusWithin={isKeyboardFocusWithin}"
+                );
+
+                return isActive && isKeyboardFocusWithin;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][OverlayInput][FocusCheck] Failed.");
+                return true;
+            }
+        }
+
+        private bool IsForegroundCurrentGame()
+        {
+            try
+            {
+                var foregroundWindow = GetForegroundWindow();
+
+                if (foregroundWindow == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                uint foregroundPid;
+                GetWindowThreadProcessId(foregroundWindow, out foregroundPid);
+
+                if (foregroundPid <= 0)
+                {
+                    return false;
+                }
+
+                if (currentGameProcessId.HasValue &&
+                    foregroundPid == (uint)currentGameProcessId.Value)
+                {
+                    return true;
+                }
+
+                if (lastForegroundWindowProcessId.HasValue &&
+                    foregroundPid == (uint)lastForegroundWindowProcessId.Value)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
             }
         }
 

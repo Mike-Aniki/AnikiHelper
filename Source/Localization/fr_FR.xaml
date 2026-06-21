@@ -4,8 +4,8 @@
 
     <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
     <sys:String x:Key="AppSubtitle">Paramètres</sys:String>
-    <sys:String x:Key="AppInfo">Conçu pour le thème Aniki ReMake. Certaines fonctionnalités nécessitent un thème compatible pour fonctionner.</sys:String>
-
+    <sys:String x:Key="AppInfo">Aniki Helper est conçu pour les thèmes de la marque Aniki. Les fonctions avancées ne fonctionnent qu’avec les thèmes Aniki.</sys:String>
+    
     <sys:String x:Key="MoreOptionsDesktop">Plus d’options sont disponibles dans les paramètres du plugin en mode bureau.</sys:String>
     <sys:String x:Key="GroupAdditionalFeatures">Fonctionnalités supplémentaires</sys:String>
 
@@ -37,22 +37,53 @@
     <sys:String x:Key="NotInstalled">Non installés :</sys:String>
 
     <!-- ========= MEDIA GALLERY ========= -->
+
     <sys:String x:Key="MediaGallery_Title">Galerie média</sys:String>
     <sys:String x:Key="MediaGallery_Desc">Aniki Helper lit les médias depuis Screenshots Visualizer et Screenshot Utilities. Configurez vos dossiers de captures dans ces plugins ; Aniki Helper lit uniquement leurs données et génère des miniatures pour accélérer la navigation dans le thème.</sys:String>
+
     <sys:String x:Key="MediaGallery_Provider_Title">Plugin de captures</sys:String>
     <sys:String x:Key="MediaGallery_Provider_Visualizer">Screenshots Visualizer</sys:String>
     <sys:String x:Key="MediaGallery_Provider_UtilitiesLocal">Screenshot Utilities - Local</sys:String>
     <sys:String x:Key="MediaGallery_Provider_Help">Le thème utilisera la liste média d’Aniki Helper au lieu de se lier directement au plugin de captures sélectionné.</sys:String>
+
     <sys:String x:Key="MediaGallery_GenerateThumbnails">Miniatures média</sys:String>
     <sys:String x:Key="MediaGallery_GenerateThumbnails_Button">Générer les miniatures</sys:String>
     <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pré-génère les miniatures de toutes les images des plugins de captures. La première génération peut prendre du temps, mais les suivantes devraient être plus rapides.</sys:String>
+
+    <sys:String x:Key="MediaGallery_Status_WindowTitle">Générer les miniatures</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Scanning">Analyse des fichiers média...</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Progress_Detailed">Génération des miniatures... {0}/{1} analysées, {2} ajoutées.</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Done_Detailed">Miniatures générées : {0} ajoutées / {1} analysées ({2} déjà en cache, {3} en échec).</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Cancelled_Detailed">Génération annulée : {0} miniatures ajoutées / {1} fichiers analysés.</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Failed">Échec de la génération des miniatures.</sys:String>
+
+    <!-- MEDIA GALLERY - THEME / FULLSCREEN OVERRIDES -->
+
     <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Générer les miniatures pour ce jeu</sys:String>
     <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Analyse des fichiers média pour ce jeu...</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Génération de la miniature annulée.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Génération des vignettes pour {0}... {1}/{2}</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Génération des miniatures annulée.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Génération des miniatures pour {0}... {1}/{2}</sys:String>
     <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Mise à jour du cache média...</sys:String>
     <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Miniatures générées.</sys:String>
     <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Générer les miniatures</sys:String>
+
+    <sys:String x:Key="LOCAnikiHelperScanningAllMedia">Analyse des fichiers média...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsProgress">Génération des miniatures... {0}/{1} analysées, {2} ajoutées.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGeneratedDetailed">Miniatures générées : {0} ajoutées / {1} analysées ({2} déjà en cache, {3} en échec).</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelledDetailed">Génération annulée : {0} miniatures ajoutées / {1} fichiers analysés.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationFailed">Échec de la génération des miniatures.</sys:String>
+   
+    
+    <!-- ========= ACHIEVEMENTS CACHE ========= -->
+    <sys:String x:Key="AchievementCache_Title">Cache des souvenirs de trophées</sys:String>
+    <sys:String x:Key="AchievementCache_Desc">Reconstruit les souvenirs de trophées à partir de PlayniteAchievements. À utiliser si les icônes, les derniers trophées ou les données de rareté sont manquants ou obsolètes.</sys:String>
+    <sys:String x:Key="AchievementCache_Rebuild">Souvenirs de trophées</sys:String>
+    <sys:String x:Key="AchievementCache_Rebuild_Button">Reconstruire le cache</sys:String>
+    <sys:String x:Key="AchievementCache_Rebuild_Help">Analyse PlayniteAchievements et reconstruit les souvenirs de trophées affichés dans le Theme. Cela peut prendre du temps sur les grandes bibliothèques.</sys:String>
+    <sys:String x:Key="AchievementCache_Status_Scanning">Analyse des trophées...</sys:String>
+    <sys:String x:Key="AchievementCache_Status_Done">Cache des souvenirs de trophées reconstruit : {0} éléments.</sys:String>
+    <sys:String x:Key="AchievementCache_Status_Failed">Échec de la reconstruction du cache des souvenirs de trophées.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperRefreshAchievementCacheForGame">Rafraîchir les souvenirs de ce jeu</sys:String>
     <!-- ========= CUSTOM ICONS ========= -->
     <sys:String x:Key="CustomIcons_Title">Icônes personnalisées</sys:String>
     <sys:String x:Key="CustomIcons_Desc">Choisissez des dossiers externes pour les icônes de filtres et de sources. Ces icônes remplacent celles du thème sans modifier les fichiers du thème.</sys:String>

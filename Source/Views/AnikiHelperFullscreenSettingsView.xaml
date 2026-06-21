@@ -1,4 +1,4 @@
-﻿<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:pctrls="clr-namespace:Playnite.FullscreenApp.Controls;assembly=Playnite.FullscreenApp"
@@ -85,9 +85,59 @@
                                Margin="0,8,0,0"/>
                 </StackPanel>
 
+                <StackPanel Grid.Column="1"
+            VerticalAlignment="Center">
+
+                    <pctrls:ButtonEx Content="{DynamicResource MediaGallery_GenerateThumbnails_Button}"
+                     Command="{Binding Settings.GenerateMediaThumbnailsCommand}"
+                     Height="52"
+                     MinWidth="320"
+                     HorizontalAlignment="Stretch"/>
+
+                    <TextBlock Text="{Binding Settings.MediaThumbnailPrecacheStatus}"
+               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+               Margin="0,8,0,0"
+               TextWrapping="Wrap"/>
+
+                </StackPanel>
+            </Grid>
+
+            <!-- ACHIEVEMENTS CACHE -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource AchievementCache_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
+
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <TextBlock Text="{DynamicResource AchievementCache_Desc}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,10,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            Margin="0,0,20,0">
+                    <TextBlock Text="{DynamicResource AchievementCache_Rebuild}"
+                               Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                               Margin="0"/>
+
+                    <TextBlock Text="{DynamicResource AchievementCache_Rebuild_Help}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                               Margin="0,8,0,0"/>
+
+                    <TextBlock Text="{Binding Settings.AchievementMemoriesRefreshStatus}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                               Margin="0,8,0,0"/>
+                </StackPanel>
+
                 <pctrls:ButtonEx Grid.Column="1"
-                                 Content="{DynamicResource MediaGallery_GenerateThumbnails_Button}"
-                                 Command="{Binding Settings.GenerateMediaThumbnailsCommand}"
+                                 Content="{Binding Settings.AchievementMemoriesRefreshButtonText}"
+                                 Command="{Binding Settings.RefreshAchievementMemoriesCommand}"
                                  Height="52"
                                  MinWidth="320"
                                  HorizontalAlignment="Stretch"

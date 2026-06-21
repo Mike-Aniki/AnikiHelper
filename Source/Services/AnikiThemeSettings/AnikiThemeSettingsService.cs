@@ -142,6 +142,8 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                     loadedDictionaries.Add(generatedResource);
                 }
 
+                LoadLuckyDayResourceOverride();
+
                 settings.Options.Update(optionValues);
             }
             catch (Exception ex)
@@ -1893,6 +1895,47 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                         yield return Path.Combine(currentThemePath, relativeFile);
                     }
                 }
+            }
+        }
+
+        private void LoadLuckyDayResourceOverride()
+        {
+            try
+            {
+                if (settings?.IsLuckyDay != true)
+                {
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(currentThemePath))
+                {
+                    return;
+                }
+
+                var filePath = Path.Combine(
+                    currentThemePath,
+                    "Themes Option",
+                    "2.Interface",
+                    "Hidden",
+                    "LuckyDay.xaml");
+
+                if (!File.Exists(filePath))
+                {
+                    logger?.Warn($"[AnikiHelper] Lucky Day resource file not found: {filePath}");
+                    return;
+                }
+
+                var resource = GetOrLoadResourceDictionary(filePath);
+
+                if (resource != null)
+                {
+                    Application.Current.Resources.MergedDictionaries.Add(resource);
+                    loadedDictionaries.Add(resource);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load Lucky Day resource override.");
             }
         }
 

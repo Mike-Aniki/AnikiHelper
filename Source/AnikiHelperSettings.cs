@@ -22,6 +22,7 @@ using System.Timers;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Reflection;
 
 
 namespace AnikiHelper
@@ -282,6 +283,98 @@ namespace AnikiHelper
         }
     }
 
+    public static class AnikiVersionComparer
+    {
+        public static int CompareVersions(string version1, string version2)
+        {
+            if (string.IsNullOrWhiteSpace(version1) || string.IsNullOrWhiteSpace(version2))
+            {
+                return -1;
+            }
+
+            var v1 = Array.ConvertAll(version1.Split('.'), int.Parse);
+            var v2 = Array.ConvertAll(version2.Split('.'), int.Parse);
+
+            for (int i = 0; i < Math.Max(v1.Length, v2.Length); i++)
+            {
+                int part1 = i < v1.Length ? v1[i] : 0;
+                int part2 = i < v2.Length ? v2[i] : 0;
+
+                if (part1 > part2)
+                {
+                    return 1;
+                }
+
+                if (part1 < part2)
+                {
+                    return -1;
+                }
+            }
+
+            return 0;
+        }
+
+        public static bool MinimalVersion(string minVersion, string actualVersion)
+        {
+            return CompareVersions(minVersion, actualVersion) <= 0;
+        }
+    }
+
+    public class AnikiMinimalVersion : Dictionary<string, object>
+    {
+        private static string GetPluginVersion()
+        {
+            try
+            {
+                string pluginFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+                string pluginManifestFile = Path.Combine(pluginFolder, "extension.yaml");
+
+                if (!File.Exists(pluginManifestFile))
+                {
+                    pluginManifestFile = Path.Combine(pluginFolder, "Extension.yaml");
+                }
+
+                if (!File.Exists(pluginManifestFile))
+                {
+                    return "0.0.0";
+                }
+
+                var info = Serialization.FromYamlFile<Dictionary<string, object>>(pluginManifestFile);
+
+                if (info != null && info.ContainsKey("Version") && info["Version"] != null)
+                {
+                    return info["Version"].ToString();
+                }
+            }
+            catch
+            {
+            }
+
+            return "0.0.0";
+        }
+
+        public static string PluginVersion = GetPluginVersion();
+
+        public new object this[string version]
+        {
+            get
+            {
+                try
+                {
+                    return AnikiVersionComparer.MinimalVersion(version, PluginVersion);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            set
+            {
+            }
+        }
+    }
+
     public class AnikiHelperSettings : ObservableObject, ISettings, System.ComponentModel.INotifyPropertyChanged
     {
         private readonly global::AnikiHelper.AnikiHelper plugin;
@@ -303,6 +396,12 @@ namespace AnikiHelper
         private PlayniteAchievementsReader playniteAchievementsReader;
 
         [DontSerialize]
+        private readonly object achievementMemoriesRefreshLock = new object();
+
+        [DontSerialize]
+        private bool achievementMemoriesRefreshRunning;
+
+        [DontSerialize]
         private ILogger logger;
 
         [DontSerialize]
@@ -314,6 +413,15 @@ namespace AnikiHelper
         public RelayCommand<object> ToggleWelcomeHubCommand { get; }
         public RelayCommand<object> CloseWelcomeHubCommand { get; }
         public RelayCommand<object> InitializeWelcomeHubCommand { get; }
+        public RelayCommand HubNextPageCommand { get; }
+        public RelayCommand HubPreviousPageCommand { get; }
+        public RelayCommand<object> HubSetPageCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenSteamStoreHeroDetailsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<object> SetSteamStoreSectionCommand { get; }
 
         [DontSerialize]
         private bool gameClosing;
@@ -541,6 +649,44 @@ namespace AnikiHelper
 
         [DontSerialize]
         public RelayCommand GenerateMediaThumbnailsCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand RefreshAchievementMemoriesCommand { get; }
+
+        [DontSerialize]
+        private bool isRefreshingAchievementMemories;
+
+        [DontSerialize]
+        public bool IsRefreshingAchievementMemories
+        {
+            get => isRefreshingAchievementMemories;
+            set
+            {
+                SetValue(ref isRefreshingAchievementMemories, value);
+                OnPropertyChanged(nameof(AchievementMemoriesRefreshButtonText));
+            }
+        }
+
+        [DontSerialize]
+        private string achievementMemoriesRefreshStatus = string.Empty;
+
+        [DontSerialize]
+        public string AchievementMemoriesRefreshStatus
+        {
+            get => achievementMemoriesRefreshStatus;
+            set => SetValue(ref achievementMemoriesRefreshStatus, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        public string AchievementMemoriesRefreshButtonText
+        {
+            get
+            {
+                return IsRefreshingAchievementMemories
+                    ? Loc("AchievementCache_Status_Scanning", "Scanning achievements...")
+                    : Loc("AchievementCache_Rebuild_Button", "Rebuild Achievements Cache");
+            }
+        }
 
         [DontSerialize]
         private bool mediaThumbnailPrecacheLoading;
@@ -1058,6 +1204,110 @@ namespace AnikiHelper
 
         public RelayCommand OpenPlayniteSettingsCommand { get; }
 
+        [DontSerialize]
+        private int hubCurrentPage = 1;
+
+        [DontSerialize]
+        public int HubCurrentPage
+        {
+            get => hubCurrentPage;
+            set
+            {
+                var newValue = Math.Max(1, Math.Min(6, value));
+
+                if (hubCurrentPage == newValue)
+                {
+                    return;
+                }
+
+                HubPreviousPage = hubCurrentPage;
+                HubPageDirection = newValue > hubCurrentPage ? "Forward" : "Backward";
+
+                SetValue(ref hubCurrentPage, newValue);
+
+                OnPropertyChanged(nameof(HubCurrentPageTag));
+                OnPropertyChanged(nameof(HubIsPage1));
+                OnPropertyChanged(nameof(HubIsPage2));
+                OnPropertyChanged(nameof(HubIsPage3));
+                OnPropertyChanged(nameof(HubIsPage4));
+                OnPropertyChanged(nameof(HubIsPage5));
+                OnPropertyChanged(nameof(HubIsPage6));
+            }
+        }
+
+        [DontSerialize]
+        private int hubPreviousPage = 1;
+
+        [DontSerialize]
+        public int HubPreviousPage
+        {
+            get => hubPreviousPage;
+            set => SetValue(ref hubPreviousPage, value);
+        }
+
+        [DontSerialize]
+        private string hubPageDirection = "None";
+
+        [DontSerialize]
+        public string HubPageDirection
+        {
+            get => hubPageDirection;
+            set => SetValue(ref hubPageDirection, value ?? "None");
+        }
+
+        [DontSerialize]
+        public string HubCurrentPageTag => $"Page{HubCurrentPage}";
+
+        [DontSerialize]
+        public bool HubIsPage1 => HubCurrentPage == 1;
+
+        [DontSerialize]
+        public bool HubIsPage2 => HubCurrentPage == 2;
+
+        [DontSerialize]
+        public bool HubIsPage3 => HubCurrentPage == 3;
+
+        [DontSerialize]
+        public bool HubIsPage4 => HubCurrentPage == 4;
+
+        [DontSerialize]
+        public bool HubIsPage5 => HubCurrentPage == 5;
+
+        [DontSerialize]
+        public bool HubIsPage6 => HubCurrentPage == 6;
+
+        public void SetHubPage(object page)
+        {
+            if (page == null)
+            {
+                return;
+            }
+
+            var text = page.ToString();
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            text = text.Replace("Page", "").Trim();
+
+            if (int.TryParse(text, out var pageNumber))
+            {
+                HubCurrentPage = pageNumber;
+            }
+        }
+
+        public void NextHubPage()
+        {
+            HubCurrentPage++;
+        }
+
+        public void PreviousHubPage()
+        {
+            HubCurrentPage--;
+        }
+
         private bool isWelcomeHubOpen = true;
         public bool IsWelcomeHubOpen
         {
@@ -1122,6 +1372,12 @@ namespace AnikiHelper
 
         [DontSerialize]
         public RelayCommand OpenSteamStorePageExternalCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<object> OpenSteamStoreScreenshotViewerCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand CloseSteamStoreScreenshotViewerCommand { get; }
 
         private bool steamStoreDetailsVisible;
         public bool SteamStoreDetailsVisible
@@ -1228,6 +1484,34 @@ namespace AnikiHelper
             set => SetValue(ref steamStoreDetailsScreenshot3, value);
         }
 
+        private string steamStoreDetailsScreenshot4;
+        public string SteamStoreDetailsScreenshot4
+        {
+            get => steamStoreDetailsScreenshot4;
+            set => SetValue(ref steamStoreDetailsScreenshot4, value);
+        }
+
+        private string steamStoreDetailsScreenshot5;
+        public string SteamStoreDetailsScreenshot5
+        {
+            get => steamStoreDetailsScreenshot5;
+            set => SetValue(ref steamStoreDetailsScreenshot5, value);
+        }
+
+        private bool steamStoreScreenshotViewerVisible;
+        public bool SteamStoreScreenshotViewerVisible
+        {
+            get => steamStoreScreenshotViewerVisible;
+            set => SetValue(ref steamStoreScreenshotViewerVisible, value);
+        }
+
+        private string steamStoreScreenshotViewerImage;
+        public string SteamStoreScreenshotViewerImage
+        {
+            get => steamStoreScreenshotViewerImage;
+            set => SetValue(ref steamStoreScreenshotViewerImage, value);
+        }
+
         private int steamStoreDetailsAppId;
         public int SteamStoreDetailsAppId
         {
@@ -1303,6 +1587,21 @@ namespace AnikiHelper
         {
             get => steamStoreDetailsControllerSupport;
             set => SetValue(ref steamStoreDetailsControllerSupport, value);
+        }
+
+        [DontSerialize]
+        public AnikiMinimalVersion MinimalVersion { get; } = new AnikiMinimalVersion();
+
+        [DontSerialize]
+        public string Version
+        {
+            get => AnikiMinimalVersion.PluginVersion;
+        }
+
+        [DontSerialize]
+        public bool IsInstalled
+        {
+            get => true;
         }
 
         public string InstalledPluginVersion { get; set; } = "";
@@ -1406,7 +1705,7 @@ namespace AnikiHelper
             set => SetValue(ref suggestedGameBannerText, value);
         }
 
-        
+
 
         // Rotation info for suggested game (top 3 / once per day)
         public Guid RefGameLastId { get; set; } = Guid.Empty;
@@ -1830,7 +2129,7 @@ namespace AnikiHelper
         {
             get => latestNewsLocalImagePath;
             set => SetValue(ref latestNewsLocalImagePath, value);
-        }        
+        }
 
         private string latestNewsLocalImagePathA;
         public string LatestNewsLocalImagePathA
@@ -1924,10 +2223,139 @@ namespace AnikiHelper
             set => SetValue(ref steamStoreError, value);
         }
 
+        private int steamStoreLoadingProgress;
+        public int SteamStoreLoadingProgress
+        {
+            get => steamStoreLoadingProgress;
+            set => SetValue(ref steamStoreLoadingProgress, value);
+        }
+
         private ObservableCollection<SteamStoreItem> steamStoreDeals = new ObservableCollection<SteamStoreItem>();
         private ObservableCollection<SteamStoreItem> steamStoreNewReleases = new ObservableCollection<SteamStoreItem>();
         private ObservableCollection<SteamStoreItem> steamStoreTopSellers = new ObservableCollection<SteamStoreItem>();
-        private ObservableCollection<SteamStoreItem> steamStoreSpotlight = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreUpcoming = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreWishlisted = new ObservableCollection<SteamStoreItem>();
+
+        private string steamStoreSelectedSection = "Deals";
+        public string SteamStoreSelectedSection
+        {
+            get => steamStoreSelectedSection;
+            set => SetValue(ref steamStoreSelectedSection, value);
+        }
+
+        private string steamStoreSelectedSectionTitle = "Deals";
+        public string SteamStoreSelectedSectionTitle
+        {
+            get => steamStoreSelectedSectionTitle;
+            set => SetValue(ref steamStoreSelectedSectionTitle, value);
+        }
+
+        private ObservableCollection<SteamStoreItem> steamStoreCurrentItems = new ObservableCollection<SteamStoreItem>();
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreCurrentItems
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreCurrentItems;
+            }
+            set => SetValue(ref steamStoreCurrentItems, value);
+        }
+
+        private ObservableCollection<SteamStoreItem> steamStoreCurrentListItems = new ObservableCollection<SteamStoreItem>();
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreCurrentListItems
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreCurrentListItems;
+            }
+            set => SetValue(ref steamStoreCurrentListItems, value);
+        }
+
+        private SteamStoreItem steamStoreHeroItem;
+
+        [DontSerialize]
+        public SteamStoreItem SteamStoreHeroItem
+        {
+            get => steamStoreHeroItem;
+            set => SetValue(ref steamStoreHeroItem, value);
+        }
+
+        private string steamStoreHeroName = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroName
+        {
+            get => steamStoreHeroName;
+            set => SetValue(ref steamStoreHeroName, value);
+        }
+
+        private string steamStoreHeroDescription = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroDescription
+        {
+            get => steamStoreHeroDescription;
+            set => SetValue(ref steamStoreHeroDescription, value);
+        }
+
+        private string steamStoreHeroImage = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroImage
+        {
+            get => steamStoreHeroImage;
+            set => SetValue(ref steamStoreHeroImage, value);
+        }
+
+        private string steamStoreHeroBackgroundImage = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroBackgroundImage
+        {
+            get => steamStoreHeroBackgroundImage;
+            set => SetValue(ref steamStoreHeroBackgroundImage, value);
+        }
+
+        private string steamStoreHeroPrice = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroPrice
+        {
+            get => steamStoreHeroPrice;
+            set => SetValue(ref steamStoreHeroPrice, value);
+        }
+
+        private string steamStoreHeroOriginalPrice = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroOriginalPrice
+        {
+            get => steamStoreHeroOriginalPrice;
+            set => SetValue(ref steamStoreHeroOriginalPrice, value);
+        }
+
+        private string steamStoreHeroDiscount = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroDiscount
+        {
+            get => steamStoreHeroDiscount;
+            set => SetValue(ref steamStoreHeroDiscount, value);
+        }
+
+        private string steamStoreHeroReleaseDate = string.Empty;
+
+        [DontSerialize]
+        public string SteamStoreHeroReleaseDate
+        {
+            get => steamStoreHeroReleaseDate;
+            set => SetValue(ref steamStoreHeroReleaseDate, value);
+        }
 
         private void RequestSteamStoreLoad()
         {
@@ -1972,15 +2400,27 @@ namespace AnikiHelper
             set => SetValue(ref steamStoreTopSellers, value);
         }
 
+
         [DontSerialize]
-        public ObservableCollection<SteamStoreItem> SteamStoreSpotlight
+        public ObservableCollection<SteamStoreItem> SteamStoreUpcoming
         {
             get
             {
                 RequestSteamStoreLoad();
-                return steamStoreSpotlight;
+                return steamStoreUpcoming;
             }
-            set => SetValue(ref steamStoreSpotlight, value);
+            set => SetValue(ref steamStoreUpcoming, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreWishlisted
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreWishlisted;
+            }
+            set => SetValue(ref steamStoreWishlisted, value);
         }
 
 
@@ -2427,8 +2867,18 @@ namespace AnikiHelper
         public int LoginRandomIndex
         {
             get => loginRandomIndex;
-            set => SetValue(ref loginRandomIndex, value);
+            set
+            {
+                if (loginRandomIndex != value)
+                {
+                    SetValue(ref loginRandomIndex, value);
+                    OnPropertyChanged(nameof(IsLuckyDay));
+                }
+            }
         }
+
+        [DontSerialize]
+        public bool IsLuckyDay => LoginRandomIndex == 42;
 
         // anti-repetition between two launches
         public int LastLoginRandomIndex { get; set; }
@@ -2617,7 +3067,11 @@ namespace AnikiHelper
                 {
                     LastNotifications.Clear();
 
-                    foreach (var it in saved.LastNotifications.Take(20))
+                    foreach (var it in saved.LastNotifications
+                        .Where(x => x != null
+                            && !string.Equals(x.Type, "gameEnded", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(x.Title, "Game session ended", StringComparison.OrdinalIgnoreCase))
+                        .Take(20))
                     {
                         LastNotifications.Add(it);
                     }
@@ -2686,6 +3140,14 @@ namespace AnikiHelper
                 {
                     _ = GenerateAllMediaThumbnailsAsync();
                 }
+            );
+
+            RefreshAchievementMemoriesCommand = new RelayCommand(
+                () =>
+                {
+                    _ = RefreshAchievementMemoriesWithProgressAsync();
+                },
+                () => !IsRefreshingAchievementMemories
             );
 
             RefreshCurrentGameMediaCommand = new RelayCommand(
@@ -2786,6 +3248,21 @@ namespace AnikiHelper
 
             OpenSteamGameNewsWindowCommand = new RelayCommand(() => plugin?.OpenSteamGameNewsWindow());
 
+            HubNextPageCommand = new RelayCommand(() =>
+            {
+                NextHubPage();
+            });
+
+            HubPreviousPageCommand = new RelayCommand(() =>
+            {
+                PreviousHubPage();
+            });
+
+            HubSetPageCommand = new RelayCommand<object>(page =>
+            {
+                SetHubPage(page);
+            });
+
             InitializeWelcomeHubCommand = new RelayCommand<object>(
                 param =>
                 {
@@ -2852,6 +3329,23 @@ namespace AnikiHelper
                 item => item != null
             );
 
+            OpenSteamStoreHeroDetailsCommand = new RelayCommand(
+                () =>
+                {
+                    if (SteamStoreHeroItem != null)
+                    {
+                        plugin?.OpenSteamStoreDetails(SteamStoreHeroItem);
+                    }
+                }
+            );
+
+            SetSteamStoreSectionCommand = new RelayCommand<object>(
+                section =>
+                {
+                    plugin?.SetSteamStoreSection(section?.ToString());
+                }
+            );
+
             CloseSteamStoreDetailsCommand = new RelayCommand(
                 () =>
                 {
@@ -2871,6 +3365,10 @@ namespace AnikiHelper
                     plugin.Settings.SteamStoreDetailsScreenshot1 = string.Empty;
                     plugin.Settings.SteamStoreDetailsScreenshot2 = string.Empty;
                     plugin.Settings.SteamStoreDetailsScreenshot3 = string.Empty;
+                    plugin.Settings.SteamStoreDetailsScreenshot4 = string.Empty;
+                    plugin.Settings.SteamStoreDetailsScreenshot5 = string.Empty;
+                    plugin.Settings.SteamStoreScreenshotViewerVisible = false;
+                    plugin.Settings.SteamStoreScreenshotViewerImage = string.Empty;
                     plugin.Settings.SteamStoreDetailsReleaseDate = string.Empty;
                     plugin.Settings.SteamStoreDetailsSupportedLanguages = string.Empty;
                     plugin.Settings.SteamStoreDetailsIsPreorder = false;
@@ -2881,6 +3379,21 @@ namespace AnikiHelper
                     plugin.Settings.SteamStoreDetailsControllerSupport = string.Empty;
                     plugin.Settings.SteamStoreDetailsAppId = 0;
                     plugin.Settings.SteamStoreDetailsStoreUrl = string.Empty;
+                }
+            );
+
+            OpenSteamStoreScreenshotViewerCommand = new RelayCommand<object>(
+                image =>
+                {
+                    plugin?.OpenSteamStoreScreenshotViewer(image);
+                },
+                image => image != null && !string.IsNullOrWhiteSpace(image.ToString())
+            );
+
+            CloseSteamStoreScreenshotViewerCommand = new RelayCommand(
+                () =>
+                {
+                    plugin?.CloseSteamStoreScreenshotViewer();
                 }
             );
 
@@ -3143,19 +3656,24 @@ namespace AnikiHelper
             MediaThumbnailPrecacheLoading = true;
             MediaThumbnailPrecacheDone = 0;
             MediaThumbnailPrecacheTotal = 0;
-            MediaThumbnailPrecacheStatus = "Scanning media files...";
+            MediaThumbnailPrecacheStatus = ResourceProvider.GetString("LOCAnikiHelperScanningAllMedia");
 
             return Task.Run(() =>
             {
+                int scannedCount = 0;
+                int createdCount = 0;
+                int alreadyCachedCount = 0;
+                int failedCount = 0;
+
                 try
                 {
                     plugin.PlayniteApi.Dialogs.ActivateGlobalProgress(progress =>
                     {
                         progress.IsIndeterminate = true;
-                        progress.Text = "Scanning media files...";
+                        progress.Text = ResourceProvider.GetString("MediaGallery_Status_Scanning");
 
                         var loadedItems = LoadUnifiedMediaItems();
-                        var providerThumbCount = loadedItems.Count(x => HasValidProviderThumbnail(x));
+
                         var imageItems = loadedItems
                             .Where(x => x != null)
                             .Where(x => !x.IsVideo)
@@ -3163,15 +3681,22 @@ namespace AnikiHelper
                             .Where(x => File.Exists(x.FilePath))
                             .ToList();
 
+                        scannedCount = imageItems.Count;
+
                         Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
                         {
-                            MediaThumbnailPrecacheTotal = imageItems.Count;
+                            MediaThumbnailPrecacheTotal = scannedCount;
                             MediaThumbnailPrecacheDone = 0;
-                            MediaThumbnailPrecacheStatus = "Generating thumbnails...";
+                            MediaThumbnailPrecacheStatus = string.Format(
+                                ResourceProvider.GetString("LOCAnikiHelperGeneratingThumbnailsProgress"),
+                                0,
+                                scannedCount,
+                                0
+                            );
                         }), DispatcherPriority.Background);
 
                         progress.IsIndeterminate = false;
-                        progress.ProgressMaxValue = imageItems.Count;
+                        progress.ProgressMaxValue = scannedCount;
                         progress.CurrentProgressValue = 0;
 
                         if (mediaThumbnailService == null)
@@ -3183,38 +3708,86 @@ namespace AnikiHelper
                         {
                             if (progress.CancelToken.IsCancellationRequested)
                             {
-                                progress.Text = "Thumbnail generation cancelled.";
+                                var cancelledText = string.Format(
+                                    ResourceProvider.GetString("LOCAnikiHelperThumbnailGenerationCancelledDetailed"),
+                                    createdCount,
+                                    scannedCount
+                                );
+
+                                progress.Text = cancelledText;
+
+                                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                                {
+                                    MediaThumbnailPrecacheStatus = cancelledText;
+                                }), DispatcherPriority.Background);
+
                                 break;
                             }
 
                             var item = imageItems[i];
                             var done = i + 1;
 
+                            var alreadyHadGeneratedThumbnail = mediaThumbnailService.HasGeneratedImageThumbnail(item);
+
+                            if (alreadyHadGeneratedThumbnail)
+                            {
+                                alreadyCachedCount++;
+                            }
+
                             progress.CurrentProgressValue = done;
-                            progress.Text = $"Generating thumbnails... {done}/{imageItems.Count}";
+
+                            var progressText = string.Format(
+                                ResourceProvider.GetString("MediaGallery_Status_Progress_Detailed"),
+                                done,
+                                scannedCount,
+                                createdCount
+                            );
+
+                            progress.Text = progressText;
 
                             try
                             {
-                                mediaThumbnailService.GetOrCreateThumbnail(item);
+                                var thumbnailPath = mediaThumbnailService.GetOrCreateThumbnail(item);
+
+                                var hasValidGeneratedThumbnail =
+                                    !string.IsNullOrWhiteSpace(thumbnailPath) &&
+                                    !string.Equals(thumbnailPath, item.FilePath, StringComparison.OrdinalIgnoreCase) &&
+                                    File.Exists(thumbnailPath);
+
+                                if (hasValidGeneratedThumbnail && !alreadyHadGeneratedThumbnail)
+                                {
+                                    createdCount++;
+                                }
+
+                                if (!hasValidGeneratedThumbnail)
+                                {
+                                    failedCount++;
+                                }
                             }
                             catch (Exception ex)
                             {
+                                failedCount++;
                                 logger?.Debug(ex, "[AnikiHelper] Failed to generate media thumbnail.");
                             }
 
-                            if (done % 5 == 0 || done == imageItems.Count)
+                            if (done % 5 == 0 || done == scannedCount)
                             {
                                 Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
                                 {
                                     MediaThumbnailPrecacheDone = done;
-                                    MediaThumbnailPrecacheStatus = "Generating thumbnails...";
+                                    MediaThumbnailPrecacheStatus = string.Format(
+                                        ResourceProvider.GetString("MediaGallery_Status_Progress_Detailed"),
+                                        done,
+                                        scannedCount,
+                                        createdCount
+                                    );
                                 }), DispatcherPriority.Background);
                             }
                         }
 
                         if (!progress.CancelToken.IsCancellationRequested)
                         {
-                            progress.Text = "Updating media cache...";
+                            progress.Text = ResourceProvider.GetString("LOCAnikiHelperUpdatingMediaCache");
 
                             try
                             {
@@ -3243,16 +3816,24 @@ namespace AnikiHelper
                                 logger?.Warn(ex, "[AnikiHelper] Failed to rebuild screenshot media cache.");
                             }
 
-                            progress.Text = "Thumbnails generated.";
+                            var doneText = string.Format(
+                                ResourceProvider.GetString("LOCAnikiHelperThumbnailsGeneratedDetailed"),
+                                createdCount,
+                                scannedCount,
+                                alreadyCachedCount,
+                                failedCount
+                            );
+
+                            progress.Text = doneText;
 
                             Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
                             {
                                 MediaThumbnailPrecacheDone = MediaThumbnailPrecacheTotal;
-                                MediaThumbnailPrecacheStatus = "Thumbnails generated.";
+                                MediaThumbnailPrecacheStatus = doneText;
                             }), DispatcherPriority.Background);
                         }
                     },
-                    new GlobalProgressOptions("Generating media thumbnails")
+                    new GlobalProgressOptions(ResourceProvider.GetString("LOCAnikiHelperGeneratingGameThumbnails"))
                     {
                         IsIndeterminate = false,
                         Cancelable = true
@@ -3264,7 +3845,7 @@ namespace AnikiHelper
 
                     Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
                     {
-                        MediaThumbnailPrecacheStatus = "Failed to generate thumbnails.";
+                        MediaThumbnailPrecacheStatus = ResourceProvider.GetString("LOCAnikiHelperThumbnailGenerationFailed");
                     }), DispatcherPriority.Background);
                 }
                 finally
@@ -3784,34 +4365,45 @@ namespace AnikiHelper
                     );
                 }
 
-                if (!File.Exists(achievementMemoriesCacheService.CachePath))
+                if (!achievementMemoriesCacheService.NeedsRebuildForCurrentVersion())
                 {
-                    Task.Run(async () =>
+                    return;
+                }
+
+                Task.Run(async () =>
+                {
+                    try
                     {
-                        try
+                        for (int i = 0; i < 30; i++)
                         {
-                            for (int i = 0; i < 30; i++)
+                            var gameCount = plugin?.PlayniteApi?.Database?.Games?.Count ?? 0;
+
+                            if (gameCount > 0)
                             {
-                                var gameCount = plugin?.PlayniteApi?.Database?.Games?.Count ?? 0;
+                                logger?.Info(
+                                    "[AnikiHelper] Achievement memories cache is missing or outdated. " +
+                                    "Rebuilding cache in background..."
+                                );
 
-                                if (gameCount > 0)
-                                {
-                                    logger?.Info($"[AnikiHelper] Playnite database ready ({gameCount} games). Building achievement memories cache...");
-                                    await RefreshAchievementMemoriesAsync();
-                                    return;
-                                }
+                                await Task.Delay(5000);
 
-                                await Task.Delay(1000);
+                                await RefreshAchievementMemoriesAsync();
+                                return;
                             }
 
-                            logger?.Warn("[AnikiHelper] Playnite database was not ready after 30 seconds. Achievement memories cache not created.");
+                            await Task.Delay(1000);
                         }
-                        catch (Exception ex)
-                        {
-                            logger?.Warn(ex, "[AnikiHelper] Failed to create achievement memories cache.");
-                        }
-                    });
-                }
+
+                        logger?.Warn(
+                            "[AnikiHelper] Playnite database was not ready after 30 seconds. " +
+                            "Achievement memories cache rebuild skipped."
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex, "[AnikiHelper] Failed to create or repair achievement memories cache.");
+                    }
+                });
             }
             catch (Exception ex)
             {
@@ -3819,8 +4411,206 @@ namespace AnikiHelper
             }
         }
 
+        private string Loc(string key, string fallback)
+        {
+            try
+            {
+                var value = Application.Current?.TryFindResource(key) as string;
+
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+            catch
+            {
+            }
+
+            return fallback;
+        }
+
+        private void SetAchievementMemoriesRefreshState(bool isRefreshing, string status)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher != null && !dispatcher.CheckAccess())
+                {
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        IsRefreshingAchievementMemories = isRefreshing;
+                        AchievementMemoriesRefreshStatus = status ?? string.Empty;
+                    }), DispatcherPriority.Background);
+
+                    return;
+                }
+
+                IsRefreshingAchievementMemories = isRefreshing;
+                AchievementMemoriesRefreshStatus = status ?? string.Empty;
+            }
+            catch
+            {
+            }
+        }
+
+        public Task RefreshAchievementMemoriesWithProgressAsync()
+        {
+            lock (achievementMemoriesRefreshLock)
+            {
+                if (achievementMemoriesRefreshRunning)
+                {
+                    return Task.CompletedTask;
+                }
+
+                achievementMemoriesRefreshRunning = true;
+            }
+
+            SetAchievementMemoriesRefreshState(true, "Scanning achievements...");
+
+            return Task.Run(() =>
+            {
+                try
+                {
+                    plugin.PlayniteApi.Dialogs.ActivateGlobalProgress(progress =>
+                    {
+                        progress.IsIndeterminate = true;
+                        progress.Text = "Scanning achievements...";
+
+                        if (playniteAchievementsReader == null)
+                        {
+                            playniteAchievementsReader = new PlayniteAchievementsReader(plugin.PlayniteApi, logger);
+                        }
+
+                        if (achievementMemoriesCacheService == null)
+                        {
+                            achievementMemoriesCacheService = new AchievementMemoriesCacheService(
+                                plugin.GetPluginUserDataPath(),
+                                logger
+                            );
+                        }
+
+                        var items = playniteAchievementsReader.LoadAchievementMemories(5000);
+
+                        if (progress.CancelToken.IsCancellationRequested)
+                        {
+                            progress.Text = "Achievements cache rebuild cancelled.";
+
+                            SetAchievementMemoriesRefreshState(
+                                false,
+                                "Achievements cache rebuild cancelled."
+                            );
+
+                            return;
+                        }
+
+                        progress.IsIndeterminate = false;
+                        progress.ProgressMaxValue = 4;
+                        progress.CurrentProgressValue = 1;
+                        progress.Text = "Saving achievements cache...";
+
+                        logger?.Info("[AnikiHelper] Achievement memories loaded: " + items.Count);
+
+                        achievementMemoriesCacheService.Save(items, true);
+
+                        if (progress.CancelToken.IsCancellationRequested)
+                        {
+                            progress.Text = "Achievements cache rebuild cancelled.";
+
+                            SetAchievementMemoriesRefreshState(
+                                false,
+                                "Achievements cache rebuild cancelled."
+                            );
+
+                            return;
+                        }
+
+                        progress.CurrentProgressValue = 2;
+                        progress.Text = "Scanning rarest achievement...";
+
+                        if (rarestAchievementCacheService == null)
+                        {
+                            rarestAchievementCacheService = new RarestAchievementCacheService(
+                                plugin.GetPluginUserDataPath(),
+                                logger
+                            );
+                        }
+
+                        var rarestAchievement = playniteAchievementsReader.LoadRarestAchievementAllTime();
+
+                        if (rarestAchievement != null)
+                        {
+                            rarestAchievementCacheService.Save(rarestAchievement);
+                        }
+
+                        if (progress.CancelToken.IsCancellationRequested)
+                        {
+                            progress.Text = "Achievements cache rebuild cancelled.";
+
+                            SetAchievementMemoriesRefreshState(
+                                false,
+                                "Achievements cache rebuild cancelled."
+                            );
+
+                            return;
+                        }
+
+                        progress.CurrentProgressValue = 3;
+                        progress.Text = "Updating Hub achievement data...";
+
+                        LoadHubAchievementMemoriesFromCache();
+                        LoadRarestPlayniteAchievementAllTimeFromCache();
+
+                        progress.CurrentProgressValue = 4;
+                        progress.Text = "Achievements cache rebuilt.";
+
+                        SetAchievementMemoriesRefreshState(
+                            false,
+                            "Achievements cache rebuilt: " + items.Count + " items."
+                        );
+                    },
+                    new GlobalProgressOptions("Rebuilding achievements cache")
+                    {
+                        IsIndeterminate = true,
+                        Cancelable = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to refresh achievement memories with progress dialog.");
+
+                    SetAchievementMemoriesRefreshState(
+                        false,
+                        "Achievements cache rebuild failed."
+                    );
+                }
+                finally
+                {
+                    lock (achievementMemoriesRefreshLock)
+                    {
+                        achievementMemoriesRefreshRunning = false;
+                    }
+                }
+            });
+        }
+
         public Task RefreshAchievementMemoriesAsync()
         {
+            lock (achievementMemoriesRefreshLock)
+            {
+                if (achievementMemoriesRefreshRunning)
+                {
+                    return Task.CompletedTask;
+                }
+
+                achievementMemoriesRefreshRunning = true;
+            }
+
+            SetAchievementMemoriesRefreshState(
+                true,
+                Loc("AchievementCache_Status_Scanning", "Scanning achievements...")
+            );
+
             return Task.Run(() =>
             {
                 try
@@ -3839,8 +4629,10 @@ namespace AnikiHelper
                     }
 
                     var items = playniteAchievementsReader.LoadAchievementMemories(5000);
+
                     logger?.Info("[AnikiHelper] Achievement memories loaded: " + items.Count);
-                    achievementMemoriesCacheService.Save(items);
+
+                    achievementMemoriesCacheService.Save(items, true);
 
                     if (rarestAchievementCacheService == null)
                     {
@@ -3859,10 +4651,30 @@ namespace AnikiHelper
 
                     LoadHubAchievementMemoriesFromCache();
                     LoadRarestPlayniteAchievementAllTimeFromCache();
+
+                    SetAchievementMemoriesRefreshState(
+                        false,
+                        string.Format(
+                            Loc("AchievementCache_Status_Done", "Achievements cache rebuilt: {0} items."),
+                            items.Count
+                        )
+                    );
                 }
                 catch (Exception ex)
                 {
                     logger?.Warn(ex, "[AnikiHelper] Failed to refresh achievement memories.");
+
+                    SetAchievementMemoriesRefreshState(
+                        false,
+                        Loc("AchievementCache_Status_Failed", "Achievements cache rebuild failed.")
+                    );
+                }
+                finally
+                {
+                    lock (achievementMemoriesRefreshLock)
+                    {
+                        achievementMemoriesRefreshRunning = false;
+                    }
                 }
             });
         }
@@ -3900,7 +4712,9 @@ namespace AnikiHelper
 
                     existingItems.AddRange(newItems);
 
-                    achievementMemoriesCacheService.Save(existingItems);
+                    achievementMemoriesCacheService.Save(existingItems, false);
+
+                    LoadHubAchievementMemoriesFromCache();
                 }
                 catch (Exception ex)
                 {

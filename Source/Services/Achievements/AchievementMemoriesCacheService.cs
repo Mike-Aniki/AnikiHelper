@@ -11,9 +11,15 @@ namespace AnikiHelper.Services.Achievements
     {
         private const int MaxItems = 5000;
 
+        // Version 2 = réparation du cache des icônes de trophées.
+        // Plus tard, si tu changes encore la logique du cache, tu passes à 3.
+        private const int CacheSchemaVersion = 2;
+
         private readonly string cachePath;
-        public string CachePath => cachePath;
+        private readonly string cacheVersionPath;
         private readonly ILogger logger;
+
+        public string CachePath => cachePath;
 
         public AchievementMemoriesCacheService(string pluginUserDataPath, ILogger logger)
         {
@@ -23,6 +29,37 @@ namespace AnikiHelper.Services.Achievements
             Directory.CreateDirectory(cacheRoot);
 
             cachePath = Path.Combine(cacheRoot, "achievement_memories_cache.json");
+            cacheVersionPath = Path.Combine(cacheRoot, "achievement_memories_cache.version");
+        }
+
+        public bool NeedsRebuildForCurrentVersion()
+        {
+            try
+            {
+                if (!File.Exists(cachePath))
+                {
+                    return true;
+                }
+
+                if (!File.Exists(cacheVersionPath))
+                {
+                    return true;
+                }
+
+                var rawVersion = File.ReadAllText(cacheVersionPath).Trim();
+
+                int version;
+                if (!int.TryParse(rawVersion, out version))
+                {
+                    return true;
+                }
+
+                return version < CacheSchemaVersion;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         public List<AnikiAchievementMemoryItem> Load()
@@ -44,7 +81,7 @@ namespace AnikiHelper.Services.Achievements
             }
         }
 
-        public void Save(IEnumerable<AnikiAchievementMemoryItem> items)
+        public void Save(IEnumerable<AnikiAchievementMemoryItem> items, bool markCurrentVersion = false)
         {
             try
             {
@@ -57,6 +94,11 @@ namespace AnikiHelper.Services.Achievements
                     .ToList();
 
                 File.WriteAllText(cachePath, Serialization.ToJson(list, true));
+
+                if (markCurrentVersion)
+                {
+                    File.WriteAllText(cacheVersionPath, CacheSchemaVersion.ToString());
+                }
             }
             catch (Exception ex)
             {

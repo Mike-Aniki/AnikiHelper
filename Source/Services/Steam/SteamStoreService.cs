@@ -21,9 +21,10 @@ namespace AnikiHelper.Services
         private readonly string storeCacheFolder;
         private readonly string detailsCacheFolder;
         private readonly string imageCacheFolder;
+        private readonly object appDetailsCacheLock = new object();
         private static readonly HttpClient httpClient = new HttpClient();
 
-        private const int MaxCachedImages = 400;
+        private const int MaxCachedImages = 2000;
 
         public SteamStoreService(IPlayniteAPI playniteApi, string pluginUserDataPath)
         {
@@ -83,19 +84,6 @@ namespace AnikiHelper.Services
             return items;
         }
 
-        public async Task<List<SteamStoreItem>> GetSpotlightAsync(string language, string countryCode, TimeSpan maxAge)
-        {
-            var cacheKey = $"spotlight_{language}_{countryCode}".ToLowerInvariant();
-            var cached = await LoadCacheAsync(cacheKey, maxAge);
-            if (cached != null)
-            {
-                return cached.Items ?? new List<SteamStoreItem>();
-            }
-
-            var items = await FetchSpotlightAsync(language, countryCode);
-            await SaveCacheAsync(cacheKey, items);
-            return items;
-        }
 
         public async Task<List<SteamStoreItem>> GetDealsFromCacheOnlyAsync(string language, string countryCode)
         {
@@ -120,24 +108,14 @@ namespace AnikiHelper.Services
             return cached?.Items ?? new List<SteamStoreItem>();
         }
 
-        public async Task<List<SteamStoreItem>> GetSpotlightFromCacheOnlyAsync(string language, string countryCode)
-        {
-            var cacheKey = $"spotlight_{language}_{countryCode}".ToLowerInvariant();
-            var cached = await LoadCacheAnyAgeAsync(cacheKey).ConfigureAwait(false);
-            return cached?.Items ?? new List<SteamStoreItem>();
-        }
 
         public async Task<bool> IsAnyStoreCacheMissingOrExpiredAsync(string language, string countryCode, TimeSpan maxAge)
         {
             var dealsKey = $"deals_{language}_{countryCode}".ToLowerInvariant();
-            var newKey = $"newreleases_{language}_{countryCode}".ToLowerInvariant();
             var topSellersKey = $"topsellers_{language}_{countryCode}".ToLowerInvariant();
-            var spotlightKey = $"spotlight_{language}_{countryCode}".ToLowerInvariant();
 
             return await IsCacheMissingOrExpiredAsync(dealsKey, maxAge).ConfigureAwait(false)
-                || await IsCacheMissingOrExpiredAsync(newKey, maxAge).ConfigureAwait(false)
-                || await IsCacheMissingOrExpiredAsync(topSellersKey, maxAge).ConfigureAwait(false)
-                || await IsCacheMissingOrExpiredAsync(spotlightKey, maxAge).ConfigureAwait(false);
+                || await IsCacheMissingOrExpiredAsync(topSellersKey, maxAge).ConfigureAwait(false);
         }
 
         private async Task<bool> IsCacheMissingOrExpiredAsync(string cacheKey, TimeSpan maxAge)
@@ -198,6 +176,11 @@ namespace AnikiHelper.Services
                         int appId = item["id"]?.Value<int>() ?? 0;
                         string name = item["name"]?.Value<string>() ?? string.Empty;
                         int discount = item["discount_percent"]?.Value<int>() ?? 0;
+
+                        if (ShouldExcludeStoreItem(name))
+                        {
+                            continue;
+                        }
 
                         string finalPrice = string.Empty;
                         string originalPrice = string.Empty;
@@ -289,13 +272,29 @@ namespace AnikiHelper.Services
             {
                 "hentai",
                 "adult",
+                "adult only",
                 "nsfw",
                 "porn",
+                "pornography",
                 "sex",
                 "sexual",
                 "erotic",
-                "18+",
-                "succubus"
+                "erotica",
+                "nudity",
+                "nude",
+                "naked",
+                "lewd",
+                "ecchi",
+                "busty",
+                "boob",
+                "boobs",
+                "breast",
+                "breasts",
+                "milf",
+                "waifu",
+                "tentacle",
+                "succubus",
+                "18+"
             };
 
             foreach (var keyword in blockedKeywords)
@@ -336,6 +335,11 @@ namespace AnikiHelper.Services
                         int appId = item["id"]?.Value<int>() ?? 0;
                         string name = item["name"]?.Value<string>() ?? string.Empty;
                         int discount = item["discount_percent"]?.Value<int>() ?? 0;
+
+                        if (ShouldExcludeStoreItem(name))
+                        {
+                            continue;
+                        }
 
                         string finalPrice = string.Empty;
                         string originalPrice = string.Empty;
@@ -407,113 +411,6 @@ namespace AnikiHelper.Services
                 .ToList();
         }
 
-        private async Task<List<SteamStoreItem>> FetchSpotlightAsync(string language, string countryCode)
-        {
-            var results = new List<SteamStoreItem>();
-
-            try
-            {
-                var url = $"https://store.steampowered.com/api/featuredcategories?cc={countryCode}&l={language}";
-                var json = await httpClient.GetStringAsync(url);
-
-                var root = JObject.Parse(json);
-
-                foreach (var property in root.Properties())
-                {
-                    if (!(property.Value is JObject section))
-                    {
-                        continue;
-                    }
-
-                    var sectionId = section["id"]?.Value<string>() ?? string.Empty;
-
-                    if (!string.Equals(sectionId, "cat_spotlight", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(sectionId, "cat_dailydeal", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    var items = section["items"] as JArray;
-                    if (items == null)
-                    {
-                        continue;
-                    }
-
-                    foreach (var item in items)
-                    {
-                        try
-                        {
-                            var name = item["name"]?.Value<string>() ?? string.Empty;
-                            var urlItem = item["url"]?.Value<string>() ?? string.Empty;
-
-                            var headerImage = (item["header_image"] != null && item["header_image"].Type != JTokenType.Null)
-                                ? item["header_image"].Value<string>()
-                                : string.Empty;
-
-                            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(headerImage))
-                            {
-                                continue;
-                            }
-
-                            int appId = 0;
-
-                            if (!string.IsNullOrWhiteSpace(urlItem))
-                            {
-                                var marker = "/app/";
-                                var idx = urlItem.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-                                if (idx >= 0)
-                                {
-                                    var idPart = new string(
-                                        urlItem.Substring(idx + marker.Length)
-                                            .TakeWhile(char.IsDigit)
-                                            .ToArray());
-
-                                    int.TryParse(idPart, out appId);
-                                }
-                            }
-
-                            var localHeaderPath = await GetOrCacheImageAsync(headerImage, appId > 0 ? appId + 2000000 : name.GetHashCode());
-
-                            results.Add(new SteamStoreItem
-                            {
-                                AppId = appId,
-                                Name = name,
-                                HeaderImageUrl = headerImage,
-                                HeaderImageLocalPath = localHeaderPath,
-                                CapsuleImageUrl = headerImage,
-                                CapsuleImageLocalPath = localHeaderPath,
-                                FinalPrice = string.Empty,
-                                OriginalPrice = string.Empty,
-                                DiscountPercent = 0,
-                                Currency = string.Empty,
-                                FinalPriceDisplay = string.Empty,
-                                OriginalPriceDisplay = string.Empty,
-                                DiscountDisplay = string.Empty,
-                                StoreUrl = urlItem
-                            });
-                        }
-                        catch (Exception exItem)
-                        {
-                            logger.Warn(exItem, "STORE Spotlight item parse error");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Error(ex, "STORE ERROR Spotlight");
-            }
-
-            return results
-                .Where(x => x != null &&
-                            !string.IsNullOrWhiteSpace(x.Name) &&
-                            !string.IsNullOrWhiteSpace(x.HeaderImageUrl) &&
-                            !ShouldExcludeStoreItem(x.Name))
-                .GroupBy(x => !string.IsNullOrWhiteSpace(x.StoreUrl) ? x.StoreUrl : x.Name)
-                .Select(g => g.First())
-                .Take(6)
-                .ToList();
-        }
 
         private static string FormatSteamPrice(long valueInCents)
         {
@@ -599,6 +496,9 @@ namespace AnikiHelper.Services
 
             [JsonProperty("genres")]
             public List<SteamNamedItem> Genres { get; set; }
+
+            [JsonProperty("header_image")]
+            public string HeaderImage { get; set; }
 
             [JsonProperty("categories")]
             public List<SteamNamedItem> Categories { get; set; }
@@ -693,6 +593,23 @@ namespace AnikiHelper.Services
 
             [JsonProperty("path_full")]
             public string PathFull { get; set; }
+        }
+
+        private static string GetScreenshotImageUrl(List<SteamScreenshotData> screenshots, int index)
+        {
+            if (screenshots == null || screenshots.Count <= index || screenshots[index] == null)
+            {
+                return string.Empty;
+            }
+
+            var screenshot = screenshots[index];
+
+            if (!string.IsNullOrWhiteSpace(screenshot.PathFull))
+            {
+                return screenshot.PathFull;
+            }
+
+            return screenshot.PathThumbnail ?? string.Empty;
         }
 
         public async Task EnrichStoreItemDetailsAsync(SteamStoreItem item, string language, string countryCode)
@@ -799,17 +716,23 @@ namespace AnikiHelper.Services
 
                     if (envelope.Data.Screenshots != null && envelope.Data.Screenshots.Count > 0)
                     {
-                        var shot1 = envelope.Data.Screenshots.Count > 0 ? envelope.Data.Screenshots[0]?.PathThumbnail : string.Empty;
-                        var shot2 = envelope.Data.Screenshots.Count > 1 ? envelope.Data.Screenshots[1]?.PathThumbnail : string.Empty;
-                        var shot3 = envelope.Data.Screenshots.Count > 2 ? envelope.Data.Screenshots[2]?.PathThumbnail : string.Empty;
+                        var shot1 = GetScreenshotImageUrl(envelope.Data.Screenshots, 0);
+                        var shot2 = GetScreenshotImageUrl(envelope.Data.Screenshots, 1);
+                        var shot3 = GetScreenshotImageUrl(envelope.Data.Screenshots, 2);
+                        var shot4 = GetScreenshotImageUrl(envelope.Data.Screenshots, 3);
+                        var shot5 = GetScreenshotImageUrl(envelope.Data.Screenshots, 4);
 
                         item.Screenshot1Url = shot1 ?? string.Empty;
                         item.Screenshot2Url = shot2 ?? string.Empty;
                         item.Screenshot3Url = shot3 ?? string.Empty;
+                        item.Screenshot4Url = shot4 ?? string.Empty;
+                        item.Screenshot5Url = shot5 ?? string.Empty;
 
                         item.Screenshot1LocalPath = await GetOrCacheImageAsync(item.Screenshot1Url, item.AppId + 4000000);
                         item.Screenshot2LocalPath = await GetOrCacheImageAsync(item.Screenshot2Url, item.AppId + 4000001);
                         item.Screenshot3LocalPath = await GetOrCacheImageAsync(item.Screenshot3Url, item.AppId + 4000002);
+                        item.Screenshot4LocalPath = await GetOrCacheImageAsync(item.Screenshot4Url, item.AppId + 4000003);
+                        item.Screenshot5LocalPath = await GetOrCacheImageAsync(item.Screenshot5Url, item.AppId + 4000004);
                     }
 
                     item.BackgroundImageUrl = backgroundUrl ?? string.Empty;
@@ -819,6 +742,11 @@ namespace AnikiHelper.Services
                         item.BackgroundImageLocalPath = await GetOrCacheImageAsync(backgroundUrl, item.AppId + 3000000);
                     }
 
+                    if (!string.IsNullOrWhiteSpace(envelope.Data.HeaderImage))
+                    {
+                        item.HeaderImageUrl = envelope.Data.HeaderImage;
+                        item.HeaderImageLocalPath = await GetOrCacheImageAsync(envelope.Data.HeaderImage, item.AppId + 1000000);
+                    }
 
                     if (envelope.Data.Genres != null && envelope.Data.Genres.Count > 0)
                     {
@@ -852,6 +780,8 @@ namespace AnikiHelper.Services
                         SupportedLanguages = item.SupportedLanguages,
                         Genres = item.Genres ?? new List<string>(),
                         Categories = item.Categories ?? new List<string>(),
+                        HeaderImageUrl = item.HeaderImageUrl,
+                        HeaderImageLocalPath = item.HeaderImageLocalPath,
 
                         BackgroundImageUrl = item.BackgroundImageUrl,
                         BackgroundImageLocalPath = item.BackgroundImageLocalPath,
@@ -870,7 +800,11 @@ namespace AnikiHelper.Services
                         Screenshot2Url = item.Screenshot2Url,
                         Screenshot2LocalPath = item.Screenshot2LocalPath,
                         Screenshot3Url = item.Screenshot3Url,
-                        Screenshot3LocalPath = item.Screenshot3LocalPath
+                        Screenshot3LocalPath = item.Screenshot3LocalPath,
+                        Screenshot4Url = item.Screenshot4Url,
+                        Screenshot4LocalPath = item.Screenshot4LocalPath,
+                        Screenshot5Url = item.Screenshot5Url,
+                        Screenshot5LocalPath = item.Screenshot5LocalPath
                     };
 
                     SaveAppDetailsCache(cacheKey, cacheEntry);
@@ -920,6 +854,8 @@ namespace AnikiHelper.Services
             item.FinalPriceDisplay = cache.FinalPriceDisplay ?? item.FinalPriceDisplay ?? string.Empty;
             item.OriginalPriceDisplay = cache.OriginalPriceDisplay ?? item.OriginalPriceDisplay ?? string.Empty;
             item.DiscountDisplay = cache.DiscountDisplay ?? item.DiscountDisplay ?? string.Empty;
+            item.HeaderImageUrl = cache.HeaderImageUrl ?? item.HeaderImageUrl ?? string.Empty;
+            item.HeaderImageLocalPath = cache.HeaderImageLocalPath ?? item.HeaderImageLocalPath ?? string.Empty;
 
             item.MetacriticScore = cache.MetacriticScore;
             item.RecommendationsTotal = cache.RecommendationsTotal;
@@ -932,6 +868,10 @@ namespace AnikiHelper.Services
             item.Screenshot2LocalPath = cache.Screenshot2LocalPath ?? string.Empty;
             item.Screenshot3Url = cache.Screenshot3Url ?? string.Empty;
             item.Screenshot3LocalPath = cache.Screenshot3LocalPath ?? string.Empty;
+            item.Screenshot4Url = cache.Screenshot4Url ?? string.Empty;
+            item.Screenshot4LocalPath = cache.Screenshot4LocalPath ?? string.Empty;
+            item.Screenshot5Url = cache.Screenshot5Url ?? string.Empty;
+            item.Screenshot5LocalPath = cache.Screenshot5LocalPath ?? string.Empty;
         }
 
         private bool IsFutureReleaseDate(string releaseDateDisplay)
@@ -1270,6 +1210,9 @@ namespace AnikiHelper.Services
 
                 var files = new DirectoryInfo(imageCacheFolder)
                     .GetFiles("*", SearchOption.TopDirectoryOnly)
+                    .Where(f =>
+                        !string.Equals(f.Extension, ".url", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(f.Extension, ".txt", StringComparison.OrdinalIgnoreCase))
                     .OrderByDescending(f => f.LastWriteTimeUtc)
                     .ToList();
 
@@ -1282,7 +1225,20 @@ namespace AnikiHelper.Services
                 {
                     try
                     {
+                        var oldUrlMarkerPath = file.FullName + ".url";
+                        var sourceMarkerPath = file.FullName + ".source.txt";
+
                         file.Delete();
+
+                        if (File.Exists(oldUrlMarkerPath))
+                        {
+                            File.Delete(oldUrlMarkerPath);
+                        }
+
+                        if (File.Exists(sourceMarkerPath))
+                        {
+                            File.Delete(sourceMarkerPath);
+                        }
                     }
                     catch
                     {
@@ -1310,25 +1266,29 @@ namespace AnikiHelper.Services
             try
             {
                 var path = GetAppDetailsCachePath(cacheKey);
-                if (!File.Exists(path))
-                {
-                    return null;
-                }
 
-                var json = File.ReadAllText(path);
-                var cache = JsonConvert.DeserializeObject<SteamAppDetailsCacheEntry>(json);
-                if (cache == null)
+                lock (appDetailsCacheLock)
                 {
-                    return null;
-                }
+                    if (!File.Exists(path))
+                    {
+                        return null;
+                    }
 
-                var age = DateTime.UtcNow - cache.LastUpdatedUtc;
-                if (age > maxAge && !allowExpiredFallback)
-                {
-                    return null;
-                }
+                    var json = File.ReadAllText(path);
+                    var cache = JsonConvert.DeserializeObject<SteamAppDetailsCacheEntry>(json);
+                    if (cache == null)
+                    {
+                        return null;
+                    }
 
-                return cache;
+                    var age = DateTime.UtcNow - cache.LastUpdatedUtc;
+                    if (age > maxAge && !allowExpiredFallback)
+                    {
+                        return null;
+                    }
+
+                    return cache;
+                }
             }
             catch (Exception ex)
             {
@@ -1342,7 +1302,12 @@ namespace AnikiHelper.Services
             try
             {
                 var json = JsonConvert.SerializeObject(entry, Formatting.Indented);
-                File.WriteAllText(GetAppDetailsCachePath(cacheKey), json);
+                var path = GetAppDetailsCachePath(cacheKey);
+
+                lock (appDetailsCacheLock)
+                {
+                    File.WriteAllText(path, json);
+                }
             }
             catch (Exception ex)
             {

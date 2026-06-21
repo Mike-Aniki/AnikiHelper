@@ -31,6 +31,35 @@ namespace AnikiHelper.Services.MediaGallery
             }
         }
 
+        public bool HasGeneratedImageThumbnail(AnikiMediaItem item)
+        {
+            try
+            {
+                if (item == null || item.IsVideo || string.IsNullOrWhiteSpace(item.FilePath))
+                {
+                    return false;
+                }
+
+                if (!File.Exists(item.FilePath))
+                {
+                    return false;
+                }
+
+                if (!IsSupportedImageFile(item.FilePath))
+                {
+                    return false;
+                }
+
+                var thumbnailPath = GetThumbnailPath(item.FilePath);
+
+                return File.Exists(thumbnailPath) && new FileInfo(thumbnailPath).Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public string GetOrCreateThumbnail(AnikiMediaItem item)
         {
             try
