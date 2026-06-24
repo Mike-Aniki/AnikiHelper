@@ -291,3 +291,12 @@ Packages:
       - Improved navigation stability inside custom theme windows.
       - Improved Store source handling and data loading.
       - Improved fullscreen/theme compatibility checks.
+  - Version: 1.4.3
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-06-24
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.4.3/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_4_3.pext
+    Changelog:
+      - Fixed an issue where the background color of the buttons in the In-Game Overlay did not match the currently selected Theme Color.
+      - Fixed an issue where icons were not displayed correctly in the Game Overlay.
+      - Fixed an issue where D-pad navigation did not work correctly when opening the overlay.
+      - Added a new option to select a custom folder containing banner images for both On Cover and Above Cover modes. This allows users to keep their custom banner images even after updating the theme.
