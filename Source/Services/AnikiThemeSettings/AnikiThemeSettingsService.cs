@@ -143,6 +143,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                 }
 
                 LoadLuckyDayResourceOverride();
+                LoadKonamiModeResourceOverride();
 
                 settings.Options.Update(optionValues);
             }
@@ -1912,12 +1913,30 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                     return;
                 }
 
+                var luckyStyleIndex = settings.LuckyStyleIndex <= 1 ? 1 : settings.LuckyStyleIndex;
+                var fileName = luckyStyleIndex == 1
+                    ? "LuckyDay.xaml"
+                    : $"LuckyDay{luckyStyleIndex}.xaml";
+
                 var filePath = Path.Combine(
                     currentThemePath,
                     "Themes Option",
                     "2.Interface",
                     "Hidden",
-                    "LuckyDay.xaml");
+                    fileName);
+
+                if (!File.Exists(filePath) && luckyStyleIndex != 1)
+                {
+                    var fallbackPath = Path.Combine(
+                        currentThemePath,
+                        "Themes Option",
+                        "2.Interface",
+                        "Hidden",
+                        "LuckyDay.xaml");
+
+                    logger?.Warn($"[AnikiHelper] Lucky Day style resource file not found: {filePath}. Falling back to: {fallbackPath}");
+                    filePath = fallbackPath;
+                }
 
                 if (!File.Exists(filePath))
                 {
@@ -1936,6 +1955,60 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[AnikiHelper] Failed to load Lucky Day resource override.");
+            }
+        }
+
+        public void LoadKonamiModeResourceOverride(bool force = false)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher != null && !dispatcher.CheckAccess())
+                {
+                    dispatcher.BeginInvoke(new Action(() => LoadKonamiModeResourceOverride(force)), DispatcherPriority.Loaded);
+                    return;
+                }
+
+                if (!force && settings?.IsKonamiModeActive != true)
+                {
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(currentThemePath))
+                {
+                    currentThemePath = GetCurrentThemePath();
+                }
+
+                if (string.IsNullOrWhiteSpace(currentThemePath))
+                {
+                    return;
+                }
+
+                var filePath = Path.Combine(
+                    currentThemePath,
+                    "Themes Option",
+                    "2.Interface",
+                    "Hidden",
+                    "KonamiMode.xaml");
+
+                if (!File.Exists(filePath))
+                {
+                    logger?.Warn($"[AnikiHelper] Konami Mode resource file not found: {filePath}");
+                    return;
+                }
+
+                var resource = GetOrLoadResourceDictionary(filePath);
+
+                if (resource != null && !loadedDictionaries.Contains(resource))
+                {
+                    Application.Current.Resources.MergedDictionaries.Add(resource);
+                    loadedDictionaries.Add(resource);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load Konami Mode resource override.");
             }
         }
 

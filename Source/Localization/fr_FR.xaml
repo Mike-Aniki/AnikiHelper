@@ -86,13 +86,17 @@
     <sys:String x:Key="LOCAnikiHelperRefreshAchievementCacheForGame">Rafraîchir les souvenirs de ce jeu</sys:String>
     <!-- ========= CUSTOM ICONS ========= -->
     <sys:String x:Key="CustomIcons_Title">Icônes personnalisées</sys:String>
-    <sys:String x:Key="CustomIcons_Desc">Choisissez des dossiers externes pour les icônes de filtres et de sources. Ces icônes remplacent celles du thème sans modifier les fichiers du thème.</sys:String>
+    <sys:String x:Key="CustomIcons_Desc">Choisissez des dossiers externes pour les icônes de filtres, les icônes de sources et les images de bannières. Ces fichiers remplacent ceux du thème sans modifier les fichiers du thème.</sys:String>
     <sys:String x:Key="CustomIcons_FilterFolder">Dossier des icônes de filtres</sys:String>
     <sys:String x:Key="CustomIcons_SourceFolder">Dossier des icônes de sources</sys:String>
-    <sys:String x:Key="CustomIcons_Help">Les fichiers PNG doivent utiliser exactement les mêmes noms que les filtres ou sources affichés dans Playnite. Exemple : Installed.png, Favorites.png, Steam.png.</sys:String>
+    <sys:String x:Key="CustomIcons_BannerAboveCoverFolder">Dossier des bannières au-dessus des jaquettes</sys:String>
+    <sys:String x:Key="CustomIcons_BannerOnCoverFolder">Dossier des bannières sur les jaquettes</sys:String>
+    <sys:String x:Key="CustomIcons_Help">Les fichiers PNG doivent utiliser exactement les mêmes noms que les filtres, sources ou plateformes affichés dans Playnite. Exemples : Installed.png, Favorites.png, Steam.png. Utilisez deux dossiers séparés pour les bannières au-dessus des jaquettes et les bannières sur les jaquettes.</sys:String>
     <sys:String x:Key="BrowseFolder">Parcourir...</sys:String>
     <sys:String x:Key="CustomIcons_SelectFilterFolderDialog">Sélectionnez le dossier contenant vos icônes PNG de filtres.</sys:String>
     <sys:String x:Key="CustomIcons_SelectSourceFolderDialog">Sélectionnez le dossier contenant vos icônes PNG de sources.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectBannerAboveCoverFolderDialog">Sélectionnez le dossier contenant vos bannières PNG au-dessus des jaquettes.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectBannerOnCoverFolderDialog">Sélectionnez le dossier contenant vos bannières PNG sur les jaquettes.</sys:String>
 
     <!-- ========= TRACK PLAYTIME FEATURES ========= -->
     <sys:String x:Key="GroupMonthly">Historique mensuel</sys:String>

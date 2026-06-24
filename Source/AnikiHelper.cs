@@ -4,6 +4,7 @@ using AnikiHelper.Services.Controller;
 using AnikiHelper.Services.InGameOverlay;
 using AnikiHelper.Services.AnikiThemeSettings;
 using AnikiHelper.Services.UI;
+using AnikiHelper.Services.EasterEgg;
 using Microsoft.Win32;
 using Playnite.SDK;
 using Playnite.SDK.Data;
@@ -89,10 +90,15 @@ namespace AnikiHelper
 
                     if (Settings.IsLuckyDay)
                     {
+                        Settings.LuckyStyleIndex = rand.Next(1, 3);
                         eventSoundService?.PlayLuckyDay();
                     }
+                    else
+                    {
+                        Settings.LuckyStyleIndex = 0;
+                    }
 
-                    DebugLog($"[AnikiHelper][LuckyDay] Random login pick took {swUi.ElapsedMilliseconds}ms | pick={pick} | lucky={Settings.IsLuckyDay}");
+                    DebugLog($"[AnikiHelper][LuckyDay] Random login pick took {swUi.ElapsedMilliseconds}ms | pick={pick} | lucky={Settings.IsLuckyDay} | luckyStyle={Settings.LuckyStyleIndex}");
                 });
 
                 SaveSettingsSafe();
@@ -110,6 +116,7 @@ namespace AnikiHelper
         private readonly InGameOverlayService inGameOverlayService;
         private readonly AnikiThemeSettingsService anikiThemeSettingsService;
         private readonly NavigationFixService horizontalFocusFixService;
+        private readonly KonamiCodeService konamiCodeService;
 
         private const string RequiredAnikiAuthorCredit = "Mike Aniki";
         private const string RequiredAnikiBrandName = "Aniki";
@@ -5416,6 +5423,15 @@ namespace AnikiHelper
             eventSoundService = new EventSoundService(api, Settings);
             anikiWindowManager = new AnikiWindowManager(api);
             inGameOverlayService = new InGameOverlayService(api, Settings);
+            konamiCodeService = new KonamiCodeService(
+                Settings,
+                logger,
+                DebugLog,
+                () =>
+                {
+                    eventSoundService?.PlayKonamiCodeAccepted();
+                    anikiThemeSettingsService?.LoadKonamiModeResourceOverride(true);
+                });
 
             anikiThemeSettingsService = new AnikiThemeSettingsService(
                 api,
@@ -9572,6 +9588,7 @@ namespace AnikiHelper
                     return;
                 }
 
+
                 sw.Restart();
                 var isAnikiThemeActive = IsAnikiThemeActive();
                 DebugLog($"[AnikiHelper][OnApplicationStarted] IsAnikiThemeActive took {sw.ElapsedMilliseconds}ms | active={isAnikiThemeActive}");
@@ -10284,6 +10301,11 @@ namespace AnikiHelper
 
             if (allowInGameOverlay)
             {
+                konamiCodeService?.ProcessControllerInput(args);
+            }
+
+            if (allowInGameOverlay)
+            {
 
                 if (inGameOverlayService != null && inGameOverlayService.HandleControllerButtonStateChanged(args))
                 {
@@ -10495,6 +10517,15 @@ namespace AnikiHelper
                 {
                     DebugLog("[AnikiHelper][FullscreenViewChanged][STOP] Playnite is not in Fullscreen mode.");
                     return;
+                }
+
+                try
+                {
+                    eventSoundService?.PlayFullscreenViewChanged();
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper][FullscreenViewChanged] Failed to play fullscreen view changed sound.");
                 }
 
                 var isDetailsView = args?.NewView == FullscreenView.Details;

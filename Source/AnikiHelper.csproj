@@ -69,6 +69,7 @@
     <Compile Include="Services\AnikiThemeSettings\AnikiDynamicProperties.cs" />
     <Compile Include="Services\AnikiThemeSettings\AnikiThemeSettingsModels.cs" />
     <Compile Include="Services\AnikiThemeSettings\AnikiThemeSettingsService.cs" />
+    <Compile Include="Services\EasterEgg\KonamiCodeService.cs" />
     <Compile Include="Services\InGameOverlay\AnikiInGameOverlayWindow.cs" />
     <Compile Include="Services\InGameOverlay\AnikiOverlayInputListener.cs" />
     <Compile Include="Services\InGameOverlay\InGameOverlayHotkeyService.cs" />

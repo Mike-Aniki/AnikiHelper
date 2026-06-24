@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Reflection;
 using System.Windows;
@@ -420,6 +420,46 @@ namespace AnikiHelper
             if (!string.IsNullOrWhiteSpace(selectedPath))
             {
                 vm.Settings.CustomSourceIconsFolder = selectedPath;
+            }
+        }
+
+        private void BrowseBannerAboveCoverFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+
+            if (vm == null)
+            {
+                return;
+            }
+
+            var selectedPath = SelectFolder(
+                FindResource("CustomIcons_SelectBannerAboveCoverFolderDialog") as string ?? "Select the folder containing your above-cover banner PNG images.",
+                vm.Settings.CustomBannerAboveCoverFolder
+            );
+
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                vm.Settings.CustomBannerAboveCoverFolder = selectedPath;
+            }
+        }
+
+        private void BrowseBannerOnCoverFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+
+            if (vm == null)
+            {
+                return;
+            }
+
+            var selectedPath = SelectFolder(
+                FindResource("CustomIcons_SelectBannerOnCoverFolderDialog") as string ?? "Select the folder containing your on-cover banner PNG images.",
+                vm.Settings.CustomBannerOnCoverFolder
+            );
+
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                vm.Settings.CustomBannerOnCoverFolder = selectedPath;
             }
         }
 

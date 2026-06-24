@@ -86,13 +86,17 @@
     
     <!-- ========= CUSTOM ICONS ========= -->
     <sys:String x:Key="CustomIcons_Title">Iconos personalizados</sys:String>
-    <sys:String x:Key="CustomIcons_Desc">Elige carpetas externas para los iconos personalizados de filtros y fuentes. Estos iconos sustituyen a los iconos predeterminados del tema sin modificar sus archivos.</sys:String>
+    <sys:String x:Key="CustomIcons_Desc">Elige carpetas externas para iconos de filtros, iconos de fuentes e imágenes de banners. Estos archivos sustituyen los visuales predeterminados del tema sin modificar sus archivos.</sys:String>
     <sys:String x:Key="CustomIcons_FilterFolder">Carpeta de iconos de filtros</sys:String>
     <sys:String x:Key="CustomIcons_SourceFolder">Carpeta de iconos de fuentes</sys:String>
-    <sys:String x:Key="CustomIcons_Help">Los archivos PNG deben usar exactamente los mismos nombres que los filtros o fuentes mostrados en Playnite. Ejemplo: Installed.png, Favorites.png, Steam.png.</sys:String>
+    <sys:String x:Key="CustomIcons_BannerAboveCoverFolder">Carpeta de banners sobre las carátulas</sys:String>
+    <sys:String x:Key="CustomIcons_BannerOnCoverFolder">Carpeta de banners en las carátulas</sys:String>
+    <sys:String x:Key="CustomIcons_Help">Los archivos PNG deben usar exactamente los mismos nombres que los filtros, fuentes o plataformas mostrados en Playnite. Ejemplos: Installed.png, Favorites.png, Steam.png. Usa carpetas separadas para los banners sobre las carátulas y los banners en las carátulas.</sys:String>
     <sys:String x:Key="BrowseFolder">Examinar...</sys:String>
     <sys:String x:Key="CustomIcons_SelectFilterFolderDialog">Selecciona la carpeta que contiene tus iconos PNG de filtros.</sys:String>
     <sys:String x:Key="CustomIcons_SelectSourceFolderDialog">Selecciona la carpeta que contiene tus iconos PNG de fuentes.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectBannerAboveCoverFolderDialog">Selecciona la carpeta que contiene tus banners PNG sobre las carátulas.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectBannerOnCoverFolderDialog">Selecciona la carpeta que contiene tus banners PNG en las carátulas.</sys:String>
 
     <!-- ========= GameOverlay ========= -->
     <sys:String x:Key="InGameOverlay_Tab">Overlay en juego</sys:String>

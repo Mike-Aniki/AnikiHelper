@@ -15,6 +15,10 @@ namespace AnikiHelper.Services.InGameOverlay
     {
         private readonly InGameOverlayService service;
 
+        private const string IconBack = "\uE72B";
+        private const string IconHome = "\uE80F";
+        private const string IconPower = "\uE7E8";
+
         private Grid panel;
         private TranslateTransform panelTransform;
 
@@ -205,12 +209,12 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 if (service.OverlayOpenedFromPlaynite)
                 {
-                    returnButtonIconText.Text = "↩";
+                    returnButtonIconText.Text = IconBack;
                     returnButtonLabelText.Text = Loc("LOCInGameOverlayReturnToGame", "Return to Game");
                 }
                 else
                 {
-                    returnButtonIconText.Text = "⌂";
+                    returnButtonIconText.Text = IconHome;
                     returnButtonLabelText.Text = Loc("LOCInGameOverlayReturnToPlaynite", "Return to Playnite");
                 }
             }
@@ -656,8 +660,8 @@ namespace AnikiHelper.Services.InGameOverlay
             Grid.SetRow(buttonStack, 1);
             contentGrid.Children.Add(buttonStack);
 
-            returnButton = CreateButton("⌂", Loc("LOCInGameOverlayReturnToPlaynite", "Return to Playnite"), service.ReturnToPlaynite);
-            quitButton = CreateButton("⏻", Loc("LOCInGameOverlayQuitGame", "Quit Game"), service.RequestQuitGame);
+            returnButton = CreateButton(IconHome, Loc("LOCInGameOverlayReturnToPlaynite", "Return to Playnite"), service.ReturnToPlaynite);
+            quitButton = CreateButton(IconPower, Loc("LOCInGameOverlayQuitGame", "Quit Game"), service.RequestQuitGame);
 
             buttonStack.Children.Add(returnButton);
             buttonStack.Children.Add(quitButton);
@@ -1192,6 +1196,8 @@ namespace AnikiHelper.Services.InGameOverlay
             };
 
             iconText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            iconText.SetResourceReference(TextBlock.FontFamilyProperty, "FontIcons");
+            iconText.FontWeight = FontWeights.Normal;
             Grid.SetColumn(iconText, 0);
             contentGrid.Children.Add(iconText);
 
@@ -1309,8 +1315,8 @@ namespace AnikiHelper.Services.InGameOverlay
 
             stack.Children.Add(buttons);
 
-            cancelQuitButton = CreateButton("↩", Loc("LOCInGameOverlayCancel", "Cancel"), HideQuitConfirmation);
-            confirmQuitButton = CreateButton("⏻", Loc("LOCInGameOverlayConfirmQuit", "Quit Game"), service.ConfirmQuitGame);
+            cancelQuitButton = CreateButton(IconBack, Loc("LOCInGameOverlayCancel", "Cancel"), HideQuitConfirmation);
+            confirmQuitButton = CreateButton(IconPower, Loc("LOCInGameOverlayConfirmQuit", "Quit Game"), service.ConfirmQuitGame);
 
             buttons.Children.Add(cancelQuitButton);
             buttons.Children.Add(confirmQuitButton);
@@ -1372,7 +1378,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
             if (isActive)
             {
-                button.SetResourceReference(Control.BackgroundProperty, "ControlBackgroundDarkBrush");
+                button.SetResourceReference(Control.BackgroundProperty, "ButtonBackgroundFocus");
                 button.SetResourceReference(Control.BorderBrushProperty, "FocusGameBorderBrush");
                 button.BorderThickness = new Thickness(3);
             }
@@ -1589,13 +1595,19 @@ namespace AnikiHelper.Services.InGameOverlay
                 case ControllerInput.DPadUp:
                 case ControllerInput.LeftStickUp:
                     System.Diagnostics.Debug.WriteLine("[AnikiHelper][OverlayWindow] Move focus UP");
-                    MoveForcedControllerFocus(-1);
+                    if (CanProcessControllerNavigation(-1))
+                    {
+                        MoveForcedControllerFocus(-1);
+                    }
                     break;
 
                 case ControllerInput.DPadDown:
                 case ControllerInput.LeftStickDown:
                     System.Diagnostics.Debug.WriteLine("[AnikiHelper][OverlayWindow] Move focus DOWN");
-                    MoveForcedControllerFocus(1);
+                    if (CanProcessControllerNavigation(1))
+                    {
+                        MoveForcedControllerFocus(1);
+                    }
                     break;
 
                 case ControllerInput.A:
@@ -1882,8 +1894,11 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 var direction = e.Key == Key.Down || e.Key == Key.Right ? 1 : -1;
 
-                useControllerFocusVisual = true;
-                MoveForcedControllerFocus(direction);
+                if (CanProcessControllerNavigation(direction))
+                {
+                    useControllerFocusVisual = true;
+                    MoveForcedControllerFocus(direction);
+                }
 
                 return;
             }

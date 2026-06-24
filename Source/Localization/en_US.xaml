@@ -38,40 +38,40 @@
 
     <!-- ========= MEDIA GALLERY ========= -->
 
-    <sys:String x:Key="MediaGallery_Title">Galerie média</sys:String>
-    <sys:String x:Key="MediaGallery_Desc">Aniki Helper lit les médias depuis Screenshots Visualizer et Screenshot Utilities. Configurez vos dossiers de captures dans ces plugins ; Aniki Helper lit uniquement leurs données et génère des miniatures pour accélérer la navigation dans le thème.</sys:String>
+    <sys:String x:Key="MediaGallery_Title">Media Gallery</sys:String>
+    <sys:String x:Key="MediaGallery_Desc">Aniki Helper reads media from Screenshots Visualizer and Screenshot Utilities. Configure your screenshot folders in those plugins; Aniki Helper only reads their data and generates thumbnails to speed up navigation in the theme.</sys:String>
 
-    <sys:String x:Key="MediaGallery_Provider_Title">Plugin de captures</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Title">Screenshot plugin</sys:String>
     <sys:String x:Key="MediaGallery_Provider_Visualizer">Screenshots Visualizer</sys:String>
     <sys:String x:Key="MediaGallery_Provider_UtilitiesLocal">Screenshot Utilities - Local</sys:String>
-    <sys:String x:Key="MediaGallery_Provider_Help">Le thème utilisera la liste média d’Aniki Helper au lieu de se lier directement au plugin de captures sélectionné.</sys:String>
+    <sys:String x:Key="MediaGallery_Provider_Help">The theme will use Aniki Helper's media list instead of binding directly to the selected screenshot plugin.</sys:String>
 
-    <sys:String x:Key="MediaGallery_GenerateThumbnails">Miniatures média</sys:String>
-    <sys:String x:Key="MediaGallery_GenerateThumbnails_Button">Générer les miniatures</sys:String>
-    <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pré-génère les miniatures de toutes les images des plugins de captures. La première génération peut prendre du temps, mais les suivantes devraient être plus rapides.</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails">Media thumbnails</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Button">Generate thumbnails</sys:String>
+    <sys:String x:Key="MediaGallery_GenerateThumbnails_Help">Pre-generates thumbnails for all images from the screenshot plugins. The first generation may take some time, but future runs should be faster.</sys:String>
 
-    <sys:String x:Key="MediaGallery_Status_WindowTitle">Générer les miniatures</sys:String>
-    <sys:String x:Key="MediaGallery_Status_Scanning">Analyse des fichiers média...</sys:String>
-    <sys:String x:Key="MediaGallery_Status_Progress_Detailed">Génération des miniatures... {0}/{1} analysées, {2} ajoutées.</sys:String>
-    <sys:String x:Key="MediaGallery_Status_Done_Detailed">Miniatures générées : {0} ajoutées / {1} analysées ({2} déjà en cache, {3} en échec).</sys:String>
-    <sys:String x:Key="MediaGallery_Status_Cancelled_Detailed">Génération annulée : {0} miniatures ajoutées / {1} fichiers analysés.</sys:String>
-    <sys:String x:Key="MediaGallery_Status_Failed">Échec de la génération des miniatures.</sys:String>
+    <sys:String x:Key="MediaGallery_Status_WindowTitle">Generate thumbnails</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Scanning">Scanning media files...</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Progress_Detailed">Generating thumbnails... {0}/{1} scanned, {2} added.</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Done_Detailed">Thumbnails generated: {0} added / {1} scanned ({2} already cached, {3} failed).</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Cancelled_Detailed">Generation cancelled: {0} thumbnails added / {1} files scanned.</sys:String>
+    <sys:String x:Key="MediaGallery_Status_Failed">Thumbnail generation failed.</sys:String>
 
     <!-- MEDIA GALLERY - THEME / FULLSCREEN OVERRIDES -->
 
-    <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Générer les miniatures pour ce jeu</sys:String>
-    <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Analyse des fichiers média pour ce jeu...</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Génération des miniatures annulée.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Génération des miniatures pour {0}... {1}/{2}</sys:String>
-    <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Mise à jour du cache média...</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Miniatures générées.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Générer les miniatures</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGenerateThumbnailsForGame">Generate thumbnails for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperScanningMediaForThisGame">Scanning media files for this game...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelled">Thumbnail generation cancelled.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsForGame">Generating thumbnails for {0}... {1}/{2}</sys:String>
+    <sys:String x:Key="LOCAnikiHelperUpdatingMediaCache">Updating media cache...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGenerated">Thumbnails generated.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingGameThumbnails">Generate thumbnails</sys:String>
 
-    <sys:String x:Key="LOCAnikiHelperScanningAllMedia">Analyse des fichiers média...</sys:String>
-    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsProgress">Génération des miniatures... {0}/{1} analysées, {2} ajoutées.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailsGeneratedDetailed">Miniatures générées : {0} ajoutées / {1} analysées ({2} déjà en cache, {3} en échec).</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelledDetailed">Génération annulée : {0} miniatures ajoutées / {1} fichiers analysés.</sys:String>
-    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationFailed">Échec de la génération des miniatures.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperScanningAllMedia">Scanning media files...</sys:String>
+    <sys:String x:Key="LOCAnikiHelperGeneratingThumbnailsProgress">Generating thumbnails... {0}/{1} scanned, {2} added.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailsGeneratedDetailed">Thumbnails generated: {0} added / {1} scanned ({2} already cached, {3} failed).</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationCancelledDetailed">Generation cancelled: {0} thumbnails added / {1} files scanned.</sys:String>
+    <sys:String x:Key="LOCAnikiHelperThumbnailGenerationFailed">Thumbnail generation failed.</sys:String>
   
     <!-- ========= ACHIEVEMENTS CACHE ========= -->
     <sys:String x:Key="AchievementCache_Title">Achievement Memories Cache</sys:String>
@@ -85,13 +85,17 @@
     <sys:String x:Key="LOCAnikiHelperRefreshAchievementCacheForGame">Refresh this game's memories</sys:String>
     <!-- ========= CUSTOM ICONS ========= -->
     <sys:String x:Key="CustomIcons_Title">Custom icons</sys:String>
-    <sys:String x:Key="CustomIcons_Desc">Choose external folders for custom filter and source icons. These icons override the default theme icons without modifying the theme files.</sys:String>
+    <sys:String x:Key="CustomIcons_Desc">Choose external folders for custom filter, source, and banner images. These files override the default theme visuals without modifying the theme files.</sys:String>
     <sys:String x:Key="CustomIcons_FilterFolder">Filter icons folder</sys:String>
     <sys:String x:Key="CustomIcons_SourceFolder">Source icons folder</sys:String>
-    <sys:String x:Key="CustomIcons_Help">PNG files must use the exact same names as the filters or sources shown in Playnite. Example: Installed.png, Favorites.png, Steam.png.</sys:String>
+    <sys:String x:Key="CustomIcons_BannerAboveCoverFolder">Banner above cover folder</sys:String>
+    <sys:String x:Key="CustomIcons_BannerOnCoverFolder">Banner on cover folder</sys:String>
+    <sys:String x:Key="CustomIcons_Help">PNG files must use the exact same names as the filters, sources, or platforms shown in Playnite. Examples: Installed.png, Favorites.png, Steam.png. Use separate folders for above-cover banners and on-cover banners.</sys:String>
     <sys:String x:Key="BrowseFolder">Browse...</sys:String>
     <sys:String x:Key="CustomIcons_SelectFilterFolderDialog">Select the folder containing your filter PNG icons.</sys:String>
     <sys:String x:Key="CustomIcons_SelectSourceFolderDialog">Select the folder containing your source PNG icons.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectBannerAboveCoverFolderDialog">Select the folder containing your above-cover banner PNG images.</sys:String>
+    <sys:String x:Key="CustomIcons_SelectBannerOnCoverFolderDialog">Select the folder containing your on-cover banner PNG images.</sys:String>
 
     <!-- ========= TRACK PLAYTIME FEATURES ========= -->
     <sys:String x:Key="GroupMonthly">Monthly history</sys:String>

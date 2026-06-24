@@ -31,12 +31,33 @@ namespace AnikiHelper
             this.settings = settings;
         }
 
-        private bool CanPlay()
+        private bool CanPlay(out string reason)
         {
-            return playniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen
-                && IsAnikiThemeActive()
-                && (settings?.EventSoundsEnabled ?? true)
-                && !(playniteApi?.ApplicationSettings?.Fullscreen?.IsMusicMuted ?? false);
+            reason = string.Empty;
+
+            if (playniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+            {
+                reason = "Playnite is not in fullscreen mode.";
+                return false;
+            }
+
+            if (!IsAnikiThemeActive())
+            {
+                reason = "Aniki theme marker was not found.";
+                return false;
+            }
+
+            if (!(settings?.EventSoundsEnabled ?? true))
+            {
+                reason = "Event sounds are disabled in Aniki Helper settings.";
+                return false;
+            }
+
+            // IMPORTANT:
+            // Event sounds use the fullscreen InterfaceVolume. They should not be blocked by
+            // Playnite's background music mute flag, otherwise LuckyDay.wav / Unlock.wav can
+            // silently fail when the user only muted background music.
+            return true;
         }
 
         private bool IsAnikiThemeActive()
@@ -97,58 +118,101 @@ namespace AnikiHelper
             }
         }
 
-        private void PlaySound(string fileName, bool synchronous = false)
+        private void PlaySound(string fileName, bool synchronous = false, bool forceKonamiFolder = false)
         {
             try
             {
-                if (!CanPlay())
-                {
-                    return;
-                }
-
-                var folder = GetThemeEventsFolder();
-                if (string.IsNullOrWhiteSpace(folder))
-                {
-                    return;
-                }
-
-                var fullPath = Path.Combine(folder, fileName);
-                if (!File.Exists(fullPath))
-                {
-                    return;
-                }
-
                 var dispatcher = Application.Current?.Dispatcher;
+
                 if (dispatcher == null)
                 {
+                    PlaySoundCore(fileName, synchronous, forceKonamiFolder);
                     return;
                 }
 
-                var volume = GetFullscreenInterfaceVolume();
+                if (dispatcher.CheckAccess())
+                {
+                    PlaySoundCore(fileName, synchronous, forceKonamiFolder);
+                    return;
+                }
 
                 if (synchronous)
                 {
-                    if (dispatcher.CheckAccess())
-                    {
-                        PlayMediaPlayerOnDispatcher(fullPath, fileName, volume, true);
-                    }
-                    else
-                    {
-                        dispatcher.Invoke(
-                            new Action(() => PlayMediaPlayerOnDispatcher(fullPath, fileName, volume, true)),
-                            DispatcherPriority.Send);
-                    }
+                    dispatcher.Invoke(
+                        new Action(() => PlaySoundCore(fileName, true, forceKonamiFolder)),
+                        DispatcherPriority.Send);
                 }
                 else
                 {
                     dispatcher.BeginInvoke(
-                        new Action(() => PlayMediaPlayerOnDispatcher(fullPath, fileName, volume, false)),
+                        new Action(() => PlaySoundCore(fileName, false, forceKonamiFolder)),
                         DispatcherPriority.Send);
                 }
             }
             catch (Exception ex)
             {
                 logger.Debug(ex, $"[AnikiHelper] PlaySound failed: {fileName}");
+            }
+        }
+
+        private void PlaySoundCore(string fileName, bool synchronous = false, bool forceKonamiFolder = false)
+        {
+            try
+            {
+                if (!CanPlay(out var reason))
+                {
+                    logger.Debug($"[AnikiHelper] Event sound skipped: {fileName} | reason={reason}");
+                    return;
+                }
+
+                var folder = GetThemeEventsFolder();
+                if (string.IsNullOrWhiteSpace(folder))
+                {
+                    logger.Debug($"[AnikiHelper] Event sound folder not found for theme: {ThemeFolderName}");
+                    return;
+                }
+
+                var fullPath = ResolveSoundPath(folder, fileName, forceKonamiFolder);
+                if (string.IsNullOrWhiteSpace(fullPath))
+                {
+                    logger.Debug($"[AnikiHelper] Event sound file not found: {fileName} | folder={folder} | konamiMode={settings?.IsKonamiModeActive} | forceKonami={forceKonamiFolder}");
+                    return;
+                }
+
+                var volume = GetFullscreenInterfaceVolume();
+                PlayMediaPlayerOnDispatcher(fullPath, fileName, volume, synchronous);
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, $"[AnikiHelper] PlaySoundCore failed: {fileName}");
+            }
+        }
+
+        private string ResolveSoundPath(string folder, string fileName, bool forceKonamiFolder = false)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(folder) || string.IsNullOrWhiteSpace(fileName))
+                {
+                    return null;
+                }
+
+                if (forceKonamiFolder || settings?.IsKonamiModeActive == true)
+                {
+                    var konamiPath = Path.Combine(folder, "Konami", fileName);
+                    if (File.Exists(konamiPath))
+                    {
+                        return konamiPath;
+                    }
+                }
+
+                var defaultPath = Path.Combine(folder, fileName);
+                return File.Exists(defaultPath) ? defaultPath : null;
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, $"[AnikiHelper] Failed to resolve event sound path: {fileName}");
+                return null;
             }
         }
 
@@ -397,6 +461,11 @@ namespace AnikiHelper
         public void PlayLuckyDay()
         {
             PlaySound("LuckyDay.wav");
+        }
+
+        public void PlayKonamiCodeAccepted()
+        {
+            PlaySound("Unlock.wav", forceKonamiFolder: true);
         }
     }
 }

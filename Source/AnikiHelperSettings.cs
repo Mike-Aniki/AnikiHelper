@@ -1,4 +1,4 @@
-﻿using AnikiHelper.Services;
+using AnikiHelper.Services;
 using AnikiHelper.Services.Achievements;
 using AnikiHelper.Services.AnikiThemeSettings;
 using AnikiHelper.Services.MediaGallery;
@@ -1364,6 +1364,34 @@ namespace AnikiHelper
                     : value.Trim().Replace("\\", "/").TrimEnd('/');
 
                 SetValue(ref customSourceIconsFolder, finalValue);
+            }
+        }
+
+        private string customBannerAboveCoverFolder = string.Empty;
+        public string CustomBannerAboveCoverFolder
+        {
+            get => customBannerAboveCoverFolder;
+            set
+            {
+                var finalValue = string.IsNullOrWhiteSpace(value)
+                    ? string.Empty
+                    : value.Trim().Replace("\\", "/").TrimEnd('/');
+
+                SetValue(ref customBannerAboveCoverFolder, finalValue);
+            }
+        }
+
+        private string customBannerOnCoverFolder = string.Empty;
+        public string CustomBannerOnCoverFolder
+        {
+            get => customBannerOnCoverFolder;
+            set
+            {
+                var finalValue = string.IsNullOrWhiteSpace(value)
+                    ? string.Empty
+                    : value.Trim().Replace("\\", "/").TrimEnd('/');
+
+                SetValue(ref customBannerOnCoverFolder, finalValue);
             }
         }
 
@@ -2873,12 +2901,53 @@ namespace AnikiHelper
                 {
                     SetValue(ref loginRandomIndex, value);
                     OnPropertyChanged(nameof(IsLuckyDay));
+                    OnPropertyChanged(nameof(IsLuckyStyle1));
+                    OnPropertyChanged(nameof(IsLuckyStyle2));
                 }
             }
         }
 
         [DontSerialize]
         public bool IsLuckyDay => LoginRandomIndex == 42;
+
+        private int luckyStyleIndex;
+        public int LuckyStyleIndex
+        {
+            get => luckyStyleIndex;
+            set
+            {
+                if (luckyStyleIndex != value)
+                {
+                    SetValue(ref luckyStyleIndex, value);
+                    OnPropertyChanged(nameof(IsLuckyStyle1));
+                    OnPropertyChanged(nameof(IsLuckyStyle2));
+                }
+            }
+        }
+
+        [DontSerialize]
+        public bool IsLuckyStyle1 => IsLuckyDay && LuckyStyleIndex == 1;
+
+        [DontSerialize]
+        public bool IsLuckyStyle2 => IsLuckyDay && LuckyStyleIndex == 2;
+
+        [DontSerialize]
+        private bool isKonamiEasterEggActive;
+        [DontSerialize]
+        public bool IsKonamiEasterEggActive
+        {
+            get => isKonamiEasterEggActive;
+            set => SetValue(ref isKonamiEasterEggActive, value);
+        }
+
+        [DontSerialize]
+        private bool isKonamiModeActive;
+        [DontSerialize]
+        public bool IsKonamiModeActive
+        {
+            get => isKonamiModeActive;
+            set => SetValue(ref isKonamiModeActive, value);
+        }
 
         // anti-repetition between two launches
         public int LastLoginRandomIndex { get; set; }
@@ -2969,6 +3038,8 @@ namespace AnikiHelper
 
                 CustomFilterIconsFolder = saved.CustomFilterIconsFolder ?? string.Empty;
                 CustomSourceIconsFolder = saved.CustomSourceIconsFolder ?? string.Empty;
+                CustomBannerAboveCoverFolder = saved.CustomBannerAboveCoverFolder ?? string.Empty;
+                CustomBannerOnCoverFolder = saved.CustomBannerOnCoverFolder ?? string.Empty;
 
                 LoginRandomIndex = saved.LoginRandomIndex;
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
@@ -5674,6 +5745,8 @@ namespace AnikiHelper
 
             nameof(AnikiHelperSettings.CustomFilterIconsFolder),
             nameof(AnikiHelperSettings.CustomSourceIconsFolder),
+            nameof(AnikiHelperSettings.CustomBannerAboveCoverFolder),
+            nameof(AnikiHelperSettings.CustomBannerOnCoverFolder),
 
             nameof(AnikiHelperSettings.MediaGalleryProvider),
 

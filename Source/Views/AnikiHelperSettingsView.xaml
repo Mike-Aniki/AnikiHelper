@@ -391,6 +391,40 @@
                                                  MinHeight="28"/>
                                     </DockPanel>
 
+                                    <TextBlock Text="{DynamicResource CustomIcons_BannerAboveCoverFolder}"
+                                               Style="{StaticResource SectionTitle}"
+                                               Margin="0,12,0,4"/>
+
+                                    <DockPanel LastChildFill="True"
+                                               Margin="0,4,0,8">
+
+                                        <Button Content="{DynamicResource BrowseFolder}"
+                                                Width="100"
+                                                Margin="8,0,0,0"
+                                                DockPanel.Dock="Right"
+                                                Click="BrowseBannerAboveCoverFolder_Click"/>
+
+                                        <TextBox Text="{Binding Settings.CustomBannerAboveCoverFolder, UpdateSourceTrigger=PropertyChanged}"
+                                                 MinHeight="28"/>
+                                    </DockPanel>
+
+                                    <TextBlock Text="{DynamicResource CustomIcons_BannerOnCoverFolder}"
+                                               Style="{StaticResource SectionTitle}"
+                                               Margin="0,12,0,4"/>
+
+                                    <DockPanel LastChildFill="True"
+                                               Margin="0,4,0,8">
+
+                                        <Button Content="{DynamicResource BrowseFolder}"
+                                                Width="100"
+                                                Margin="8,0,0,0"
+                                                DockPanel.Dock="Right"
+                                                Click="BrowseBannerOnCoverFolder_Click"/>
+
+                                        <TextBox Text="{Binding Settings.CustomBannerOnCoverFolder, UpdateSourceTrigger=PropertyChanged}"
+                                                 MinHeight="28"/>
+                                    </DockPanel>
+
                                     <TextBlock Text="{DynamicResource CustomIcons_Help}"
                                                Style="{StaticResource SmallNoteText}"
                                                TextWrapping="Wrap"
