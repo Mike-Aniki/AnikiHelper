@@ -42,39 +42,72 @@ namespace AnikiHelper.Services
     public class AnikiWindowManager
     {
         private readonly IPlayniteAPI playniteApi;
+        private readonly ILogger logger;
         private readonly Stack<Window> windows = new Stack<Window>();
+        private Func<bool> isOverlayOpenOrOpening;
         private const string QuickAccessWindowStyleName = "QuickAccessWindowStyle";
 
         public AnikiWindowManager(IPlayniteAPI playniteApi)
         {
             this.playniteApi = playniteApi;
+            logger = LogManager.GetLogger();
         }
 
-        public bool HasOpenWindow => windows.Any();
+        public void SetOverlayOpenStateProvider(Func<bool> provider)
+        {
+            isOverlayOpenOrOpening = provider;
+        }
+
+        public bool HasOpenWindow
+        {
+            get
+            {
+                try
+                {
+                    var dispatcher = Application.Current?.Dispatcher;
+                    if (dispatcher != null && !dispatcher.CheckAccess())
+                    {
+                        return dispatcher.Invoke(new Func<bool>(() =>
+                        {
+                            CleanupClosedWindows();
+                            return windows.Any();
+                        }));
+                    }
+
+                    CleanupClosedWindows();
+                    return windows.Any();
+                }
+                catch
+                {
+                    return windows.Any();
+                }
+            }
+        }
 
         public void OpenWindow(string parameter)
         {
-            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick);
-            Open(styleKey, false, focusTargetName, focusFirst, refocusAfterClick);
+            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim);
+            Open(styleKey, false, focusTargetName, focusFirst, refocusAfterClick, noDim);
         }
 
         public void OpenWindow(string styleKey, string focusTargetName)
         {
-            Open(styleKey, false, focusTargetName, false, false);
+            Open(styleKey, false, focusTargetName, false, false, false);
         }
 
         public void OpenChildWindow(string parameter)
         {
-            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick);
-            Open(styleKey, true, focusTargetName, focusFirst, refocusAfterClick);
+            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim);
+            Open(styleKey, true, focusTargetName, focusFirst, refocusAfterClick, noDim);
         }
 
-        private void ParseOpenParameter(string parameter, out string styleKey, out string focusTargetName, out bool focusFirst, out bool refocusAfterClick)
+        private void ParseOpenParameter(string parameter, out string styleKey, out string focusTargetName, out bool focusFirst, out bool refocusAfterClick, out bool noDim)
         {
             styleKey = parameter;
             focusTargetName = null;
             focusFirst = false;
             refocusAfterClick = false;
+            noDim = false;
 
             if (string.IsNullOrWhiteSpace(parameter) || !parameter.Contains("|"))
             {
@@ -106,6 +139,12 @@ namespace AnikiHelper.Services
                     continue;
                 }
 
+                if (IsNoDimOption(option))
+                {
+                    noDim = true;
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(focusTargetName))
                 {
                     focusTargetName = option;
@@ -125,6 +164,13 @@ namespace AnikiHelper.Services
             return string.Equals(option, "RefocusAfterClick", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(option, "RefocusOnClick", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(option, "RefocusAfterAction", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsNoDimOption(string option)
+        {
+            return string.Equals(option, "NoDim", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(option, "NoOverlayDim", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(option, "TransparentWindow", StringComparison.OrdinalIgnoreCase);
         }
 
         public bool CloseTopWindow()
@@ -161,14 +207,35 @@ namespace AnikiHelper.Services
             return top != null && top.IsActive;
         }
 
-        private void Open(string styleKey, bool forceChild, string focusTargetName, bool focusFirst, bool refocusAfterClick)
+        private void Open(string styleKey, bool forceChild, string focusTargetName, bool focusFirst, bool refocusAfterClick, bool noDim)
         {
             if (string.IsNullOrWhiteSpace(styleKey))
                 return;
 
-            Application.Current.Dispatcher.Invoke(() =>
+            // Reserve custom pages and the in-game overlay as mutually exclusive UI layers.
+            // This first check blocks immediately when the overlay shortcut has already queued an opening.
+            if (IsOverlayBlockingCustomWindowOpen())
+            {
+                LogBlockedWindowOpen(styleKey, "request");
+                return;
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                return;
+            }
+
+            dispatcher.Invoke(() =>
             {
                 CleanupClosedWindows();
+
+                // Check again on the UI thread because an overlay request can race this queued window open.
+                if (IsOverlayBlockingCustomWindowOpen())
+                {
+                    LogBlockedWindowOpen(styleKey, "UI dispatch");
+                    return;
+                }
 
                 if (IsPlayniteSettingsWindowOpen())
                 {
@@ -193,22 +260,47 @@ namespace AnikiHelper.Services
                     CleanupClosedWindows();
                 }
 
-                var window = playniteApi.Dialogs.CreateWindow(new WindowCreationOptions
-                {
-                    ShowMinimizeButton = false
-                });
+                // NoDim is used for theme child windows that draw their own dim/gradient in XAML.
+                // Using a raw transparent WPF window avoids Playnite's dialog chrome/background dim for this window only.
+                var window = noDim
+                    ? new Window()
+                    : playniteApi.Dialogs.CreateWindow(new WindowCreationOptions
+                    {
+                        ShowMinimizeButton = false
+                    });
 
                 window.Tag = styleKey;
+                window.ShowInTaskbar = false;
                 window.WindowStyle = WindowStyle.None;
                 window.ResizeMode = ResizeMode.NoResize;
-                window.WindowState = WindowState.Maximized;
-                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                window.SizeToContent = SizeToContent.Manual;
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
 
+                // Important : ne pas utiliser Maximized ici.
+                // On copie la vraie fenêtre Playnite pour éviter que les plugins ouverts depuis Aniki
+                // récupèrent un mauvais owner / mauvais ratio / mauvaises coordonnées.
                 var parent = playniteApi.Dialogs.GetCurrentAppWindow();
+
                 if (parent != null)
                 {
-                    window.Width = parent.Width;
-                    window.Height = parent.Height;
+                    window.Owner = parent;
+
+                    window.WindowState = WindowState.Normal;
+
+                    window.Left = parent.Left;
+                    window.Top = parent.Top;
+
+                    window.Width = parent.ActualWidth > 0 ? parent.ActualWidth : parent.Width;
+                    window.Height = parent.ActualHeight > 0 ? parent.ActualHeight : parent.Height;
+                }
+                else
+                {
+                    window.WindowState = WindowState.Normal;
+
+                    window.Left = 0;
+                    window.Top = 0;
+                    window.Width = SystemParameters.PrimaryScreenWidth;
+                    window.Height = SystemParameters.PrimaryScreenHeight;
                 }
 
                 if (forceChild)
@@ -239,9 +331,14 @@ namespace AnikiHelper.Services
                     };
                 }
 
-                window.Owner = forceChild && windows.Any()
-                    ? windows.Peek()
-                    : parent;
+                if (forceChild && windows.Any())
+                {
+                    window.Owner = windows.Peek();
+                }
+                else if (parent != null)
+                {
+                    window.Owner = parent;
+                }
 
                 window.PreviewKeyDown += (s, e) =>
                 {
@@ -256,6 +353,23 @@ namespace AnikiHelper.Services
                 {
                     RemoveWindow(window);
                 };
+
+                // Final race check immediately before the window becomes part of the active stack.
+                // If the overlay won while this window was being built, discard this unopened window.
+                if (IsOverlayBlockingCustomWindowOpen())
+                {
+                    LogBlockedWindowOpen(styleKey, "before show");
+
+                    try
+                    {
+                        window.Close();
+                    }
+                    catch
+                    {
+                    }
+
+                    return;
+                }
 
                 windows.Push(window);
 
@@ -276,6 +390,30 @@ namespace AnikiHelper.Services
                     }), DispatcherPriority.ApplicationIdle);
                 }
             });
+        }
+
+        private bool IsOverlayBlockingCustomWindowOpen()
+        {
+            try
+            {
+                return isOverlayOpenOrOpening?.Invoke() == true;
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper][WindowManager] Failed to query overlay state.");
+                return false;
+            }
+        }
+
+        private void LogBlockedWindowOpen(string styleKey, string stage)
+        {
+            try
+            {
+                logger?.Debug($"[AnikiHelper][WindowManager] Window open blocked by overlay. Style={styleKey}, Stage={stage}");
+            }
+            catch
+            {
+            }
         }
 
         private static bool IsPlayniteSettingsWindowOpen()
@@ -578,7 +716,21 @@ namespace AnikiHelper.Services
                 .ToList();
 
             foreach (var window in windowsToClose)
-                window.Close();
+            {
+                // Important :
+                // Hide() retire la fenêtre tout de suite sans bloquer l’ouverture de la prochaine.
+                // Close() est repoussé à l'idle pour éviter que WPF détruise tout le visual tree
+                // du Quick Access avant d'afficher Profile / Store / etc.
+                window.Hide();
+
+                window.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (window != null)
+                    {
+                        window.Close();
+                    }
+                }), DispatcherPriority.ApplicationIdle);
+            }
         }
 
         private void RemoveWindow(Window window)

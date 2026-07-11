@@ -1,11 +1,14 @@
 ﻿using AnikiHelper.Services;
 using AnikiHelper.Services.SplashScreen;
+using AnikiHelper.Services.SteamFriends;
 using AnikiHelper.Services.Controller;
 using AnikiHelper.Services.InGameOverlay;
+using AnikiHelper.Services.MediaGallery;
 using AnikiHelper.Services.AnikiThemeSettings;
 using AnikiHelper.Services.UI;
 using AnikiHelper.Services.EasterEgg;
 using Microsoft.Win32;
+using Newtonsoft.Json;
 using Playnite.SDK;
 using Playnite.SDK.Data;
 using Playnite.SDK.Events;
@@ -59,6 +62,18 @@ namespace AnikiHelper
             }
         }
 
+        // Hub News can generate hundreds of per-item DEBUG lines on startup.
+        // Keep these logs silent by default so the Hub stays smooth and the log file stays readable.
+        private void HubNewsDebug(string message)
+        {
+            // Intentionally quiet. Keep Info/Warn/Error summaries only.
+        }
+
+        private void HubNewsDebug(Exception ex, string message)
+        {
+            // Intentionally quiet. Keep Info/Warn/Error summaries only.
+        }
+
         private void InitializeLuckyDaySession()
         {
             try
@@ -91,7 +106,7 @@ namespace AnikiHelper
                     if (Settings.IsLuckyDay)
                     {
                         Settings.LuckyStyleIndex = rand.Next(1, 3);
-                        eventSoundService?.PlayLuckyDay();
+                        QueueLuckyDaySoundAfterStartup();
                     }
                     else
                     {
@@ -107,6 +122,39 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] Lucky Day session init failed.");
+            }
+        }
+
+
+        private void QueueLuckyDaySoundAfterStartup()
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    eventSoundService?.PlayLuckyDay();
+                    return;
+                }
+
+                dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        // Do not open/read the audio file during the first startup render.
+                        await Task.Delay(500);
+                        eventSoundService?.PlayLuckyDay();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to play delayed Lucky Day sound.");
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to queue Lucky Day sound.");
             }
         }
 
@@ -131,6 +179,8 @@ namespace AnikiHelper
         private static readonly TimeSpan StartupVideoDuration = TimeSpan.FromSeconds(7);
         private static readonly TimeSpan StartupVideoFailSafeTimeout = TimeSpan.FromSeconds(30);
         private const string StartupVideoFileName = "Startup.mp4";
+        private const string StartupLuckyDay1VideoFileName = "Startup_LuckyDay1.mp4";
+        private const string StartupLuckyDay2VideoFileName = "Startup_LuckyDay2.mp4";
 
         private bool shutdownVideoSequenceRunning;
         private static readonly TimeSpan ShutdownVideoDuration = TimeSpan.FromSeconds(5);
@@ -139,10 +189,12 @@ namespace AnikiHelper
         private const string ShutdownThemeFolderName = "Aniki_ReMake_bb8728bd-ac83-4324-88b1-ee5c586527d1";
         private const string ShutdownVideoFolderName = "Startup Video";
         private const string ShutdownVideoFileName = "Shutdown.mp4";
+        private const string ShutdownLuckyDay1VideoFileName = "Shutdown_LuckyDay1.mp4";
+        private const string ShutdownLuckyDay2VideoFileName = "Shutdown_LuckyDay2.mp4";
 
         private SplashScreenRuntimeService splashScreenRuntimeService;
         private const int GameLaunchSplashMinimumDurationMs = 2400;
-        private const int GameLaunchSplashMaxWaitAfterGameStartedMs = 6000;
+        private const int GameLaunchSplashMaxWaitAfterGameStartedMs = 15000;
         private const int GameLaunchSplashMaximumMinimumDurationMs = 600000;
         private const string CustomSplashTagName = "[Aniki] Custom Splash";
 
@@ -151,7 +203,24 @@ namespace AnikiHelper
 
         private readonly System.Threading.SemaphoreSlim steamStoreOpenLock = new System.Threading.SemaphoreSlim(1, 1);
         private DateTime lastSteamStoreOpenRequestUtc = DateTime.MinValue;
+        private DateTime lastSteamStoreCacheOnlyLoadUtc = DateTime.MinValue;
+        private DateTime lastSteamStoreAuthProbeUtc = DateTime.MinValue;
+        private static readonly TimeSpan SteamStoreOpenRequestThrottle = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan SteamStoreCacheOnlyLoadThrottle = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan SteamStoreAuthProbeReuseWindow = TimeSpan.FromSeconds(30);
         private DateTime lastMediaGalleryRefreshShortcutUtc = DateTime.MinValue;
+        private DateTime lastSteamAuthToastUtc = DateTime.MinValue;
+        private DateTime lastSteamAuthRequiredToastUtc = DateTime.MinValue;
+        private DateTime lastControllerInputUtc = DateTime.MinValue;
+        private readonly System.Threading.SemaphoreSlim startupSteamNotificationRefreshLock = new System.Threading.SemaphoreSlim(1, 1);
+        private const int MaxWishlistNotificationsPerRefresh = 3;
+        private static readonly TimeSpan StartupSteamAuthCheckDelay = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan StartupSteamAuthReminderInterval = TimeSpan.FromDays(1);
+        private static readonly TimeSpan StartupSteamNotificationInitialDelay = TimeSpan.FromMinutes(1);
+        private static readonly TimeSpan StartupSteamNotificationRetryDelay = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan StartupSteamNotificationDailyInterval = TimeSpan.FromDays(1);
+        private const int StartupSteamNotificationMaxIdleAttempts = 16;
+
 
         // Steam Store loading progress animation
         private int steamStoreProgressAnimationToken = 0;
@@ -188,6 +257,67 @@ namespace AnikiHelper
 
         private readonly Random hubRandom = new Random();
         private bool hubPage3CardsInitialized = false;
+        private bool hubStartupCachePrimed = false;
+
+        private bool hubStartupVisibleCacheLoaded = false;
+
+        private class WelcomeHubStartupCache
+        {
+            public DateTime SavedUtc { get; set; }
+
+            public int TotalCount { get; set; }
+            public int InstalledCount { get; set; }
+            public int NotInstalledCount { get; set; }
+            public int HiddenCount { get; set; }
+            public int FavoriteCount { get; set; }
+
+            public ulong TotalPlaytimeMinutes { get; set; }
+            public ulong AveragePlaytimeMinutes { get; set; }
+
+            public string ProfileGenreKey { get; set; }
+            public string ProfileGenreLabel { get; set; }
+            public string ProfileTopPlatformName { get; set; }
+            public string ProfileTopFranchiseName { get; set; }
+            public string ProfileTopTagName { get; set; }
+
+            public int ThisMonthPlayedCount { get; set; }
+            public ulong ThisMonthPlayedTotalMinutes { get; set; }
+            public string ThisMonthTopGameName { get; set; }
+            public string ThisMonthTopGamePlaytime { get; set; }
+            public string ThisMonthTopGameCoverPath { get; set; }
+            public string ThisMonthTopGameBackgroundPath { get; set; }
+            public Guid ThisMonthTopGameId { get; set; }
+
+            public int ThisYearPlayedCount { get; set; }
+            public ulong ThisYearPlayedTotalMinutes { get; set; }
+            public string ThisYearTopGameName { get; set; }
+            public string ThisYearTopGamePlaytime { get; set; }
+            public string ThisYearTopGameCoverPath { get; set; }
+            public string ThisYearTopGameBackgroundPath { get; set; }
+            public Guid ThisYearTopGameId { get; set; }
+
+            public string RecentPlayedBackgroundPath { get; set; }
+
+            public string HubRecentAddedName { get; set; }
+            public string HubRecentAddedDate { get; set; }
+            public string HubRecentAddedBackgroundPath { get; set; }
+            public Guid HubRecentAddedGameId { get; set; }
+
+            public string HubNeverPlayedName { get; set; }
+            public string HubNeverPlayedDate { get; set; }
+            public string HubNeverPlayedBackgroundPath { get; set; }
+            public Guid HubNeverPlayedGameId { get; set; }
+
+            public List<TopPlayedItem> TopPlayed { get; set; } = new List<TopPlayedItem>();
+            public List<CompletionStatItem> CompletionStates { get; set; } = new List<CompletionStatItem>();
+            public List<ProviderStatItem> GameProviders { get; set; } = new List<ProviderStatItem>();
+            public List<QuickItem> RecentPlayed { get; set; } = new List<QuickItem>();
+            public List<QuickItem> RecentAdded { get; set; } = new List<QuickItem>();
+            public List<QuickItem> NeverPlayed { get; set; } = new List<QuickItem>();
+
+            public List<SteamRecentUpdateItem> SteamRecentUpdates { get; set; } = new List<SteamRecentUpdateItem>();
+            public List<HubLibraryRecommendedGameItem> HubLibraryRecommendedGames { get; set; } = new List<HubLibraryRecommendedGameItem>();
+        }
 
         private CancellationTokenSource databaseStatsDebounceCts;
         private readonly object databaseStatsDebounceLock = new object();
@@ -264,6 +394,7 @@ namespace AnikiHelper
         }
 
         // News update for Welcome Hub
+        // Rotation équilibrée : 3 news Source A + 2 news Source B + 1 dernière news Playnite/add-ons, puis ordre aléatoire.
         private void UpdateLatestNewsRotationFromList(IList<SteamGlobalNewsItem> items)
         {
             try
@@ -271,17 +402,105 @@ namespace AnikiHelper
                 latestNewsRotation.Clear();
                 latestNewsRotationIndex = 0;
 
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var sourceACount = 0;
+                var sourceBCount = 0;
+                var playniteCount = 0;
+
+                Func<SteamGlobalNewsItem, string, bool> addUnique = (item, source) =>
+                {
+                    if (item == null || string.IsNullOrWhiteSpace(item.Title))
+                    {
+                        return false;
+                    }
+
+                    var key = MakePlayniteNewsKey(item);
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        key = item.Title ?? string.Empty;
+                    }
+
+                    if (!seen.Add(key))
+                    {
+                        HubNewsDebug($"[Hub News] rotation skip duplicate | source={source} | title={ShortForLog(item.Title)}");
+                        return false;
+                    }
+
+                    latestNewsRotation.Add(item);
+                    HubNewsDebug($"[Hub News] rotation add | source={source} | title={ShortForLog(item.Title)} | game={Safe(item.GameName)} | date={item.DateString ?? string.Empty}");
+                    return true;
+                };
+
                 if (items != null)
                 {
                     foreach (var item in items
+                        .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title))
                         .OrderByDescending(x => x.PublishedUtc)
-                        .Take(5))
+                        .Take(3))
                     {
-                        latestNewsRotation.Add(item);
+                        if (addUnique(item, "sourceA"))
+                        {
+                            sourceACount++;
+                        }
                     }
                 }
 
+                var sourceB = Settings?.SteamGlobalNewsB;
+                if (sourceB != null && sourceB.Count > 0)
+                {
+                    foreach (var item in sourceB
+                        .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title))
+                        .OrderByDescending(x => x.PublishedUtc)
+                        .Take(2))
+                    {
+                        if (addUnique(item, "sourceB"))
+                        {
+                            sourceBCount++;
+                        }
+                    }
+                }
+
+                var playniteNews = Settings?.PlayniteNews;
+                if (playniteNews != null && playniteNews.Count > 0)
+                {
+                    var latestPlayniteNews = playniteNews
+                        .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title))
+                        .OrderByDescending(x => x.PublishedUtc)
+                        .FirstOrDefault();
+
+                    if (addUnique(latestPlayniteNews, "playnite-updates"))
+                    {
+                        playniteCount++;
+                    }
+                }
+
+                if (latestNewsRotation.Count > 1)
+                {
+                    for (var i = latestNewsRotation.Count - 1; i > 0; i--)
+                    {
+                        var j = hubRandom.Next(i + 1);
+                        if (i == j)
+                        {
+                            continue;
+                        }
+
+                        var tmp = latestNewsRotation[i];
+                        latestNewsRotation[i] = latestNewsRotation[j];
+                        latestNewsRotation[j] = tmp;
+                    }
+
+                    HubNewsDebug($"[Hub News] rotation order shuffled | count={latestNewsRotation.Count} | random=True");
+                }
+
                 ApplyLatestNewsSnapshot(latestNewsRotation.Count > 0 ? latestNewsRotation[0] : null);
+
+                logger.Info($"[Hub News] rotation refreshed | count={latestNewsRotation.Count} | sourceA={sourceACount}/3 | sourceB={sourceBCount}/2 | playniteUpdates={playniteCount}/1 | random=True");
+
+                for (var i = 0; i < latestNewsRotation.Count; i++)
+                {
+                    var item = latestNewsRotation[i];
+                    HubNewsDebug($"[Hub News] rotation item | index={i + 1}/{latestNewsRotation.Count} | title={ShortForLog(item?.Title)} | game={Safe(item?.GameName)} | date={item?.DateString ?? string.Empty}");
+                }
             }
             catch (Exception ex)
             {
@@ -369,6 +588,750 @@ namespace AnikiHelper
             }
 
             ApplyLatestNewsSnapshot(latestNewsRotation[latestNewsRotationIndex]);
+        }
+
+        private void UpdateLibraryNewsRotationFromUpdates(IList<SteamRecentUpdateItem> fallbackUpdates)
+        {
+            try
+            {
+                const int targetRotationCount = 6;
+                const int targetPrimaryCount = 2;
+                const int targetUpdateCount = 2;
+                const int targetSecondaryCount = 2;
+
+                libraryNewsRotation.Clear();
+                libraryNewsRotationIndex = 0;
+
+                var seenGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var seenItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                Func<SteamRecentUpdateItem, string, bool> addUnique = (item, source) =>
+                {
+                    if (item == null || string.IsNullOrWhiteSpace(item.Title) || libraryNewsRotation.Count >= targetRotationCount)
+                    {
+                        return false;
+                    }
+
+                    var gameKey = GetLibraryNewsGameKey(item);
+                    if (string.IsNullOrWhiteSpace(gameKey))
+                    {
+                        gameKey = NormalizeForKey(item.GameName ?? string.Empty);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(gameKey) && seenGames.Contains(gameKey))
+                    {
+                        HubNewsDebug($"[Hub Library News] rotation skip duplicate game | source={source} | gameKey={gameKey} | game={Safe(item.GameName)} | title={ShortForLog(item.Title)}");
+                        return false;
+                    }
+
+                    var itemKey = $"{gameKey}|{NormalizeForKey(item.Title ?? string.Empty)}";
+                    if (!seenItems.Add(itemKey))
+                    {
+                        HubNewsDebug($"[Hub Library News] rotation skip duplicate item | source={source} | game={Safe(item.GameName)} | title={ShortForLog(item.Title)}");
+                        return false;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(gameKey))
+                    {
+                        seenGames.Add(gameKey);
+                    }
+
+                    libraryNewsRotation.Add(item);
+                    HubNewsDebug($"[Hub Library News] rotation add | source={source} | badge={GetLibraryNewsBadgeText(item)} | appId={Safe(item.SteamAppId)} | game={Safe(item.GameName)} | title={ShortForLog(item.Title)}");
+                    return true;
+                };
+
+                Func<IEnumerable<SteamRecentUpdateItem>, string, int, int> addCategory = (items, source, maxAdd) =>
+                {
+                    var added = 0;
+                    if (items == null || maxAdd <= 0)
+                    {
+                        return 0;
+                    }
+
+                    foreach (var item in items)
+                    {
+                        if (libraryNewsRotation.Count >= targetRotationCount || added >= maxAdd)
+                        {
+                            break;
+                        }
+
+                        if (addUnique(item, source))
+                        {
+                            added++;
+                        }
+                    }
+
+                    return added;
+                };
+
+                var gameNewsItems = BuildLibraryNewsItemsFromGameNewsCache()
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title))
+                    .ToList();
+
+                var primaryItems = gameNewsItems
+                    .Where(IsLibraryNewsPrimaryBadge)
+                    .ToList();
+
+                var secondaryItems = gameNewsItems
+                    .Where(IsLibraryNewsSecondaryBadge)
+                    .ToList();
+
+                var saleItems = gameNewsItems
+                    .Where(IsLibraryNewsSaleBadge)
+                    .ToList();
+
+                var globalUpdateItems = (fallbackUpdates ?? new List<SteamRecentUpdateItem>())
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title))
+                    .Where(IsHubLibraryGlobalUpdateFresh)
+                    .OrderByDescending(x => ParseSteamNewsDateUtc(x.DateString))
+                    .ToList();
+
+                // Rotation équilibrée From Your Library :
+                // 2 meilleurs DLC/EVENT, 2 meilleures UPDATE globales, 2 meilleures NEWS/TRAILER/GAMEPLAY/ANNOUNCE.
+                // SALE reste seulement un fallback si une catégorie n'a pas assez de contenu récent.
+                var primaryAdded = addCategory(primaryItems, "game-news-cache-primary-2", targetPrimaryCount);
+                var updateAdded = addCategory(globalUpdateItems, "global-updates-priority-2", targetUpdateCount);
+                var secondaryAdded = addCategory(secondaryItems, "game-news-cache-secondary-2", targetSecondaryCount);
+
+                HubNewsDebug($"[Hub Library News] rotation category summary | target={targetRotationCount} | primary={primaryAdded}/{targetPrimaryCount} | updates={updateAdded}/{targetUpdateCount} | secondary={secondaryAdded}/{targetSecondaryCount} | count={libraryNewsRotation.Count}");
+
+                // Fill intelligent si une catégorie ne peut pas fournir assez de contenu.
+                if (libraryNewsRotation.Count < targetRotationCount)
+                {
+                    addCategory(globalUpdateItems, "global-updates-extra-fill", targetRotationCount - libraryNewsRotation.Count);
+                }
+
+                if (libraryNewsRotation.Count < targetRotationCount)
+                {
+                    addCategory(primaryItems, "game-news-cache-primary-extra-fill", targetRotationCount - libraryNewsRotation.Count);
+                }
+
+                if (libraryNewsRotation.Count < targetRotationCount)
+                {
+                    addCategory(secondaryItems, "game-news-cache-secondary-extra-fill", targetRotationCount - libraryNewsRotation.Count);
+                }
+
+                if (libraryNewsRotation.Count < targetRotationCount)
+                {
+                    addCategory(saleItems, "game-news-cache-sale-last-fill", targetRotationCount - libraryNewsRotation.Count);
+                }
+
+                if (libraryNewsRotation.Count > 1)
+                {
+                    for (var i = libraryNewsRotation.Count - 1; i > 0; i--)
+                    {
+                        var j = hubRandom.Next(i + 1);
+                        if (i == j)
+                        {
+                            continue;
+                        }
+
+                        var tmp = libraryNewsRotation[i];
+                        libraryNewsRotation[i] = libraryNewsRotation[j];
+                        libraryNewsRotation[j] = tmp;
+                    }
+
+                    HubNewsDebug($"[Hub Library News] rotation order shuffled | count={libraryNewsRotation.Count} | random=True");
+                }
+
+                ApplyLibraryNewsSnapshot(libraryNewsRotation.Count > 0 ? libraryNewsRotation[0] : null);
+
+                logger.Info($"[Hub Library News] rotation refreshed | count={libraryNewsRotation.Count} | source=balanced-2-dlc-event-2-global-update-2-news-random | uniqueGames={seenGames.Count}");
+
+                for (var i = 0; i < libraryNewsRotation.Count; i++)
+                {
+                    var item = libraryNewsRotation[i];
+                    HubNewsDebug($"[Hub Library News] rotation item | index={i + 1}/{libraryNewsRotation.Count} | badge={GetLibraryNewsBadgeText(item)} | appId={Safe(item?.SteamAppId)} | game={Safe(item?.GameName)} | title={ShortForLog(item?.Title)} | date={item?.DateString ?? string.Empty}");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to update LibraryNews rotation.");
+            }
+        }
+
+        private void ApplyLibraryNewsSnapshot(SteamRecentUpdateItem item)
+        {
+            try
+            {
+                OnUi(() =>
+                {
+                    if (item == null)
+                    {
+                        Settings.LibraryNewsTitle = string.Empty;
+                        Settings.LibraryNewsGameName = string.Empty;
+                        Settings.LibraryNewsDateString = string.Empty;
+                        Settings.LibraryNewsSummary = string.Empty;
+                        Settings.LibraryNewsBadgeText = string.Empty;
+                        Settings.LibraryNewsImagePath = string.Empty;
+                        Settings.LibraryNewsImagePathA = string.Empty;
+                        Settings.LibraryNewsImagePathB = string.Empty;
+                        Settings.LibraryNewsShowLayerB = false;
+
+                        libraryNewsCrossfadeInitialized = false;
+                        return;
+                    }
+
+                    Settings.LibraryNewsTitle = item.Title ?? string.Empty;
+                    Settings.LibraryNewsGameName = item.GameName ?? string.Empty;
+                    Settings.LibraryNewsDateString = item.DateString ?? string.Empty;
+                    Settings.LibraryNewsSummary = BuildLibraryNewsSummary(item);
+                    Settings.LibraryNewsBadgeText = GetLibraryNewsBadgeText(item);
+
+                    var imagePath = !string.IsNullOrWhiteSpace(item.BackgroundPath)
+                        ? item.BackgroundPath
+                        : (item.CoverPath ?? string.Empty);
+
+                    Settings.LibraryNewsImagePath = imagePath;
+
+                    if (!libraryNewsCrossfadeInitialized)
+                    {
+                        Settings.LibraryNewsImagePathA = imagePath;
+                        Settings.LibraryNewsImagePathB = imagePath;
+                        Settings.LibraryNewsShowLayerB = false;
+                        libraryNewsCrossfadeInitialized = true;
+                        return;
+                    }
+
+                    if (Settings.LibraryNewsShowLayerB)
+                    {
+                        Settings.LibraryNewsImagePathA = imagePath;
+                        Settings.LibraryNewsShowLayerB = false;
+                    }
+                    else
+                    {
+                        Settings.LibraryNewsImagePathB = imagePath;
+                        Settings.LibraryNewsShowLayerB = true;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] Failed to apply LibraryNews snapshot.");
+            }
+        }
+
+        private void RotateLibraryNewsIfNeeded()
+        {
+            if (libraryNewsRotation.Count <= 1)
+            {
+                return;
+            }
+
+            libraryNewsRotationIndex++;
+            if (libraryNewsRotationIndex >= libraryNewsRotation.Count)
+            {
+                libraryNewsRotationIndex = 0;
+            }
+
+            ApplyLibraryNewsSnapshot(libraryNewsRotation[libraryNewsRotationIndex]);
+        }
+
+        private static string BuildLibraryNewsSummary(SteamRecentUpdateItem item)
+        {
+            try
+            {
+                var raw = item?.Html ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    return item?.DateString ?? string.Empty;
+                }
+
+                var text = Regex.Replace(raw, "<[^>]+>", " ", RegexOptions.Singleline);
+                text = WebUtility.HtmlDecode(text ?? string.Empty);
+                text = Regex.Replace(text, @"\s+", " ").Trim();
+
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    return item?.DateString ?? string.Empty;
+                }
+
+                const int max = 150;
+                if (text.Length > max)
+                {
+                    text = text.Substring(0, max).TrimEnd() + "…";
+                }
+
+                return text;
+            }
+            catch
+            {
+                return item?.DateString ?? string.Empty;
+            }
+        }
+
+        private static string GetLibraryNewsBadgeText(SteamRecentUpdateItem item)
+        {
+            return GetLibraryNewsBadgeTextFromParts(item?.Title ?? string.Empty, item?.Html ?? string.Empty);
+        }
+
+        private static string GetLibraryNewsBadgeText(SteamGameNewsItem item)
+        {
+            return GetLibraryNewsBadgeTextFromParts(item?.Title ?? string.Empty, item?.Html ?? string.Empty);
+        }
+
+        private static string GetLibraryNewsBadgeTextFromParts(string title, string html)
+        {
+            var safeTitle = title ?? string.Empty;
+            var safeHtml = html ?? string.Empty;
+            var titleText = safeTitle.ToLowerInvariant();
+            var fullText = (safeTitle + " " + safeHtml).ToLowerInvariant();
+
+            // Badges spécifiques basés sur le titre en priorité.
+            // Exemple : une news dont le corps mentionne un DLC mais dont le titre parle d'un trailer
+            // doit afficher TRAILER, pas DLC.
+            if (IsLibraryNewsTrailerTitle(titleText))
+            {
+                return "TRAILER";
+            }
+
+            if (IsLibraryNewsGameplayTitle(titleText))
+            {
+                return "GAMEPLAY";
+            }
+
+            if (IsLibraryNewsCommunityTitle(titleText))
+            {
+                return "COMMUNITY";
+            }
+
+            if (IsLibraryNewsSaleText(fullText))
+            {
+                return "SALE";
+            }
+
+            // DLC is now title-driven only. The body of Steam news often mentions DLC/expansion
+            // in unrelated announcements, which was causing false DLC badges like Discord/news posts.
+            if (IsLibraryNewsDlcTitle(titleText))
+            {
+                return "DLC";
+            }
+
+            if (IsLibraryNewsAnnouncementTitle(titleText))
+            {
+                return "ANNOUNCE";
+            }
+
+            // Les updates sont détectées surtout depuis le titre pour éviter qu'une news/event
+            // soit classée UPDATE juste parce que le body mentionne le mot "update".
+            if (IsLibraryNewsUpdateTitle(titleText))
+            {
+                return "UPDATE";
+            }
+
+            if (fullText.Contains("event") || fullText.Contains("festival") || fullText.Contains("weekend") || fullText.Contains("anniversary") || fullText.Contains("showcase"))
+            {
+                return "EVENT";
+            }
+
+            return "NEWS";
+        }
+
+        private static string GetLibraryNewsBadgeTextFromText(string text)
+        {
+            return GetLibraryNewsBadgeTextFromParts(text, string.Empty);
+        }
+
+        private static bool IsLibraryNewsUpdateTitle(string text)
+        {
+            var t = (text ?? string.Empty).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(t))
+            {
+                return false;
+            }
+
+            return Regex.IsMatch(t, @"\b(patch|patch notes|hotfix|update|version|build)\b", RegexOptions.IgnoreCase) ||
+                   Regex.IsMatch(t, @"\bver\.?\s*\d", RegexOptions.IgnoreCase) ||
+                   Regex.IsMatch(t, @"\bv\d+(?:\.\d+)+", RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsLibraryNewsTrailerTitle(string text)
+        {
+            var t = (text ?? string.Empty).ToLowerInvariant();
+            return Regex.IsMatch(t, @"\b(trailer|teaser)\b", RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsLibraryNewsGameplayTitle(string text)
+        {
+            var t = (text ?? string.Empty).ToLowerInvariant();
+            return Regex.IsMatch(t, @"\b(gameplay|hands[- ]?on|deep dive|combat first impressions?)\b", RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsLibraryNewsCommunityTitle(string text)
+        {
+            var t = (text ?? string.Empty).ToLowerInvariant();
+            return Regex.IsMatch(t, @"\b(discord|community|forum|forums|dev diary|devlog|developer diary|community calendar)\b", RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsLibraryNewsAnnouncementTitle(string text)
+        {
+            var t = (text ?? string.Empty).ToLowerInvariant();
+            return Regex.IsMatch(t, @"\b(announce|announced|announcing|announcement|revealed|reveal|wishlist now|coming soon|coming this|launching|launches|release date|releases|arrives|available on|available now)\b", RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsLibraryNewsDlcTitle(string text)
+        {
+            var t = text ?? string.Empty;
+
+            // Title-only strong DLC signals. Do not inspect the body here: body text often mentions
+            // DLC/expansions as context and caused false badges like "Join the official Mafia Discord".
+            return Regex.IsMatch(t, @"\b(dlc|expansion|season pass|story pack|content pack|collab\.? pack|collaboration pack|music pass|music pack|song pack|pack vol\.?|add[- ]?on|new songs?|new dlc)\b", RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsLibraryNewsSaleText(string text)
+        {
+            var t = (text ?? string.Empty).ToLowerInvariant();
+            return t.Contains("sale") ||
+                   t.Contains("discount") ||
+                   t.Contains("discounted") ||
+                   t.Contains("% off") ||
+                   t.Contains("save ") ||
+                   t.Contains("saving") ||
+                   t.Contains("deal") ||
+                   t.Contains("bundle") ||
+                   t.Contains("special offer");
+        }
+
+
+        private static bool IsHubLibraryGlobalUpdateFresh(SteamRecentUpdateItem item)
+        {
+            var dt = ParseSteamNewsDateUtc(item?.DateString);
+            if (dt == DateTime.MinValue)
+            {
+                return true;
+            }
+
+            return (DateTime.UtcNow - dt).TotalDays <= 42.0;
+        }
+
+        private static bool IsLibraryNewsUpdateBadge(string badge)
+        {
+            return string.Equals(badge, "UPDATE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsLibraryNewsPrimaryBadge(SteamRecentUpdateItem item)
+        {
+            var badge = GetLibraryNewsBadgeText(item);
+            return string.Equals(badge, "DLC", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(badge, "EVENT", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsLibraryNewsSecondaryBadge(SteamRecentUpdateItem item)
+        {
+            var badge = GetLibraryNewsBadgeText(item);
+            return string.Equals(badge, "NEWS", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(badge, "TRAILER", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(badge, "GAMEPLAY", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(badge, "ANNOUNCE", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(badge, "COMMUNITY", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsLibraryNewsSaleBadge(SteamRecentUpdateItem item)
+        {
+            return string.Equals(GetLibraryNewsBadgeText(item), "SALE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeForKey(string value)
+        {
+            var s = (value ?? string.Empty).ToLowerInvariant();
+            s = s.Replace("™", string.Empty)
+                 .Replace("®", string.Empty)
+                 .Replace("©", string.Empty)
+                 .Replace("’", "'");
+            s = Regex.Replace(s, @"\b(game of the year|goty|deluxe|ultimate|complete|definitive|edition|remastered|remaster)\b", " ");
+            s = Regex.Replace(s, @"[^a-z0-9]+", " ");
+            return Regex.Replace(s, @"\s+", " ").Trim();
+        }
+
+        private static string GetLibraryNewsGameKey(SteamRecentUpdateItem item)
+        {
+            if (item == null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.SteamAppId))
+            {
+                return "steam:" + item.SteamAppId.Trim();
+            }
+
+            return "name:" + NormalizeForKey(item.GameName ?? string.Empty);
+        }
+
+        private static bool IsValidSteamAppIdText(string value)
+        {
+            var v = (value ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(v) || v == "0")
+            {
+                return false;
+            }
+
+            return Regex.IsMatch(v, @"^\d{2,12}$");
+        }
+
+        private static bool IsHubLibraryNewsScanExcludedGameTitle(string name)
+        {
+            var n = (name ?? string.Empty).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(n))
+            {
+                return true;
+            }
+
+            return Regex.IsMatch(n, @"(^|[\s\-_:])(?:demo|beta|bêta|béta|playtest)(?:$|[\s\-_:])", RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsHubLibraryNewsCandidateFresh(HubLibraryNewsCandidate candidate)
+        {
+            if (candidate == null || candidate.PublishedUtc == DateTime.MinValue)
+            {
+                return false;
+            }
+
+            var now = DateTime.UtcNow;
+            var publishedUtc = candidate.PublishedUtc.Kind == DateTimeKind.Utc
+                ? candidate.PublishedUtc
+                : candidate.PublishedUtc.ToUniversalTime();
+
+            // Steam peut parfois renvoyer une date très légèrement future selon locale/timezone.
+            if (publishedUtc > now.AddHours(12))
+            {
+                return false;
+            }
+
+            var age = now - publishedUtc;
+            if (age.TotalDays < -1)
+            {
+                return false;
+            }
+
+            var text = ((candidate.News?.Title ?? string.Empty) + " " + (candidate.News?.Html ?? string.Empty));
+            var isSale = string.Equals(candidate.Badge, "SALE", StringComparison.OrdinalIgnoreCase) || IsLibraryNewsSaleText(text);
+
+            // Sales/promos : trop périssables, 2 semaines max.
+            if (isSale)
+            {
+                return age.TotalDays <= 14.0;
+            }
+
+            // Toutes les autres news, y compris DLC/EVENT, 6 semaines max.
+            return age.TotalDays <= 42.0;
+        }
+
+        private static int GetLibraryNewsBadgePriority(string badge)
+        {
+            switch ((badge ?? string.Empty).ToUpperInvariant())
+            {
+                case "DLC": return 5;
+                case "EVENT": return 4;
+                case "UPDATE": return 3;
+                case "TRAILER": return 2;
+                case "GAMEPLAY": return 2;
+                case "ANNOUNCE": return 2;
+                case "COMMUNITY": return 2;
+                case "NEWS": return 2;
+                case "SALE": return 1;
+                default: return 0;
+            }
+        }
+
+        private static DateTime ParseSteamNewsDateUtc(string dateString)
+        {
+            if (string.IsNullOrWhiteSpace(dateString))
+            {
+                return DateTime.MinValue;
+            }
+
+            DateTime dt;
+            var formats = new[]
+            {
+                "dd/MM/yyyy HH:mm",
+                "d/M/yyyy HH:mm",
+                "MM/dd/yyyy HH:mm",
+                "M/d/yyyy HH:mm",
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-ddTHH:mm:ssZ"
+            };
+
+            if (DateTime.TryParseExact(dateString, formats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out dt) ||
+                DateTime.TryParse(dateString, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out dt) ||
+                DateTime.TryParse(dateString, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out dt))
+            {
+                return dt.Kind == DateTimeKind.Utc ? dt : dt.ToUniversalTime();
+            }
+
+            return DateTime.MinValue;
+        }
+
+        private Playnite.SDK.Models.Game FindGameBySteamId(string steamId)
+        {
+            if (string.IsNullOrWhiteSpace(steamId) || PlayniteApi?.Database?.Games == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var direct = PlayniteApi.Database.Games
+                    .FirstOrDefault(g => string.Equals(GetSteamGameId(g), steamId, StringComparison.OrdinalIgnoreCase));
+
+                if (direct != null)
+                {
+                    return direct;
+                }
+
+                Guid mappedGameId = Guid.Empty;
+                lock (steamAppIdMappingCacheLock)
+                {
+                    var match = steamAppIdMappingCache
+                        .FirstOrDefault(x => x.Value != null &&
+                                             string.Equals(x.Value.SteamAppId, steamId, StringComparison.OrdinalIgnoreCase));
+                    if (!match.Equals(default(KeyValuePair<Guid, SteamAppIdMappingEntry>)))
+                    {
+                        mappedGameId = match.Key;
+                    }
+                }
+
+                if (mappedGameId != Guid.Empty)
+                {
+                    return PlayniteApi.Database.Games.FirstOrDefault(g => g.Id == mappedGameId);
+                }
+            }
+            catch
+            {
+                // best effort only
+            }
+
+            return null;
+        }
+
+        private IEnumerable<SteamRecentUpdateItem> BuildLibraryNewsItemsFromGameNewsCache()
+        {
+            var result = new List<HubLibraryNewsCandidate>();
+
+            try
+            {
+                Dictionary<string, SteamGameNewsCacheEntry> snapshot;
+                lock (steamGameNewsCacheLock)
+                {
+                    snapshot = new Dictionary<string, SteamGameNewsCacheEntry>(steamGameNewsCache);
+                }
+
+                var skippedUpdatesFromGameCache = 0;
+
+                foreach (var pair in snapshot)
+                {
+                    var steamId = pair.Key;
+                    var entry = pair.Value;
+                    if (entry?.Items == null || entry.Items.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var game = FindGameBySteamId(steamId);
+                    if (game == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (var news in entry.Items.Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title)))
+                    {
+                        var dt = ParseSteamNewsDateUtc(news.DateString);
+                        var badge = GetLibraryNewsBadgeText(news);
+
+                        // Les updates de la carte From Your Library viennent uniquement de la liste globale
+                        // Steam Recent Updates pour éviter les images génériques "UPDATE vX" des news par jeu.
+                        if (IsLibraryNewsUpdateBadge(badge))
+                        {
+                            skippedUpdatesFromGameCache++;
+                            HubNewsDebug($"[Hub Library News] cache skip update-source | appId={steamId} | game={Safe(game?.Name)} | title={ShortForLog(news.Title)} | reason=updates-use-global-list");
+                            continue;
+                        }
+
+                        var localImage = !string.IsNullOrWhiteSpace(news.LocalImagePath) && File.Exists(news.LocalImagePath)
+                            ? news.LocalImagePath
+                            : string.Empty;
+
+                        result.Add(new HubLibraryNewsCandidate
+                        {
+                            SteamId = steamId,
+                            Game = game,
+                            News = news,
+                            PublishedUtc = dt == DateTime.MinValue ? entry.LastFetchedUtc : dt,
+                            Badge = badge,
+                            BadgePriority = GetLibraryNewsBadgePriority(badge),
+                            ImagePath = localImage
+                        });
+                    }
+                }
+
+                var freshResult = result
+                    .Where(IsHubLibraryNewsCandidateFresh)
+                    .ToList();
+
+                HubNewsDebug($"[Hub Library News] cache filter | total={result.Count} | keptFresh={freshResult.Count} | filteredOut={result.Count - freshResult.Count} | skippedUpdatesFromGameCache={skippedUpdatesFromGameCache} | maxAgeDays=42 | saleMaxAgeDays=14");
+
+                foreach (var candidate in freshResult
+                    .OrderByDescending(x => x.BadgePriority)
+                    .ThenByDescending(x => x.PublishedUtc)
+                    .Take(10))
+                {
+                    HubNewsDebug($"[Hub Library News] cache keep | appId={candidate.SteamId} | game={Safe(candidate.Game?.Name)} | badge={candidate.Badge} | ageDays={GetAgeDaysForLog(candidate.PublishedUtc):0.0} | publishedUtc={FormatUtcForLog(candidate.PublishedUtc)} | title={ShortForLog(candidate.News?.Title)}");
+                }
+
+                foreach (var candidate in result
+                    .Where(x => !IsHubLibraryNewsCandidateFresh(x))
+                    .OrderByDescending(x => x.PublishedUtc)
+                    .Take(10))
+                {
+                    HubNewsDebug($"[Hub Library News] cache drop | appId={candidate.SteamId} | game={Safe(candidate.Game?.Name)} | badge={candidate.Badge} | ageDays={GetAgeDaysForLog(candidate.PublishedUtc):0.0} | publishedUtc={FormatUtcForLog(candidate.PublishedUtc)} | title={ShortForLog(candidate.News?.Title)}");
+                }
+
+                if (result.Count > 0 && freshResult.Count == 0)
+                {
+                    logger.Info("[Hub Library News] game-news-cache filtered out all candidates because they are too old; fallback updates will be used if available.");
+                }
+
+                // 1 seule news max par jeu, puis tri avec un petit bonus pour DLC/EVENT/NEWS.
+                return freshResult
+                    .GroupBy(x => x.SteamId ?? string.Empty)
+                    .Select(g => g
+                        .OrderByDescending(x => x.BadgePriority)
+                        .ThenByDescending(x => x.PublishedUtc)
+                        .FirstOrDefault())
+                    .Where(x => x != null)
+                    .OrderByDescending(x => x.BadgePriority)
+                    .ThenByDescending(x => x.PublishedUtc)
+                    .Take(30)
+                    .Select(x =>
+                    {
+                        var game = x.Game;
+                        var imagePath = !string.IsNullOrWhiteSpace(x.ImagePath)
+                            ? x.ImagePath
+                            : GetBestHubCardBackgroundPath(game);
+
+                        return new SteamRecentUpdateItem
+                        {
+                            SteamAppId = x.SteamId ?? string.Empty,
+                            GameName = Safe(game?.Name),
+                            Title = x.News.Title ?? string.Empty,
+                            DateString = x.PublishedUtc == DateTime.MinValue
+                                ? (x.News.DateString ?? string.Empty)
+                                : x.PublishedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
+                            CoverPath = GetGameCoverPath(game) ?? string.Empty,
+                            BackgroundPath = imagePath ?? string.Empty,
+                            IconPath = GetGameIconPath(game) ?? string.Empty,
+                            IsRecent = x.PublishedUtc != DateTime.MinValue && (DateTime.UtcNow - x.PublishedUtc).TotalDays <= 14.0,
+                            Html = x.News.Html ?? string.Empty
+                        };
+                    })
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Hub Library News] BuildLibraryNewsItemsFromGameNewsCache failed.");
+                return new List<SteamRecentUpdateItem>();
+            }
         }
 
         public void CloseWelcomeHub()
@@ -740,12 +1703,9 @@ namespace AnikiHelper
                 }
             });
 
-            if (sourceKey == "A")
-            {
-                UpdateLatestNewsRotationFromList(ordered);
-            }
-
-            SaveSettingsSafe();
+            // Cache-first startup: only load the cache into memory here.
+            // The final mixed rotation is rebuilt once by LoadNewsFromCacheIfNeeded() after A + B are loaded.
+            // Avoid SaveSettingsSafe() during startup cache reads to keep the Hub opening smooth.
         }
 
         private class SteamUpdateCacheEntry
@@ -767,6 +1727,17 @@ namespace AnikiHelper
         {
             public DateTime LastFetchedUtc { get; set; }
             public List<SteamGameNewsItem> Items { get; set; } = new List<SteamGameNewsItem>();
+        }
+
+        private class HubLibraryNewsCandidate
+        {
+            public string SteamId { get; set; }
+            public Playnite.SDK.Models.Game Game { get; set; }
+            public SteamGameNewsItem News { get; set; }
+            public DateTime PublishedUtc { get; set; }
+            public string Badge { get; set; }
+            public int BadgePriority { get; set; }
+            public string ImagePath { get; set; }
         }
 
         private class SteamAppIdMappingEntry
@@ -1032,6 +2003,7 @@ namespace AnikiHelper
 
                         // Paths calculated on the fly -> nothing in the JSON
                         var coverPath = GetGameCoverPath(game);
+                        var backgroundPath = GetGameBackgroundOrCoverPath(game);
                         var iconPath = GetGameIconPath(game);
 
                         var dt = e.LastPublishedUtc;
@@ -1044,10 +2016,12 @@ namespace AnikiHelper
 
                         return new SteamRecentUpdateItem
                         {
+                            SteamAppId = steamId ?? string.Empty,
                             GameName = Safe(e.GameName ?? game?.Name),
                             Title = e.Title ?? string.Empty,
                             DateString = dt.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
                             CoverPath = coverPath ?? string.Empty,
+                            BackgroundPath = backgroundPath ?? string.Empty,
                             IconPath = iconPath ?? string.Empty,
                             IsRecent = isRecent,
                             Html = e.Html ?? string.Empty
@@ -1064,6 +2038,7 @@ namespace AnikiHelper
                     }
                 });
 
+                UpdateLibraryNewsRotationFromUpdates(list);
 
             }
             catch (Exception ex)
@@ -1073,6 +2048,7 @@ namespace AnikiHelper
                 {
                     Settings.SteamRecentUpdates.Clear();
                 });
+                UpdateLibraryNewsRotationFromUpdates(null);
             }
         }
 
@@ -1095,6 +2071,31 @@ namespace AnikiHelper
             else if (!string.IsNullOrEmpty(game.BackgroundImage))
             {
                 path = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
+            }
+            else if (!string.IsNullOrEmpty(game.Icon))
+            {
+                path = PlayniteApi.Database.GetFullFilePath(game.Icon);
+            }
+
+            return string.IsNullOrEmpty(path) ? string.Empty : path;
+        }
+
+        private string GetGameBackgroundOrCoverPath(Playnite.SDK.Models.Game game)
+        {
+            if (game == null)
+            {
+                return string.Empty;
+            }
+
+            string path = null;
+
+            if (!string.IsNullOrEmpty(game.BackgroundImage))
+            {
+                path = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
+            }
+            else if (!string.IsNullOrEmpty(game.CoverImage))
+            {
+                path = PlayniteApi.Database.GetFullFilePath(game.CoverImage);
             }
             else if (!string.IsNullOrEmpty(game.Icon))
             {
@@ -1154,16 +2155,25 @@ namespace AnikiHelper
             switch (type)
             {
                 case "playniteNews":
-                    return "Playnite news";
+                    return Loc("LOCNotificationTitlePlayniteNews", "Playnite news");
 
                 case "steamUpdate":
-                    return "Game update";
+                    return Loc("LOCNotificationTitleSteamUpdate", "Game update");
 
                 case "gameEnded":
-                    return "Game session ended";
+                    return Loc("LOCNotificationTitleGameEnded", "Game session ended");
+
+                case "steamAuth":
+                    return Loc("LOCNotificationTitleSteamAuth", "Steam account");
+
+                case "wishlistDeal":
+                    return Loc("LOCNotificationTitleWishlistDeal", "Wishlist deal");
+
+                case "wishlistReleased":
+                    return Loc("LOCNotificationTitleWishlistReleased", "Wishlist release");
 
                 default:
-                    return "Notification";
+                    return Loc("LOCNotificationTitleDefault", "Notification");
             }
         }
 
@@ -1220,6 +2230,47 @@ namespace AnikiHelper
             catch
             {
                 return fallback;
+            }
+        }
+
+        private static string LocFormat(string key, string fallback, params object[] args)
+        {
+            try
+            {
+                return string.Format(CultureInfo.CurrentCulture, Loc(key, fallback), args ?? new object[0]);
+            }
+            catch
+            {
+                try
+                {
+                    return string.Format(CultureInfo.CurrentCulture, fallback ?? string.Empty, args ?? new object[0]);
+                }
+                catch
+                {
+                    return fallback ?? string.Empty;
+                }
+            }
+        }
+
+        private void ShowSteamSessionExpiredToastThrottled()
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+                if ((now - lastSteamAuthToastUtc) < TimeSpan.FromHours(12))
+                {
+                    return;
+                }
+
+                lastSteamAuthToastUtc = now;
+                ShowGlobalToast(
+                    Loc("LOCSteamSessionExpiredToast", "Steam session expired. Please reconnect to Steam in Aniki Helper settings."),
+                    "steamAuth"
+                );
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, "[AnikiHelper] Steam auth toast failed.");
             }
         }
 
@@ -1303,6 +2354,51 @@ namespace AnikiHelper
 
 
         private static string Safe(string s) => string.IsNullOrWhiteSpace(s) ? "(Unnamed Game)" : s;
+
+        private static string ShortForLog(string value, int max = 90)
+        {
+            value = value ?? string.Empty;
+            value = Regex.Replace(value, @"\s+", " ").Trim();
+
+            if (max > 0 && value.Length > max)
+            {
+                return value.Substring(0, max).TrimEnd() + "…";
+            }
+
+            return value;
+        }
+
+        private static string FormatUtcForLog(DateTime utc)
+        {
+            if (utc == DateTime.MinValue)
+            {
+                return "unknown";
+            }
+
+            var normalized = utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime();
+            return normalized.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "Z";
+        }
+
+        private static string FormatNullableDateForLog(DateTime? value)
+        {
+            if (value == null || value.Value == DateTime.MinValue)
+            {
+                return "none";
+            }
+
+            return value.Value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        }
+
+        private static double GetAgeDaysForLog(DateTime utc)
+        {
+            if (utc == DateTime.MinValue)
+            {
+                return -1.0;
+            }
+
+            var normalized = utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime();
+            return (DateTime.UtcNow - normalized).TotalDays;
+        }
 
         private string GetSteamGameNewsImagesDir()
         {
@@ -1484,7 +2580,7 @@ namespace AnikiHelper
         private readonly DispatcherTimer steamUpdateTimer;
         private Playnite.SDK.Models.Game pendingUpdateGame;
         private readonly DispatcherTimer newsRotationTimer;
-        private readonly DispatcherTimer suggestedRotationTimer;
+        private readonly DispatcherTimer libraryNewsRotationTimer;
         private readonly DispatcherTimer navigationSettleTimer;
         private readonly SemaphoreSlim newsRefreshGate = new SemaphoreSlim(1, 1);
 
@@ -1493,9 +2589,18 @@ namespace AnikiHelper
         private int latestNewsRotationIndex = 0;
         private bool latestNewsCrossfadeInitialized = false;
 
-        private readonly List<SuggestedGameSnapshot> suggestedGameRotation = new List<SuggestedGameSnapshot>();
-        private int suggestedGameRotationIndex = 0;
-        private bool suggestedGameCrossfadeInitialized = false;
+        private readonly List<SteamRecentUpdateItem> libraryNewsRotation = new List<SteamRecentUpdateItem>();
+        private int libraryNewsRotationIndex = 0;
+        private bool libraryNewsCrossfadeInitialized = false;
+        private DateTime lastHubLibraryNewsTargetedRefreshUtc = DateTime.MinValue;
+
+        // Hub News startup policy: show cached content immediately, then refresh lightly in background.
+        private const int HubLibraryNewsRotationStartupDelayMs = 10000;
+        private const int HubLibraryNewsBackgroundRefreshStartupDelayMs = 60000;
+        private const int HubLibraryNewsBackgroundRefreshMaxGames = 5;
+        private const int HubLibraryNewsBackgroundRefreshTimeoutSeconds = 45;
+        private const int HubLibraryNewsBackgroundRefreshItemDelayMs = 250;
+
 
         // Steam updates cache (RAM + flush différé)
         private readonly object steamUpdatesCacheLock = new object();
@@ -1534,7 +2639,13 @@ namespace AnikiHelper
         // Steam current players
         private readonly SteamPlayerCountService steamPlayerCountService = new SteamPlayerCountService();
         private SteamStoreService steamStoreService;
+        private SteamAccountSessionService steamAccountSessionService;
         private SteamUpcomingGamesService steamUpcomingGamesService;
+        private SteamUserGamesService steamUserGamesService;
+        private SteamStorePersonalizationService steamStorePersonalizationService;
+        private SteamStoreRecommendationService steamStoreRecommendationService;
+        private string lastLoggedSteamRecommendationProfileKey = string.Empty;
+        private AnikiSteamFriendsService steamFriendsService;
 
         // GUID plugin Steam officiel
         private static readonly Guid SteamPluginId = Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab");
@@ -1556,13 +2667,20 @@ namespace AnikiHelper
 
             try
             {
-                // 1) Jeu provenant directement du plugin Steam (Game coming directly from the Steam plugin
-                if (game.PluginId == SteamPluginId && !string.IsNullOrWhiteSpace(game.GameId))
+                // 1) Jeu provenant directement du plugin Steam.
+                if (game.PluginId == SteamPluginId && IsValidSteamAppIdText(game.GameId))
                 {
-                    return game.GameId;
+                    return game.GameId.Trim();
                 }
 
-                // 2) Sinon, trouver un lien Steam dans Game.Links (Otherwise, find a Steam link in Game.Links)
+                // 1b) Certains jeux importés/custom gardent un GameId numérique avec une source Steam.
+                var sourceName = game.Source?.Name ?? string.Empty;
+                if (sourceName.IndexOf("steam", StringComparison.OrdinalIgnoreCase) >= 0 && IsValidSteamAppIdText(game.GameId))
+                {
+                    return game.GameId.Trim();
+                }
+
+                // 2) Sinon, trouver un lien Steam dans Game.Links.
                 if (game.Links != null)
                 {
                     foreach (var link in game.Links)
@@ -1571,10 +2689,20 @@ namespace AnikiHelper
                         if (string.IsNullOrWhiteSpace(url))
                             continue;
 
-                        var m = Regex.Match(url, @"store\.steampowered\.com/app/(\d+)", RegexOptions.IgnoreCase);
-                        if (m.Success)
+                        var patterns = new[]
                         {
-                            return m.Groups[1].Value;
+                            @"store\.steampowered\.com/(?:agecheck/)?app/(\d+)",
+                            @"steamcommunity\.com/app/(\d+)",
+                            @"steam://rungameid/(\d+)"
+                        };
+
+                        foreach (var pattern in patterns)
+                        {
+                            var m = Regex.Match(url, pattern, RegexOptions.IgnoreCase);
+                            if (m.Success && IsValidSteamAppIdText(m.Groups[1].Value))
+                            {
+                                return m.Groups[1].Value.Trim();
+                            }
                         }
                     }
                 }
@@ -1879,6 +3007,37 @@ namespace AnikiHelper
             }
         }
 
+        private void ResetSteamFriendsDetailsForCurrentGame()
+        {
+            try
+            {
+                steamFriendsService?.ResetCurrentGameFriendDetails();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to reset Steam friends details for current game.");
+            }
+        }
+
+        private void UpdateSteamFriendsDetailsForGame(Playnite.SDK.Models.Game game)
+        {
+            try
+            {
+                var steamId = GetSteamGameId(game);
+                if (string.IsNullOrWhiteSpace(steamId) || !int.TryParse(steamId, out var appId) || appId <= 0)
+                {
+                    ResetSteamFriendsDetailsForCurrentGame();
+                    return;
+                }
+
+                steamFriendsService?.UpdateCurrentGameFriendDetails(appId);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to update Steam friends details for current game.");
+            }
+        }
+
 
 
         private async void steamUpdateTimer_Tick(object sender, EventArgs e)
@@ -1893,6 +3052,7 @@ namespace AnikiHelper
                 ResetSteamUpdate();
                 ResetSteamGameNews();
                 ResetSteamPlayerCount();
+                ResetSteamFriendsDetailsForCurrentGame();
                 return;
             }
 
@@ -2182,6 +3342,10 @@ namespace AnikiHelper
 
                 // ✅ Save OFF UI thread
                 SaveSettingsSafe();
+
+                // Refresh the Hub news card too: it now includes the latest Playnite/add-on update
+                // as one item in the Source A / Source B / Playnite update rotation.
+                UpdateLatestNewsRotationFromList(Settings?.SteamGlobalNewsA?.ToList());
 
                 // 5) Global toast if NEW
                 if (hasNew && topItem != null)
@@ -2751,6 +3915,349 @@ namespace AnikiHelper
                 });
             }
         }
+
+        private async Task<List<Playnite.SDK.Models.Game>> GetHubLibraryNewsScanCandidatesAsync(int maxGames = 15, CancellationToken ct = default(CancellationToken))
+        {
+            var result = new List<Playnite.SDK.Models.Game>();
+            var seen = new HashSet<Guid>();
+            var seenSteamIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            Func<IEnumerable<Playnite.SDK.Models.Game>, string, int, Task> addRangeAsync = async (games, reason, maxForReason) =>
+            {
+                if (games == null)
+                {
+                    return;
+                }
+
+                var addedForReason = 0;
+                var checkedForReason = 0;
+
+                foreach (var g in games)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    if (g == null)
+                    {
+                        continue;
+                    }
+
+                    checkedForReason++;
+                    if (checkedForReason > 40)
+                    {
+                        HubNewsDebug($"[Hub Library News] scan candidate stop category | reason={reason} | cause=lookup-limit | checked={checkedForReason - 1} | added={addedForReason}");
+                        break;
+                    }
+
+                    if (result.Count >= maxGames)
+                    {
+                        HubNewsDebug($"[Hub Library News] scan candidate stop category | reason={reason} | cause=max-reached | max={maxGames}");
+                        break;
+                    }
+
+                    if (addedForReason >= maxForReason)
+                    {
+                        HubNewsDebug($"[Hub Library News] scan candidate stop category | reason={reason} | cause=category-quota | quota={maxForReason}");
+                        break;
+                    }
+
+                    if (IsHubLibraryNewsScanExcludedGameTitle(g.Name))
+                    {
+                        HubNewsDebug($"[Hub Library News] scan candidate skip | reason={reason} | name={Safe(g.Name)} | cause=demo-or-beta-title");
+                        continue;
+                    }
+
+                    if (seen.Contains(g.Id))
+                    {
+                        HubNewsDebug($"[Hub Library News] scan candidate skip | reason={reason} | name={Safe(g.Name)} | cause=duplicate");
+                        continue;
+                    }
+
+                    var directSteamId = GetSteamGameId(g);
+                    var mappedSteamId = string.Empty;
+                    var steamIdSource = string.Empty;
+                    var steamIdForLog = string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(directSteamId))
+                    {
+                        steamIdForLog = directSteamId;
+                        steamIdSource = "game-data";
+                    }
+                    else
+                    {
+                        lock (steamAppIdMappingCacheLock)
+                        {
+                            if (steamAppIdMappingCache.TryGetValue(g.Id, out var mapped) &&
+                                mapped != null &&
+                                !string.IsNullOrWhiteSpace(mapped.SteamAppId))
+                            {
+                                mappedSteamId = mapped.SteamAppId;
+                            }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(mappedSteamId))
+                        {
+                            steamIdForLog = mappedSteamId;
+                            steamIdSource = "mapping-cache";
+                        }
+                        else
+                        {
+                            // Recherche online ciblée uniquement pendant le scan Hub, pour les jeux récents
+                            // qui n'ont pas encore de lien Steam/AppId dans Playnite.
+                            var resolved = await ResolveSteamGameIdAsync(g, ct, true).ConfigureAwait(false);
+                            if (!string.IsNullOrWhiteSpace(resolved))
+                            {
+                                steamIdForLog = resolved;
+                                steamIdSource = "online-lookup";
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrWhiteSpace(steamIdForLog) || !IsValidSteamAppIdText(steamIdForLog))
+                    {
+                        HubNewsDebug($"[Hub Library News] scan candidate skip | reason={reason} | name={Safe(g.Name)} | cause=no-steam-appid | lastActivity={FormatNullableDateForLog(g.LastActivity)} | added={FormatNullableDateForLog(g.Added)} | favorite={g.Favorite} | installed={g.IsInstalled}");
+                        continue;
+                    }
+
+                    if (!seenSteamIds.Add(steamIdForLog))
+                    {
+                        HubNewsDebug($"[Hub Library News] scan candidate skip | reason={reason} | name={Safe(g.Name)} | appId={steamIdForLog} | cause=duplicate-steam-appid");
+                        continue;
+                    }
+
+                    seen.Add(g.Id);
+                    result.Add(g);
+                    addedForReason++;
+
+                    HubNewsDebug($"[Hub Library News] scan candidate add | index={result.Count}/{maxGames} | reason={reason} | name={Safe(g.Name)} | steamId={steamIdForLog} | steamIdSource={steamIdSource} | lastActivity={FormatNullableDateForLog(g.LastActivity)} | added={FormatNullableDateForLog(g.Added)} | favorite={g.Favorite} | installed={g.IsInstalled}");
+                }
+            };
+
+            try
+            {
+                var games = PlayniteApi?.Database?.Games?.ToList() ?? new List<Playnite.SDK.Models.Game>();
+
+                HubNewsDebug($"[Hub Library News] scan candidates START | libraryGames={games.Count} | max={maxGames} | exclude=demo,beta | take-next-valid=True | onlineLookup=True");
+
+                await addRangeAsync(games
+                    .Where(g => g.LastActivity != null)
+                    .OrderByDescending(g => g.LastActivity), "recently-played", 5).ConfigureAwait(false);
+
+                await addRangeAsync(games
+                    .Where(g => g.Added != null)
+                    .OrderByDescending(g => g.Added), "recently-added", 5).ConfigureAwait(false);
+
+                await addRangeAsync(games
+                    .Where(g => g.Favorite == true || g.IsInstalled == true)
+                    .OrderByDescending(g => g.LastActivity ?? g.Added ?? DateTime.MinValue), "favorite-or-installed", 5).ConfigureAwait(false);
+
+                HubNewsDebug($"[Hub Library News] scan candidates END | selected={result.Count} | names={ShortForLog(string.Join(", ", result.Select(x => Safe(x.Name))), 240)}");
+            }
+            catch (OperationCanceledException)
+            {
+                HubNewsDebug($"[Hub Library News] GetHubLibraryNewsScanCandidates cancelled | selected={result.Count}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Hub Library News] GetHubLibraryNewsScanCandidates failed.");
+            }
+
+            return result;
+        }
+
+
+        private bool IsSteamGameNewsCacheFreshForHub(SteamGameNewsCacheEntry entry)
+        {
+            if (entry?.Items == null || entry.Items.Count == 0 || entry.LastFetchedUtc == DateTime.MinValue)
+            {
+                return false;
+            }
+
+            return DateTime.UtcNow - entry.LastFetchedUtc < SteamGameNewsCacheDuration;
+        }
+
+        private async Task RefreshSteamGameNewsCacheForHubCardAsync(Playnite.SDK.Models.Game game, CancellationToken ct)
+        {
+            if (game == null)
+            {
+                HubNewsDebug("[Hub Library News] scan app skipped | reason=null-game");
+                return;
+            }
+
+            var gameName = Safe(game.Name);
+            if (IsHubLibraryNewsScanExcludedGameTitle(gameName))
+            {
+                HubNewsDebug($"[Hub Library News] scan app skipped | game={gameName} | reason=demo-or-beta-title");
+                return;
+            }
+
+            var steamId = await ResolveSteamGameIdAsync(game, ct, true).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(steamId) || !IsValidSteamAppIdText(steamId))
+            {
+                HubNewsDebug($"[Hub Library News] scan app skipped | game={gameName} | reason=no-steam-appid");
+                return;
+            }
+
+            SteamGameNewsCacheEntry cachedEntry = null;
+            lock (steamGameNewsCacheLock)
+            {
+                steamGameNewsCache.TryGetValue(steamId, out cachedEntry);
+            }
+
+            var cachedItems = cachedEntry?.Items?.Count ?? 0;
+            var cacheFresh = IsSteamGameNewsCacheFreshForHub(cachedEntry);
+            var cacheAgeMinutes = cachedEntry != null && cachedEntry.LastFetchedUtc != DateTime.MinValue
+                ? (DateTime.UtcNow - cachedEntry.LastFetchedUtc).TotalMinutes
+                : -1.0;
+
+            HubNewsDebug($"[Hub Library News] scan app | appId={steamId} | name={gameName} | cachedItems={cachedItems} | lastFetchedUtc={FormatUtcForLog(cachedEntry?.LastFetchedUtc ?? DateTime.MinValue)} | cacheAgeMinutes={cacheAgeMinutes:0.0} | cacheFresh={cacheFresh}");
+
+            if (cacheFresh)
+            {
+                HubNewsDebug($"[Hub Library News] scan app skipped | appId={steamId} | name={gameName} | reason=cache-fresh | cachedItems={cachedItems}");
+                return;
+            }
+
+            await steamGameNewsGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+
+                HubNewsDebug($"[Hub Library News] fetch START | appId={steamId} | name={gameName} | count=8");
+
+                var news = await steamUpdateService.GetLatestNewsAsync(steamId, 8, ct).ConfigureAwait(false);
+                if (news == null || news.Count == 0)
+                {
+                    HubNewsDebug($"[Hub Library News] fetch EMPTY | appId={steamId} | name={gameName}");
+                    return;
+                }
+
+                foreach (var item in news)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    item.LocalImagePath = await Task.Run(() => DownloadSteamGameNewsImage(item.ImageUrl), ct).ConfigureAwait(false);
+                    item.Html = CleanHtml(item.Html ?? string.Empty);
+                }
+
+                var latest = news
+                    .Select(x => new { Item = x, PublishedUtc = ParseSteamNewsDateUtc(x?.DateString) })
+                    .OrderByDescending(x => x.PublishedUtc)
+                    .FirstOrDefault();
+
+                HubNewsDebug($"[Hub Library News] fetch RESULT | appId={steamId} | name={gameName} | items={news.Count} | latestUtc={FormatUtcForLog(latest?.PublishedUtc ?? DateTime.MinValue)} | latestTitle={ShortForLog(latest?.Item?.Title)}");
+
+                lock (steamGameNewsCacheLock)
+                {
+                    steamGameNewsCache[steamId] = new SteamGameNewsCacheEntry
+                    {
+                        LastFetchedUtc = DateTime.UtcNow,
+                        Items = news
+                    };
+
+                    steamGameNewsCacheDirty = true;
+                }
+
+                HubNewsDebug($"[Hub Library News] cache SAVE | appId={steamId} | name={gameName} | items={news.Count} | dirty=True");
+            }
+            finally
+            {
+                steamGameNewsGate.Release();
+            }
+        }
+
+
+        private async Task RefreshHubLibraryNewsTargetedAsync()
+        {
+            var sw = Stopwatch.StartNew();
+
+            try
+            {
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen || !IsAnikiThemeActive())
+                {
+                    HubNewsDebug("[Hub Library News] targeted refresh skipped | reason=not-fullscreen-or-not-aniki-theme");
+                    return;
+                }
+
+                var elapsedSinceLast = DateTime.UtcNow - lastHubLibraryNewsTargetedRefreshUtc;
+                if (elapsedSinceLast < TimeSpan.FromHours(6))
+                {
+                    var remaining = TimeSpan.FromHours(6) - elapsedSinceLast;
+                    HubNewsDebug($"[Hub Library News] targeted refresh skipped | reason=cooldown | elapsedMinutes={elapsedSinceLast.TotalMinutes:0.0} | remainingMinutes={remaining.TotalMinutes:0.0}");
+                    return;
+                }
+
+                lastHubLibraryNewsTargetedRefreshUtc = DateTime.UtcNow;
+
+                HubNewsDebug($"[Hub Library News] targeted refresh START | cacheFirst=True | startupDelayMs={HubLibraryNewsBackgroundRefreshStartupDelayMs} | cooldownHours=6 | maxGames={HubLibraryNewsBackgroundRefreshMaxGames}");
+
+                if (!IsSteamRecentScanAllowed())
+                {
+                    HubNewsDebug("[Hub Library News] targeted refresh skipped | reason=steam-scan-not-allowed-after-delay");
+                    return;
+                }
+
+                var scanned = 0;
+                var candidates = new List<Playnite.SDK.Models.Game>();
+                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(HubLibraryNewsBackgroundRefreshTimeoutSeconds)))
+                {
+                    candidates = await GetHubLibraryNewsScanCandidatesAsync(HubLibraryNewsBackgroundRefreshMaxGames, cts.Token).ConfigureAwait(false);
+                    if (candidates.Count == 0)
+                    {
+                        HubNewsDebug("[Hub Library News] targeted refresh skipped | reason=no-candidates");
+                        return;
+                    }
+
+                    HubNewsDebug($"[Hub Library News] targeted scan loop START | candidates={candidates.Count} | names={ShortForLog(string.Join(", ", candidates.Select(x => Safe(x.Name))), 240)}");
+
+                    foreach (var game in candidates)
+                    {
+                        if (scanned >= HubLibraryNewsBackgroundRefreshMaxGames)
+                        {
+                            HubNewsDebug($"[Hub Library News] targeted scan loop STOP | reason=max-scanned | scanned={scanned}");
+                            break;
+                        }
+
+                        if (!IsSteamRecentScanAllowed())
+                        {
+                            HubNewsDebug($"[Hub Library News] targeted scan loop STOP | reason=steam-scan-not-allowed | scanned={scanned}");
+                            break;
+                        }
+
+                        try
+                        {
+                            HubNewsDebug($"[Hub Library News] targeted scan item START | index={scanned + 1}/{candidates.Count} | name={Safe(game?.Name)}");
+                            await RefreshSteamGameNewsCacheForHubCardAsync(game, cts.Token).ConfigureAwait(false);
+                            scanned++;
+                            HubNewsDebug($"[Hub Library News] targeted scan item END | index={scanned}/{candidates.Count} | name={Safe(game?.Name)}");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            HubNewsDebug($"[Hub Library News] targeted scan loop CANCELLED | scanned={scanned}");
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            HubNewsDebug(ex, $"[Hub Library News] targeted scan failed for {game?.Name}");
+                        }
+
+                        await Task.Delay(HubLibraryNewsBackgroundRefreshItemDelayMs, cts.Token).ConfigureAwait(false);
+                    }
+                }
+
+                FlushSteamGameNewsCacheIfNeeded();
+                UpdateLibraryNewsRotationFromUpdates(Settings?.SteamRecentUpdates?.ToList());
+
+                logger.Info($"[Hub Library News] background refresh completed | scanned={scanned}/{candidates.Count} | elapsedMs={sw.ElapsedMilliseconds}");
+            }
+            catch (OperationCanceledException)
+            {
+                HubNewsDebug($"[Hub Library News] targeted refresh cancelled | elapsedMs={sw.ElapsedMilliseconds}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Hub Library News] targeted refresh failed.");
+            }
+        }
+
 
         private void PushSteamGameNewsToSettings(List<SteamGameNewsItem> items)
         {
@@ -3430,6 +4937,10 @@ namespace AnikiHelper
         "Simulation",
         "Stratégie",
         "Casual",
+        "Occasionnel",
+        "Jeu solo",
+        "Singleplayer",
+        "Single-player",
         "Adventure",
         "Action, Adventure",
         "Role-playing game",
@@ -3852,7 +5363,7 @@ namespace AnikiHelper
                 foreach (var genre in genresToUse.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     var key = NormalizeProfileGenreKey(genre);
-                    
+
                     if (string.IsNullOrWhiteSpace(key))
                     {
                         continue;
@@ -4168,12 +5679,43 @@ namespace AnikiHelper
 
             var text = string.Join(" | ", all).ToLowerInvariant();
 
-            if (text.Contains("soulslike") || text.Contains("souls-like"))
+            if (text.Contains("soulslike") ||
+                text.Contains("souls-like") ||
+                text.Contains("souls like") ||
+                text.Contains("dark souls") ||
+                text.Contains("demon's souls") ||
+                text.Contains("demons souls") ||
+                text.Contains("elden ring"))
                 return "souls";
 
             if (text.Contains("jrpg") || text.Contains("j-rpg") ||
                 text.Contains("tour par tour") || text.Contains("turn-based"))
                 return "jrpg";
+
+            if (text.Contains("action et aventure") ||
+                text.Contains("action adventure") ||
+                text.Contains("action aventure") ||
+                text.Contains("third person") ||
+                text.Contains("3e personne") ||
+                text.Contains("3ᵉ personne") ||
+                text.Contains("infiltration") ||
+                text.Contains("stealth") ||
+                text.Contains("assassinat") ||
+                text.Contains("hack and slash"))
+                return "action_adventure";
+
+            if (text.Contains("story rich") ||
+                text.Contains("scenario riche") ||
+                text.Contains("scénario riche") ||
+                text.Contains("choices matter") ||
+                text.Contains("choix multiples") ||
+                text.Contains("point and click") ||
+                text.Contains("pointer et cliquer") ||
+                text.Contains("interactive fiction") ||
+                text.Contains("aventure interactive") ||
+                text.Contains("visual novel") ||
+                text.Contains("roman graphique"))
+                return "narrative";
 
             if (text.Contains("combat") || text.Contains("fighting") ||
                 text.Contains("versus") || text.Contains("vs"))
@@ -4240,17 +5782,12 @@ namespace AnikiHelper
 
 
 
-        private void RecalcSuggestedGame()
+        private void RecalcHubLibraryRecommendedGames()
         {
             var s = Settings;
 
-            // Reset
-            s.SuggestedGameName = string.Empty;
-            s.SuggestedGameCoverPath = string.Empty;
-            s.SuggestedGameBackgroundPath = string.Empty;
-            s.SuggestedGameSourceName = string.Empty;
-            s.SuggestedGameReasonKey = string.Empty;
-            s.SuggestedGameBannerText = string.Empty;
+            // Reset the visible 4-card Hub recommendation list only.
+            ReplaceHubLibraryRecommendedGames(null);
 
             var games = PlayniteApi.Database.Games.ToList();
             if (!s.IncludeHidden)
@@ -4263,8 +5800,6 @@ namespace AnikiHelper
                 return;
             }
 
-            Func<ulong, ulong> ToMinutes = raw => raw / 60UL;
-
             // 1) RefGame (Top 3 sur 14 jours + sticky journée)
             List<Playnite.SDK.Models.Game> refTop3;
             Playnite.SDK.Models.Game refGame = GetOrSelectRefGameForToday(games, out refTop3);
@@ -4274,22 +5809,65 @@ namespace AnikiHelper
                 return;
             }
 
-
             var refName = Safe(refGame.Name);
+
+            // 2) Build candidates used by the 4-card Hub recommendation section.
+            var candidates = BuildHubRecommendationCandidatesForReference(games, refGame, null);
+
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            var ordered = candidates
+                .OrderByDescending(c => c.Score)
+                .ThenBy(c => c.Game.Name ?? string.Empty)
+                .ToList();
+
+            var topCandidates = ordered.Take(4).ToList();
+            if (topCandidates.Count == 0)
+            {
+                return;
+            }
+
+            var hubRecommended = BuildDiverseHubLibraryRecommendations(games, refTop3, refGame, topCandidates);
+            ReplaceHubLibraryRecommendedGames(hubRecommended);
+            DebugLog($"[Hub Library Recommended] diversified refresh | count={hubRecommended.Count} | refs={BuildHubReferenceLog(refTop3, refGame)} | stickyRef={refName}");
+
+            SaveSettingsSafe();
+        }
+
+        private List<HubRecommendationCandidate> BuildHubRecommendationCandidatesForReference(
+            IList<Playnite.SDK.Models.Game> games,
+            Playnite.SDK.Models.Game refGame,
+            ISet<Guid> excludedGameIds)
+        {
+            var candidates = new List<HubRecommendationCandidate>();
+
+            if (games == null || refGame == null)
+            {
+                return candidates;
+            }
+
+            Func<ulong, ulong> ToMinutes = raw => raw / 60UL;
+
             var refGenres = GetGenreNames(refGame).ToList();
             var refTags = GetTagNames(refGame)
                 .Where(IsUsefulProfileTag)
                 .ToList();
             var refDevs = GetDeveloperNames(refGame).ToList();
             var refPubs = GetPublisherNames(refGame).ToList();
-
-            // 2) Trouver la meilleure suggestion (Find the best suggestion)
-
-            var candidates = new List<SuggestedGameCandidate>();
+            var refFam = DetectFamily(refGenres, refTags);
 
             foreach (var g in games)
             {
+                if (g == null)
+                    continue;
+
                 if (g.Id == refGame.Id)
+                    continue;
+
+                if (excludedGameIds != null && excludedGameIds.Contains(g.Id))
                     continue;
 
                 // Exclude games marked as "finished"
@@ -4315,7 +5893,6 @@ namespace AnikiHelper
                 var pubs = GetPublisherNames(g).ToList();
 
                 // Détection univers/famille
-                var refFam = DetectFamily(refGenres, refTags);
                 var candFam = DetectFamily(genres, tags);
 
                 // Incohérence forte
@@ -4359,11 +5936,11 @@ namespace AnikiHelper
                         reason = "SamePublisher";
                 }
 
-                // Bonus backlog 
+                // Bonus backlog
                 var minutes = ToMinutes(g.Playtime);
                 if (minutes == 0)
                     score += 25;
-                else if (minutes < 120) // < 2h 
+                else if (minutes < 120) // < 2h
                     score += 15;
 
                 // Bonus "installed"
@@ -4373,7 +5950,7 @@ namespace AnikiHelper
                 if (score <= 0)
                     continue;
 
-                candidates.Add(new SuggestedGameCandidate
+                candidates.Add(new HubRecommendationCandidate
                 {
                     Game = g,
                     Score = score,
@@ -4381,132 +5958,177 @@ namespace AnikiHelper
                 });
             }
 
-            // 2bis) Top 3 + rotation une fois par jour
-
-            if (candidates.Count == 0)
-            {
-                return;
-            }
-
-            // Date du jour (locale)
-            var today = DateTime.Now.Date;
-
-            var ordered = candidates
-                .OrderByDescending(c => c.Score)
-                .ThenBy(c => c.Game.Name ?? string.Empty)
-                .ToList();
-
-            // On garde un top 3 (ou moins si pas assez de jeux)
-            var topCandidates = ordered.Take(3).ToList();
-            if (topCandidates.Count == 0)
-            {
-                return;
-            }
-
-            SuggestedGameCandidate selected = null;
-
-            // Si on a déjà un jeu pour aujourd'hui ET qu'il est encore candidat, on le garde
-            if (s.SuggestedGameLastId != Guid.Empty &&
-                s.SuggestedGameLastChangeDate.Date == today)
-            {
-                selected = candidates.FirstOrDefault(c => c.Game.Id == s.SuggestedGameLastId);
-            }
-
-            // Sinon on choisit un jeu de départ dans le top 3
-            if (selected == null)
-            {
-                var rand = new Random();
-                selected = topCandidates[rand.Next(topCandidates.Count)];
-
-                s.SuggestedGameLastId = selected.Game.Id;
-                s.SuggestedGameLastChangeDate = today;
-            }
-
-            UpdateSuggestedGamesRotation(topCandidates, selected, refName);
-            SaveSettingsSafe();
+            return candidates;
         }
 
-        // Monthly snapshot
-        private string GetMonthlyDir()
+        private List<HubLibraryRecommendedGameItem> BuildDiverseHubLibraryRecommendations(
+            IList<Playnite.SDK.Models.Game> games,
+            IList<Playnite.SDK.Models.Game> refTop3,
+            Playnite.SDK.Models.Game refGame,
+            IList<HubRecommendationCandidate> fallbackTopCandidates)
         {
-            var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString(), "monthly");
-            Directory.CreateDirectory(dir);
-            return dir;
-        }
+            var result = new List<HubLibraryRecommendedGameItem>();
+            var usedRecommendedIds = new HashSet<Guid>();
+            var referenceGames = new List<Playnite.SDK.Models.Game>();
 
-        private string GetMonthFilePath(DateTime monthStart) => Path.Combine(GetMonthlyDir(), $"{monthStart:yyyy-MM}.json");
-
-        private Dictionary<Guid, ulong> LoadMonthSnapshot(DateTime monthStart)
-        {
-            var file = GetMonthFilePath(monthStart);
-            try
+            Action<Playnite.SDK.Models.Game> addReference = game =>
             {
-                if (!File.Exists(file))
+                if (game == null || game.Id == Guid.Empty)
+                    return;
+
+                if (referenceGames.Any(x => x != null && x.Id == game.Id))
+                    return;
+
+                referenceGames.Add(game);
+            };
+
+            if (refTop3 != null)
+            {
+                foreach (var game in refTop3.Take(3))
                 {
-                    var snap = PlayniteApi.Database.Games.ToDictionary(g => g.Id, g => g.Playtime / 60UL);
-                    var json = Serialization.ToJson(snap, true);
-                    File.WriteAllText(file, json);
-                    DebugLog($"[AnikiHelper] Created monthly snapshot: {file}");
-                    return snap;
+                    addReference(game);
+                }
+            }
+
+            addReference(refGame);
+
+            var referenceIds = new HashSet<Guid>(referenceGames.Select(x => x.Id));
+
+            // First pass: one card per top reference game.
+            foreach (var reference in referenceGames.Take(3))
+            {
+                var excluded = new HashSet<Guid>(referenceIds);
+                foreach (var id in usedRecommendedIds)
+                {
+                    excluded.Add(id);
                 }
 
-                var jsonText = File.ReadAllText(file);
-                var dict = Serialization.FromJson<Dictionary<Guid, ulong>>(jsonText);
-                return dict ?? new Dictionary<Guid, ulong>();
-            }
-            catch (Exception ex)
-            {
-                logger.Warn(ex, "[AnikiHelper] LoadMonthSnapshot failed");
-                return new Dictionary<Guid, ulong>();
-            }
-        }
+                var best = BuildHubRecommendationCandidatesForReference(games, reference, excluded)
+                    .OrderByDescending(c => c.Score)
+                    .ThenBy(c => c.Game.Name ?? string.Empty)
+                    .FirstOrDefault();
 
-        private void UpdateSuggestedGamesRotation(IList<SuggestedGameCandidate> topCandidates, SuggestedGameCandidate selected, string refName)
-        {
-            suggestedGameRotation.Clear();
-            suggestedGameRotationIndex = 0;
-
-            if (topCandidates == null || topCandidates.Count == 0)
-            {
-                ApplySuggestedGameSnapshot(null);
-                return;
-            }
-
-            var ordered = new List<SuggestedGameCandidate>();
-
-            if (selected != null)
-            {
-                ordered.Add(selected);
-            }
-
-            foreach (var candidate in topCandidates)
-            {
-                if (candidate?.Game == null)
+                if (best == null)
                 {
                     continue;
                 }
 
-                if (selected != null && candidate.Game.Id == selected.Game.Id)
+                var item = BuildHubLibraryRecommendedGameItem(best, Safe(reference.Name));
+                if (item != null && item.GameId != Guid.Empty)
                 {
-                    continue;
+                    result.Add(item);
+                    usedRecommendedIds.Add(item.GameId);
                 }
-
-                ordered.Add(candidate);
             }
 
-            foreach (var candidate in ordered.Take(3))
+            // Second pass: fill the 4th card with the best remaining match across all references.
+            if (result.Count < 4 && referenceGames.Count > 0)
             {
-                var snapshot = BuildSuggestedGameSnapshot(candidate, refName);
-                if (snapshot != null)
+                var combined = new List<Tuple<HubRecommendationCandidate, string>>();
+
+                foreach (var reference in referenceGames.Take(3))
                 {
-                    suggestedGameRotation.Add(snapshot);
+                    var excluded = new HashSet<Guid>(referenceIds);
+                    foreach (var id in usedRecommendedIds)
+                    {
+                        excluded.Add(id);
+                    }
+
+                    foreach (var candidate in BuildHubRecommendationCandidatesForReference(games, reference, excluded))
+                    {
+                        if (candidate?.Game == null)
+                            continue;
+
+                        combined.Add(Tuple.Create(candidate, Safe(reference.Name)));
+                    }
+                }
+
+                foreach (var pair in combined
+                    .OrderByDescending(x => x.Item1.Score)
+                    .ThenBy(x => x.Item1.Game.Name ?? string.Empty))
+                {
+                    if (result.Count >= 4)
+                        break;
+
+                    if (pair.Item1?.Game == null || usedRecommendedIds.Contains(pair.Item1.Game.Id))
+                        continue;
+
+                    var item = BuildHubLibraryRecommendedGameItem(pair.Item1, pair.Item2);
+                    if (item != null && item.GameId != Guid.Empty)
+                    {
+                        result.Add(item);
+                        usedRecommendedIds.Add(item.GameId);
+                    }
                 }
             }
 
-            ApplySuggestedGameSnapshot(suggestedGameRotation.Count > 0 ? suggestedGameRotation[0] : null);
+            // Last fallback: old sticky-ref list, only if not enough cards exist.
+            if (result.Count < 4 && fallbackTopCandidates != null)
+            {
+                var fallbackRefName = Safe(refGame?.Name);
+
+                foreach (var candidate in fallbackTopCandidates)
+                {
+                    if (result.Count >= 4)
+                        break;
+
+                    if (candidate?.Game == null || usedRecommendedIds.Contains(candidate.Game.Id) || referenceIds.Contains(candidate.Game.Id))
+                        continue;
+
+                    var item = BuildHubLibraryRecommendedGameItem(candidate, fallbackRefName);
+                    if (item != null && item.GameId != Guid.Empty)
+                    {
+                        result.Add(item);
+                        usedRecommendedIds.Add(item.GameId);
+                    }
+                }
+            }
+
+            return result.Take(4).ToList();
         }
 
-        private SuggestedGameSnapshot BuildSuggestedGameSnapshot(SuggestedGameCandidate candidate, string refName)
+        private void ReplaceHubLibraryRecommendedGames(IList<HubLibraryRecommendedGameItem> items)
+        {
+            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                Settings.HubLibraryRecommendedGames.Clear();
+
+                if (items == null)
+                {
+                    return;
+                }
+
+                foreach (var item in items.Take(4))
+                {
+                    if (item != null && item.GameId != Guid.Empty)
+                    {
+                        Settings.HubLibraryRecommendedGames.Add(item);
+                    }
+                }
+            });
+        }
+
+        private HubLibraryRecommendedGameItem BuildHubLibraryRecommendedGameItem(HubRecommendationCandidate candidate, string refName)
+        {
+            var snapshot = BuildHubRecommendationSnapshot(candidate, refName);
+            if (snapshot == null || snapshot.GameId == Guid.Empty)
+            {
+                return null;
+            }
+
+            return new HubLibraryRecommendedGameItem
+            {
+                GameId = snapshot.GameId,
+                Name = snapshot.Name ?? string.Empty,
+                CoverPath = snapshot.CoverPath ?? string.Empty,
+                BackgroundPath = snapshot.BackgroundPath ?? string.Empty,
+                SourceName = snapshot.SourceName ?? string.Empty,
+                ReasonKey = snapshot.ReasonKey ?? string.Empty,
+                BannerText = snapshot.BannerText ?? string.Empty
+            };
+        }
+
+        private HubRecommendationSnapshot BuildHubRecommendationSnapshot(HubRecommendationCandidate candidate, string refName)
         {
             var game = candidate?.Game;
             if (game == null)
@@ -4557,7 +6179,7 @@ namespace AnikiHelper
             if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(game.Icon))
                 bgPath = PlayniteApi.Database.GetFullFilePath(game.Icon);
 
-            return new SuggestedGameSnapshot
+            return new HubRecommendationSnapshot
             {
                 GameId = game.Id,
                 SourceName = refName ?? string.Empty,
@@ -4569,82 +6191,69 @@ namespace AnikiHelper
             };
         }
 
-        private void ApplySuggestedGameSnapshot(SuggestedGameSnapshot item)
+        private string BuildHubReferenceLog(IList<Playnite.SDK.Models.Game> refTop3, Playnite.SDK.Models.Game refGame)
         {
-            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            try
             {
-                if (item == null)
+                var refs = new List<string>();
+
+                if (refTop3 != null)
                 {
-                    Settings.SuggestedGameName = string.Empty;
-                    Settings.SuggestedGameCoverPath = string.Empty;
-                    Settings.SuggestedGameBackgroundPath = string.Empty;
-                    Settings.SuggestedGameSourceName = string.Empty;
-                    Settings.SuggestedGameReasonKey = string.Empty;
-                    Settings.SuggestedGameBannerText = string.Empty;
-                    Settings.SuggestedGameLastId = Guid.Empty;
-
-                    Settings.SuggestedGameBackgroundPathA = string.Empty;
-                    Settings.SuggestedGameBackgroundPathB = string.Empty;
-                    Settings.SuggestedGameShowLayerB = false;
-
-                    suggestedGameCrossfadeInitialized = false;
-                    return;
+                    refs.AddRange(refTop3
+                        .Where(g => g != null)
+                        .Take(3)
+                        .Select(g => Safe(g.Name)));
                 }
 
-                // Texte / infos fixes
-                Settings.SuggestedGameSourceName = item.SourceName ?? string.Empty;
-                Settings.SuggestedGameName = item.Name ?? string.Empty;
-                Settings.SuggestedGameCoverPath = item.CoverPath ?? string.Empty;
-                Settings.SuggestedGameBackgroundPath = item.BackgroundPath ?? string.Empty;
-                Settings.SuggestedGameReasonKey = item.ReasonKey ?? string.Empty;
-                Settings.SuggestedGameBannerText = item.BannerText ?? string.Empty;
-                Settings.SuggestedGameLastId = item.GameId;
-
-                var bgPath = item.BackgroundPath ?? string.Empty;
-
-                // Premier affichage : on remplit A et B avec la même image
-                if (!suggestedGameCrossfadeInitialized)
+                if (refGame != null && !refs.Any(x => string.Equals(x, Safe(refGame.Name), StringComparison.OrdinalIgnoreCase)))
                 {
-                    Settings.SuggestedGameBackgroundPathA = bgPath;
-                    Settings.SuggestedGameBackgroundPathB = bgPath;
-                    Settings.SuggestedGameShowLayerB = false;
-
-                    suggestedGameCrossfadeInitialized = true;
-                    return;
+                    refs.Add(Safe(refGame.Name));
                 }
 
-                // Si B est visible, on prépare A puis on révèle A en faisant disparaître B
-                if (Settings.SuggestedGameShowLayerB)
-                {
-                    Settings.SuggestedGameBackgroundPathA = bgPath;
-                    Settings.SuggestedGameShowLayerB = false;
-                }
-                else
-                {
-                    // Si A est visible, on prépare B puis on fade-in B
-                    Settings.SuggestedGameBackgroundPathB = bgPath;
-                    Settings.SuggestedGameShowLayerB = true;
-                }
-            });
+                return string.Join(", ", refs.Where(x => !string.IsNullOrWhiteSpace(x)));
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
-        private void RotateSuggestedGamesIfNeeded()
+        // Monthly snapshot
+        private string GetMonthlyDir()
         {
-            if (suggestedGameRotation.Count <= 1)
-            {
-                return;
-            }
-
-            suggestedGameRotationIndex++;
-            if (suggestedGameRotationIndex >= suggestedGameRotation.Count)
-            {
-                suggestedGameRotationIndex = 0;
-            }
-
-            ApplySuggestedGameSnapshot(suggestedGameRotation[suggestedGameRotationIndex]);
+            var dir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString(), "monthly");
+            Directory.CreateDirectory(dir);
+            return dir;
         }
 
-        private class SuggestedGameSnapshot
+        private string GetMonthFilePath(DateTime monthStart) => Path.Combine(GetMonthlyDir(), $"{monthStart:yyyy-MM}.json");
+
+        private Dictionary<Guid, ulong> LoadMonthSnapshot(DateTime monthStart)
+        {
+            var file = GetMonthFilePath(monthStart);
+            try
+            {
+                if (!File.Exists(file))
+                {
+                    var snap = PlayniteApi.Database.Games.ToDictionary(g => g.Id, g => g.Playtime / 60UL);
+                    var json = Serialization.ToJson(snap, true);
+                    File.WriteAllText(file, json);
+                    DebugLog($"[AnikiHelper] Created monthly snapshot: {file}");
+                    return snap;
+                }
+
+                var jsonText = File.ReadAllText(file);
+                var dict = Serialization.FromJson<Dictionary<Guid, ulong>>(jsonText);
+                return dict ?? new Dictionary<Guid, ulong>();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] LoadMonthSnapshot failed");
+                return new Dictionary<Guid, ulong>();
+            }
+        }
+
+        private class HubRecommendationSnapshot
         {
             public Guid GameId { get; set; } = Guid.Empty;
             public string Name { get; set; }
@@ -4655,7 +6264,7 @@ namespace AnikiHelper
             public string BannerText { get; set; }
         }
 
-        private class SuggestedGameCandidate
+        private class HubRecommendationCandidate
         {
             public Playnite.SDK.Models.Game Game { get; set; }
             public int Score { get; set; }
@@ -5422,7 +7031,12 @@ namespace AnikiHelper
             rssNewsService = new SteamGlobalNewsService(api, Settings);
             eventSoundService = new EventSoundService(api, Settings);
             anikiWindowManager = new AnikiWindowManager(api);
-            inGameOverlayService = new InGameOverlayService(api, Settings);
+            inGameOverlayService = new InGameOverlayService(
+                api,
+                Settings,
+                () => anikiWindowManager?.HasOpenWindow == true);
+            anikiWindowManager.SetOverlayOpenStateProvider(
+                () => inGameOverlayService?.IsOverlayOpenOrOpening == true);
             konamiCodeService = new KonamiCodeService(
                 Settings,
                 logger,
@@ -5440,7 +7054,19 @@ namespace AnikiHelper
                 GetPluginUserDataPath());
 
             steamStoreService = new SteamStoreService(api, GetPluginUserDataPath());
+            steamAccountSessionService = new SteamAccountSessionService(api, logger);
             steamUpcomingGamesService = new SteamUpcomingGamesService(logger, GetPluginUserDataPath(), steamStoreService);
+            steamUserGamesService = new SteamUserGamesService(logger, GetPluginUserDataPath());
+            steamStorePersonalizationService = new SteamStorePersonalizationService();
+            steamStoreRecommendationService = new SteamStoreRecommendationService(logger, GetPluginUserDataPath(), steamStoreService, steamStorePersonalizationService);
+            steamFriendsService = new AnikiSteamFriendsService(
+                api,
+                Settings,
+                GetPluginUserDataPath(),
+                logger,
+                DebugLog,
+                IsAnikiThemeActive,
+                SaveSettingsSafe);
             splashScreenService = new SplashScreenService(GetPluginUserDataPath());
             splashScreenRuntimeService = new SplashScreenRuntimeService(IsPlayniteForegroundWindow);
 
@@ -5448,9 +7074,20 @@ namespace AnikiHelper
                 api,
                 () => Settings.IsWelcomeHubOpen,
                 () => Settings.HubCurrentPage,
-                page => Settings.HubCurrentPage = page);
+                page => Settings.HubCurrentPage = page,
+                () => Settings.ShowHubAppsPage);
 
-            CleanupLegacyNewsCache();
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    CleanupLegacyNewsCache();
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] CleanupLegacyNewsCache failed.");
+                }
+            });
 
             AddSettingsSupportSafe("AnikiHelper", "Settings");
             AddControllerSupportSafe();
@@ -5464,6 +7101,24 @@ namespace AnikiHelper
                     RecalcStatsSafe();
                 }
 
+                if (e.PropertyName == nameof(Settings.SteamFriendsEnabled) ||
+                    e.PropertyName == nameof(Settings.SteamApiKey) ||
+                    e.PropertyName == nameof(Settings.SteamId64) ||
+                    e.PropertyName == nameof(Settings.SteamAccountSteamId64) ||
+                    e.PropertyName == nameof(Settings.ShowOffline) ||
+                    e.PropertyName == nameof(Settings.NotifyOnGameStart) ||
+                    e.PropertyName == nameof(Settings.NotifyOnConnect))
+                {
+                    if (Settings.SteamFriendsEnabled)
+                    {
+                        steamFriendsService?.Start();
+                    }
+                    else
+                    {
+                        steamFriendsService?.Stop();
+                    }
+                }
+
                 if (e.PropertyName == nameof(Settings.SteamStoreEnabled) && Settings.SteamStoreEnabled == false)
                 {
                     OnUi(() =>
@@ -5471,6 +7126,12 @@ namespace AnikiHelper
                         Settings.SteamStoreDeals.Clear();
                         Settings.SteamStoreNewReleases.Clear();
                         Settings.SteamStoreTopSellers.Clear();
+                        Settings.SteamStoreUpcoming.Clear();
+                        Settings.SteamStoreWishlisted.Clear();
+                        Settings.SteamStoreMyWishlist.Clear();
+                        Settings.SteamStoreRecommended.Clear();
+                        Settings.SteamStoreRecommendedHub.Clear();
+                        Settings.NotifyHubForYouStorePageStateChanged();
 
                         Settings.SteamStoreDetailsVisible = false;
                         Settings.SteamStoreDetailsLoading = false;
@@ -5592,12 +7253,1362 @@ namespace AnikiHelper
                 };
                 newsRotationTimer.Tick += NewsRotationTimer_Tick;
 
-                suggestedRotationTimer = new DispatcherTimer
+                libraryNewsRotationTimer = new DispatcherTimer
                 {
                     Interval = TimeSpan.FromSeconds(15)
                 };
-                suggestedRotationTimer.Tick += SuggestedRotationTimer_Tick;
+                libraryNewsRotationTimer.Tick += LibraryNewsRotationTimer_Tick;
             }
+        }
+
+
+        public async void ConnectSteamAccountFromSettings()
+        {
+            if (steamAccountSessionService == null || Settings == null)
+            {
+                return;
+            }
+
+            // The Connect button is only shown while disconnected. If the command is
+            // somehow invoked while already connected, do nothing instead of reopening Steam.
+            if (Settings.SteamAccountConnected)
+            {
+                return;
+            }
+
+            logger.Info("[SteamAccount] Settings login requested");
+
+            OnUi(() =>
+            {
+                Settings.SteamAccountBusy = true;
+                Settings.SteamAccountStatus = "Opening Steam login...";
+            });
+
+            try
+            {
+                var result = await steamAccountSessionService
+                    .AuthenticateInteractiveAsync(CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                ApplySteamAccountSession(
+                    result,
+                    result?.IsConnected == true
+                        ? "Connected to Steam."
+                        : (result?.Error ?? "Steam login cancelled."));
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[SteamAccount] Connect failed.");
+                OnUi(() => Settings.SteamAccountStatus = "Steam connection failed.");
+            }
+            finally
+            {
+                OnUi(() => Settings.SteamAccountBusy = false);
+                SaveSettingsSafe();
+                steamFriendsService?.Start();
+            }
+        }
+
+        public async void CheckSteamAccountFromSettings()
+        {
+            if (steamAccountSessionService == null || Settings == null)
+            {
+                return;
+            }
+
+            logger.Info("[SteamAccount] Settings session check requested");
+
+            OnUi(() =>
+            {
+                Settings.SteamAccountBusy = true;
+                Settings.SteamAccountStatus = "Checking Steam session...";
+            });
+
+            try
+            {
+                var result = await steamAccountSessionService
+                    .ProbeAsync(CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                if (result?.IsConnected == true)
+                {
+                    ApplySteamAccountSession(result, "Steam session is connected.");
+
+                    OnUi(() => PlayniteApi.Dialogs.ShowMessage(
+                        "✓ " + Loc("SteamAccount_ConnectedTitle", "Connected to Steam") +
+                        Environment.NewLine + Environment.NewLine +
+                        Loc(
+                            "SteamAccount_ConnectedDesc",
+                            "Your Steam Store session is active. Personalized Store sections are ready to use."),
+                        Loc("SteamAccount_CheckButton", "Check connection"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information));
+                }
+                else if (result != null && string.IsNullOrWhiteSpace(result.Error))
+                {
+                    // Steam explicitly answered that the Store session is logged out.
+                    ApplySteamAccountSession(result, "Steam session is not connected.");
+
+                    OnUi(() => PlayniteApi.Dialogs.ShowMessage(
+                        Loc("SteamAccount_DisconnectedTitle", "Not connected to Steam") +
+                        Environment.NewLine + Environment.NewLine +
+                        Loc(
+                            "SteamAccount_DisconnectedDesc",
+                            "Sign in to enable My Wishlist, For You and other personalized Steam Store features."),
+                        Loc("SteamAccount_CheckButton", "Check connection"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning));
+                }
+                else
+                {
+                    // A temporary WebView/network failure is not proof that the user logged out.
+                    // Keep the current state, but clearly report that the check could not complete.
+                    ApplySteamAccountSession(
+                        result,
+                        result?.Error ?? "Steam session check failed.");
+
+                    OnUi(() => PlayniteApi.Dialogs.ShowMessage(
+                        "The Steam connection could not be checked. Your current session was kept unchanged. Please try again.",
+                        Loc("SteamAccount_CheckButton", "Check connection"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning));
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[SteamAccount] Probe failed.");
+                OnUi(() =>
+                {
+                    Settings.SteamAccountStatus = "Steam session check failed.";
+                    PlayniteApi.Dialogs.ShowMessage(
+                        "The Steam connection could not be checked. Your current session was kept unchanged. Please try again.",
+                        Loc("SteamAccount_CheckButton", "Check connection"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                });
+            }
+            finally
+            {
+                OnUi(() => Settings.SteamAccountBusy = false);
+                SaveSettingsSafe();
+            }
+        }
+
+        private Task ScheduleStartupSteamAuthCheckAsync()
+        {
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    if (Settings?.SteamStoreEnabled != true)
+                    {
+                        return;
+                    }
+
+                    await Task.Delay(StartupSteamAuthCheckDelay).ConfigureAwait(false);
+
+                    if (Settings?.SteamStoreEnabled != true)
+                    {
+                        return;
+                    }
+
+                    // Opening the Store validates the same Store-domain session. If a Store refresh
+                    // is already running, let it finish first, then reuse its probe result instead
+                    // of opening a second hidden WebView for the same account page.
+                    if (steamStoreOpenLock.CurrentCount == 0)
+                    {
+                        await steamStoreOpenLock.WaitAsync().ConfigureAwait(false);
+                        steamStoreOpenLock.Release();
+                    }
+
+                    if (HasRecentSteamStoreAuthProbe())
+                    {
+                        DebugLog("[Startup Steam Auth] skipped | Store refresh already validated the session");
+                        return;
+                    }
+
+                    var state = await LoadStartupSteamNotificationRefreshStateAsync().ConfigureAwait(false)
+                        ?? new StartupSteamNotificationRefreshState();
+
+                    var nowUtc = DateTime.UtcNow;
+                    var wasConnectedBeforeProbe = Settings?.SteamAccountConnected == true &&
+                        !string.IsNullOrWhiteSpace(Settings?.SteamAccountSteamId64);
+                    var hasKnownAccount =
+                        Settings?.SteamAccountConnected == true ||
+                        !string.IsNullOrWhiteSpace(Settings?.SteamAccountSteamId64);
+
+                    DebugLog($"[Startup Steam Auth] START | known={hasKnownAccount} | wasConnected={wasConnectedBeforeProbe}");
+
+                    if (hasKnownAccount && steamAccountSessionService != null)
+                    {
+                        try
+                        {
+                            var probe = await steamAccountSessionService.ProbeAsync(CancellationToken.None).ConfigureAwait(false);
+                            var connected = probe?.IsConnected == true;
+
+                            ApplySteamAccountSession(
+                                probe,
+                                connected ? "Steam session is connected." : "Steam session is not connected.",
+                                allowVisibleStoreUiRebuild: false
+                            );
+
+                            state.LastAuthProbeUtc = DateTime.UtcNow;
+
+                            // If the user was connected before and Steam now rejects the session,
+                            // ApplySteamAccountSession already shows the stronger "session expired" toast.
+                            // Do not also show the generic "please authenticate" reminder.
+                            if (wasConnectedBeforeProbe && !connected)
+                            {
+                                await SaveStartupSteamNotificationRefreshStateAsync(state).ConfigureAwait(false);
+                                SaveSettingsSafe();
+                                DebugLog("[Startup Steam Auth] END | session expired notification path");
+                                return;
+                            }
+
+                            if (connected)
+                            {
+                                await SaveStartupSteamNotificationRefreshStateAsync(state).ConfigureAwait(false);
+                                SaveSettingsSafe();
+                                DebugLog("[Startup Steam Auth] END | connected");
+                                return;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            // Do not mark the account disconnected on a generic network/startup failure.
+                            logger.Warn(ex, "[Startup Steam Auth] Steam auth probe failed.");
+                            return;
+                        }
+                    }
+
+                    // Steam has never been configured, or no valid account is currently known.
+                    // Do not show a global notification: the configuration status is already
+                    // visible in the fullscreen settings.
+                    DebugLog("[Startup Steam Auth] no configured Steam account; generic reminder skipped");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[Startup Steam Auth] startup auth check failed.");
+                }
+            });
+        }
+
+        private Task ScheduleStartupSteamNotificationRefreshAsync()
+        {
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    if (Settings?.SteamStoreEnabled != true)
+                    {
+                        return;
+                    }
+
+                    if (!HasSteamAccountForBackgroundNotificationRefresh())
+                    {
+                        DebugLog("[Startup Steam Notify] skipped | no Steam account/session known");
+                        return;
+                    }
+
+                    await Task.Delay(StartupSteamNotificationInitialDelay).ConfigureAwait(false);
+
+                    for (var attempt = 1; attempt <= StartupSteamNotificationMaxIdleAttempts; attempt++)
+                    {
+                        if (IsStartupSteamNotificationRefreshSafeNow())
+                        {
+                            await RunStartupSteamNotificationRefreshAsync().ConfigureAwait(false);
+                            return;
+                        }
+
+                        DebugLog($"[Startup Steam Notify] idle gate not ready | attempt={attempt}/{StartupSteamNotificationMaxIdleAttempts}");
+                        await Task.Delay(StartupSteamNotificationRetryDelay).ConfigureAwait(false);
+                    }
+
+                    DebugLog("[Startup Steam Notify] skipped | Playnite never reached a safe idle state");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[Startup Steam Notify] delayed refresh failed.");
+                }
+            });
+        }
+
+        private async Task RunStartupSteamNotificationRefreshAsync()
+        {
+            if (!await startupSteamNotificationRefreshLock.WaitAsync(0).ConfigureAwait(false))
+            {
+                DebugLog("[Startup Steam Notify] skipped | refresh already running");
+                return;
+            }
+
+            try
+            {
+                if (Settings?.SteamStoreEnabled != true || !HasSteamAccountForBackgroundNotificationRefresh())
+                {
+                    return;
+                }
+
+                var state = await LoadStartupSteamNotificationRefreshStateAsync().ConfigureAwait(false)
+                    ?? new StartupSteamNotificationRefreshState();
+
+                var nowUtc = DateTime.UtcNow;
+                var authDue = state.LastAuthProbeUtc == DateTime.MinValue ||
+                    (nowUtc - state.LastAuthProbeUtc) >= StartupSteamNotificationDailyInterval;
+
+                if (authDue && HasRecentSteamStoreAuthProbe())
+                {
+                    state.LastAuthProbeUtc = lastSteamStoreAuthProbeUtc;
+                    authDue = false;
+                    DebugLog("[Startup Steam Notify] auth probe reused from current Store session");
+                }
+
+                var wishlistDue = state.LastWishlistRefreshUtc == DateTime.MinValue ||
+                    (nowUtc - state.LastWishlistRefreshUtc) >= StartupSteamNotificationDailyInterval;
+
+                if (!authDue && !wishlistDue)
+                {
+                    DebugLog($"[Startup Steam Notify] skipped | already checked today | auth={state.LastAuthProbeUtc:o} | wishlist={state.LastWishlistRefreshUtc:o}");
+                    return;
+                }
+
+                if (!IsStartupSteamNotificationRefreshSafeNow())
+                {
+                    DebugLog("[Startup Steam Notify] skipped | state changed before refresh");
+                    return;
+                }
+
+                DebugLog($"[Startup Steam Notify] START | authDue={authDue} | wishlistDue={wishlistDue}");
+
+                if (authDue && steamAccountSessionService != null)
+                {
+                    try
+                    {
+                        var probe = await steamAccountSessionService.ProbeAsync(CancellationToken.None).ConfigureAwait(false);
+                        ApplySteamAccountSession(
+                            probe,
+                            probe?.IsConnected == true ? "Steam session is connected." : "Steam session is not connected.",
+                            allowVisibleStoreUiRebuild: false
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        // Do not mark the account disconnected on a generic startup/network failure.
+                        // The expired-session toast is only shown when Steam explicitly reports that
+                        // the previous connected session is no longer valid.
+                        logger.Warn(ex, "[Startup Steam Notify] Steam auth probe failed.");
+                    }
+                    finally
+                    {
+                        state.LastAuthProbeUtc = DateTime.UtcNow;
+                    }
+                }
+
+                var connectedAfterAuth = CanUseConnectedSteamStoreAccount();
+
+                if (wishlistDue && connectedAfterAuth && IsStartupSteamNotificationRefreshSafeNow())
+                {
+                    try
+                    {
+                        var language = GetResolvedSteamStoreLanguage();
+                        var region = GetResolvedSteamStoreRegion();
+                        var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
+
+                        await RefreshSteamStoreMyWishlistFromSteamAsync(
+                            personalizationContext,
+                            language,
+                            region,
+                            reportProgress: null
+                        ).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[Startup Steam Notify] My Wishlist background refresh failed.");
+                    }
+                    finally
+                    {
+                        state.LastWishlistRefreshUtc = DateTime.UtcNow;
+                    }
+                }
+                else if (wishlistDue)
+                {
+                    state.LastWishlistRefreshUtc = DateTime.UtcNow;
+                    DebugLog($"[Startup Steam Notify] wishlist skipped | connected={connectedAfterAuth}");
+                }
+
+                await SaveStartupSteamNotificationRefreshStateAsync(state).ConfigureAwait(false);
+                SaveSettingsSafe();
+
+                DebugLog("[Startup Steam Notify] END");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Startup Steam Notify] refresh failed.");
+            }
+            finally
+            {
+                startupSteamNotificationRefreshLock.Release();
+            }
+        }
+
+        private bool HasSteamAccountForBackgroundNotificationRefresh()
+        {
+            try
+            {
+                if (Settings == null)
+                {
+                    return false;
+                }
+
+                return Settings.SteamAccountConnected ||
+                    !string.IsNullOrWhiteSpace(Settings.SteamAccountSteamId64) ||
+                    !string.IsNullOrWhiteSpace(Settings.SteamId64);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsStartupSteamNotificationRefreshSafeNow()
+        {
+            try
+            {
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return false;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return false;
+                }
+
+                if (Settings == null || Settings.SteamStoreEnabled != true)
+                {
+                    return false;
+                }
+
+                if (!IsPlayniteForegroundWindow())
+                {
+                    return false;
+                }
+
+                if ((DateTime.UtcNow - lastControllerInputUtc) < TimeSpan.FromSeconds(20))
+                {
+                    return false;
+                }
+
+                if (IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    return false;
+                }
+
+                if (Settings.SteamStoreLoading ||
+                    Settings.SteamStoreDetailsVisible ||
+                    Settings.SteamStoreScreenshotViewerVisible ||
+                    Settings.IsWelcomeHubClosing)
+                {
+                    return false;
+                }
+
+                if (IsSteamStoreViewVisible())
+                {
+                    return false;
+                }
+
+                if (inGameOverlayService != null && inGameOverlayService.IsOverlayVisible)
+                {
+                    return false;
+                }
+
+                if (anikiWindowManager != null && anikiWindowManager.HasOpenWindow)
+                {
+                    return false;
+                }
+
+                if (IsSecondaryWindowVisibleForKonami())
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsAnyPlayniteGameRunningOrLaunching()
+        {
+            try
+            {
+                return PlayniteApi?.Database?.Games?.Any(x => x != null && (x.IsRunning || x.IsLaunching)) == true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string GetStartupSteamNotificationRefreshStatePath()
+        {
+            return Path.Combine(GetPluginUserDataPath(), "SteamStore", "StartupSteamNotificationRefreshState.json");
+        }
+
+        private async Task<StartupSteamNotificationRefreshState> LoadStartupSteamNotificationRefreshStateAsync()
+        {
+            try
+            {
+                var path = GetStartupSteamNotificationRefreshStatePath();
+                if (!File.Exists(path))
+                {
+                    return null;
+                }
+
+                var json = await Task.Run(() => File.ReadAllText(path)).ConfigureAwait(false);
+                return await Task.Run(() => JsonConvert.DeserializeObject<StartupSteamNotificationRefreshState>(json)).ConfigureAwait(false);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private async Task SaveStartupSteamNotificationRefreshStateAsync(StartupSteamNotificationRefreshState state)
+        {
+            try
+            {
+                var path = GetStartupSteamNotificationRefreshStatePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var json = await Task.Run(() => JsonConvert.SerializeObject(state ?? new StartupSteamNotificationRefreshState(), Formatting.Indented)).ConfigureAwait(false);
+                await Task.Run(() => File.WriteAllText(path, json)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Startup Steam Notify] Failed to save refresh state.");
+            }
+        }
+
+        private sealed class StartupSteamNotificationRefreshState
+        {
+            public DateTime LastAuthProbeUtc { get; set; }
+            public DateTime LastWishlistRefreshUtc { get; set; }
+            public DateTime LastAuthReminderUtc { get; set; }
+        }
+
+        public void DisconnectSteamAccountFromSettings()
+        {
+            try
+            {
+                steamAccountSessionService?.ClearSession();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[SteamAccount] Disconnect failed.");
+            }
+
+            OnUi(() =>
+            {
+                Settings.SteamAccountConnected = false;
+                Settings.SteamAccountBusy = false;
+                Settings.SteamAccountSteamId64 = string.Empty;
+                Settings.SteamAccountProfileUrl = string.Empty;
+                Settings.SteamAccountStatus = "Disconnected";
+                ClearAuthenticatedSteamStoreSectionsOnUi();
+                UpdateSteamStoreActiveSection();
+                UpdateSteamStoreAvailabilityState();
+            });
+
+            SaveSettingsSafe();
+        }
+
+        private void ApplySteamAccountSession(SteamAccountSessionInfo session, string fallbackStatus, bool allowVisibleStoreUiRebuild = true)
+        {
+            var shouldNotifySessionExpired = false;
+            var shouldReloadPersonalStoreData = false;
+
+            OnUi(() =>
+            {
+                // A WebView timeout, DNS/network failure or temporary CEF error must not be
+                // interpreted as an explicit Steam logout. In that case, keep the previous
+                // authenticated state and the already loaded personal Store collections.
+                var transientCheckFailure = session == null ||
+                    (session.IsConnected != true && !string.IsNullOrWhiteSpace(session.Error));
+
+                if (transientCheckFailure)
+                {
+                    Settings.SteamAccountStatus = !string.IsNullOrWhiteSpace(fallbackStatus)
+                        ? fallbackStatus
+                        : (!string.IsNullOrWhiteSpace(session?.Error)
+                            ? session.Error
+                            : "Steam session check failed.");
+                    return;
+                }
+
+                // This is an explicit Store-domain answer (connected or genuinely logged out).
+                // Reuse it briefly so startup jobs do not open the same hidden account page twice.
+                lastSteamStoreAuthProbeUtc = DateTime.UtcNow;
+
+                var connected = session.IsConnected;
+                var previousSteamId = Settings.SteamAccountSteamId64?.Trim() ?? string.Empty;
+                var wasConnected = Settings.SteamAccountConnected && !string.IsNullOrWhiteSpace(previousSteamId);
+
+                Settings.SteamAccountConnected = connected;
+
+                if (connected)
+                {
+                    var steamId = session.SteamId64?.Trim() ?? string.Empty;
+                    Settings.SteamAccountSteamId64 = steamId;
+                    Settings.SteamAccountProfileUrl = string.IsNullOrWhiteSpace(steamId)
+                        ? string.Empty
+                        : "https://steamcommunity.com/profiles/" + steamId;
+
+                    // Keep the legacy field synchronized so existing Steam Friends and Steam API code keep working.
+                    Settings.SteamId64 = steamId;
+                    Settings.SteamAccountStatus = "Connected: " + steamId;
+
+                    shouldReloadPersonalStoreData = !wasConnected ||
+                        !string.Equals(previousSteamId, steamId, StringComparison.Ordinal);
+
+                    if (shouldReloadPersonalStoreData)
+                    {
+                        // A Hub cache-only request may have happened before authentication was ready.
+                        // Invalidate both throttles so Wishlist / For You can be loaded immediately.
+                        lastSteamStoreCacheOnlyLoadUtc = DateTime.MinValue;
+                        lastSteamStoreOpenRequestUtc = DateTime.MinValue;
+                    }
+
+                    UpdateSteamStoreActiveSectionIfAllowed(allowVisibleStoreUiRebuild);
+                    UpdateSteamStoreAvailabilityState();
+                }
+                else
+                {
+                    Settings.SteamAccountStatus = !string.IsNullOrWhiteSpace(fallbackStatus)
+                        ? fallbackStatus
+                        : "Not connected";
+
+                    ClearAuthenticatedSteamStoreSectionsOnUi();
+                    UpdateSteamStoreActiveSectionIfAllowed(allowVisibleStoreUiRebuild);
+                    UpdateSteamStoreAvailabilityState();
+
+                    shouldNotifySessionExpired = wasConnected;
+                }
+            });
+
+            if (shouldReloadPersonalStoreData)
+            {
+                _ = OnSteamStoreViewOpenedAsync();
+            }
+
+            if (shouldNotifySessionExpired)
+            {
+                ShowSteamSessionExpiredToastThrottled();
+            }
+        }
+
+        private void ClearAuthenticatedSteamStoreSectionsOnUi()
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            Settings.SteamStoreMyWishlist.Clear();
+            Settings.SteamStoreRecommended.Clear();
+            Settings.SteamStoreRecommendedHub.Clear();
+            Settings.NotifyHubForYouStorePageStateChanged();
+        }
+
+
+        private bool IsSteamStoreCurrentVisibleSectionEmpty()
+        {
+            if (Settings == null)
+            {
+                return true;
+            }
+
+            return (Settings.SteamStoreCurrentItems?.Count ?? 0) == 0 &&
+                   (Settings.SteamStoreCurrentListItems?.Count ?? 0) == 0 &&
+                   string.IsNullOrWhiteSpace(Settings.SteamStoreHeroName);
+        }
+
+        private bool HasSteamStoreCacheUiData()
+        {
+            if (Settings == null)
+            {
+                return false;
+            }
+
+            return (Settings.SteamStoreDeals?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreTopSellers?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreNewReleases?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreUpcoming?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreWishlisted?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreMyWishlist?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreRecommended?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreCurrentItems?.Count ?? 0) > 0 ||
+                   (Settings.SteamStoreCurrentListItems?.Count ?? 0) > 0 ||
+                   !string.IsNullOrWhiteSpace(Settings.SteamStoreHeroName);
+        }
+
+        private void UpdateSteamStoreActiveSectionIfAllowed(bool allowVisibleStoreUiRebuild)
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            var selectedSection = Settings.SteamStoreSelectedSection ?? string.Empty;
+
+            // Auth-only pages must still rebuild so the hero auth message can appear/disappear.
+            var selectedSectionIsAuthOnly = IsSteamStoreSectionAuthOnly(selectedSection);
+
+            if (allowVisibleStoreUiRebuild || selectedSectionIsAuthOnly || IsSteamStoreCurrentVisibleSectionEmpty())
+            {
+                UpdateSteamStoreActiveSection();
+                return;
+            }
+
+            DebugLog($"[Steam Store] skipped visible section rebuild | section={selectedSection} | current={(Settings.SteamStoreCurrentItems?.Count ?? 0)} | list={(Settings.SteamStoreCurrentListItems?.Count ?? 0)} | hero={Settings.SteamStoreHeroName}");
+        }
+
+        private bool HasRecentSteamStoreAuthProbe()
+        {
+            var lastProbeUtc = lastSteamStoreAuthProbeUtc;
+            return lastProbeUtc != DateTime.MinValue &&
+                (DateTime.UtcNow - lastProbeUtc) < SteamStoreAuthProbeReuseWindow;
+        }
+
+        private string GetEffectiveSteamIdInput()
+        {
+            if (!string.IsNullOrWhiteSpace(Settings?.SteamAccountSteamId64))
+            {
+                return Settings.SteamAccountSteamId64.Trim();
+            }
+
+            return Settings?.SteamId64?.Trim() ?? string.Empty;
+        }
+
+        private string GetSteamForYouCacheKey(SteamRecommendationProfile recommendationProfile)
+        {
+            // Keep the public cache name stable and user-independent.
+            // The language and region are appended by SteamStoreRecommendationService,
+            // so the final file is: SteamStore/StoreCache/steam_recommender_<language>_<region>.json
+            return "steam_recommender";
+        }
+
+        private bool CanUseConnectedSteamStoreAccount()
+        {
+            return Settings?.SteamAccountConnected == true &&
+                !string.IsNullOrWhiteSpace(Settings?.SteamAccountSteamId64);
+        }
+
+        private string GetConnectedSteamAccountId64()
+        {
+            return Settings?.SteamAccountSteamId64?.Trim() ?? string.Empty;
+        }
+
+        private string GetSteamMyWishlistCacheKey()
+        {
+            // My Wishlist is personal account data. Keep the cache bound to the
+            // authenticated Steam account so another user/session never reuses it.
+            var steamId = GetConnectedSteamAccountId64();
+            if (string.IsNullOrWhiteSpace(steamId))
+            {
+                return "steam_mywishlist_no_account";
+            }
+
+            var safeSteamId = new string(steamId.Where(char.IsDigit).ToArray());
+            return string.IsNullOrWhiteSpace(safeSteamId)
+                ? "steam_mywishlist_no_account"
+                : "steam_mywishlist_" + safeSteamId;
+        }
+
+        private static bool IsSteamWishlistFinalUrlValid(string finalUrl, string steamId64)
+        {
+            if (string.IsNullOrWhiteSpace(finalUrl))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(finalUrl, UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+
+            var host = uri.Host ?? string.Empty;
+            if (!host.Equals("store.steampowered.com", StringComparison.OrdinalIgnoreCase) &&
+                !host.EndsWith(".steampowered.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var path = (uri.AbsolutePath ?? string.Empty).Replace('\\', '/');
+
+            if (path.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return false;
+            }
+
+            // Steam redirects some users with a custom profile URL to /wishlist/id/{name}/.
+            if (path.IndexOf("/wishlist/id/", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(steamId64))
+            {
+                return false;
+            }
+
+            return path.IndexOf("/wishlist/profiles/" + steamId64, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                (path.IndexOf("/wishlist/profiles/", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                 path.IndexOf(steamId64, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static string BuildSteamAppStoreUrl(int appId)
+        {
+            return appId > 0 ? "https://store.steampowered.com/app/" + appId.ToString(CultureInfo.InvariantCulture) : string.Empty;
+        }
+
+        private static string HashForCacheKey(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "unknown";
+            }
+
+            using (var sha1 = System.Security.Cryptography.SHA1.Create())
+            {
+                var bytes = sha1.ComputeHash(System.Text.Encoding.UTF8.GetBytes(value.Trim().ToLowerInvariant()));
+                return string.Concat(bytes.Take(8).Select(b => b.ToString("x2", CultureInfo.InvariantCulture)));
+            }
+        }
+
+        private async Task<List<SteamStoreItem>> RefreshSteamStoreMyWishlistFromSteamAsync(
+            SteamStorePersonalizationContext personalizationContext,
+            string language,
+            string region,
+            Action<int> reportProgress,
+            bool allowVisibleStoreUiRebuild = true)
+        {
+            var result = new List<SteamStoreItem>();
+
+            if (steamAccountSessionService == null || steamStoreService == null)
+            {
+                return null;
+            }
+
+            if (!CanUseConnectedSteamStoreAccount())
+            {
+                logger.Info("[Steam My Wishlist] skipped | Steam Store account is not authenticated | keeping current cache.");
+                return null;
+            }
+
+            var steamId = GetConnectedSteamAccountId64();
+            if (string.IsNullOrWhiteSpace(steamId))
+            {
+                logger.Info("[Steam My Wishlist] skipped | authenticated SteamID64 missing | keeping current cache.");
+                return null;
+            }
+
+            var wishlist = await steamAccountSessionService.GetWishlistAppIdsAsync(
+                steamId,
+                language,
+                region,
+                CancellationToken.None
+            ).ConfigureAwait(false);
+
+            // A Wishlist Web API response does not use the CEF Store session, so it must not
+            // overwrite the current authentication state. The WebView fallback still does.
+            if (wishlist?.LoadedFromWebApi != true && wishlist?.Session != null)
+            {
+                ApplySteamAccountSession(
+                    wishlist.Session,
+                    wishlist.Session.IsConnected ? "Connected to Steam." : (wishlist.Error ?? "Steam Store session is not connected."),
+                    allowVisibleStoreUiRebuild
+                );
+            }
+
+            if (wishlist?.LoadedFromWebApi != true && wishlist?.Session?.IsConnected != true)
+            {
+                logger.Info($"[Steam My Wishlist] unavailable | error={wishlist?.Error ?? "Steam Store session is not connected."} | finalUrl={wishlist?.FinalUrl ?? string.Empty} | keeping current cache");
+                return null;
+            }
+
+            if (wishlist?.Success != true)
+            {
+                logger.Info($"[Steam My Wishlist] unavailable | error={wishlist?.Error ?? "unknown"} | finalUrl={wishlist?.FinalUrl ?? string.Empty} | keeping current cache");
+                return null;
+            }
+
+            if (wishlist.LoadedFromWebApi != true && !IsSteamWishlistFinalUrlValid(wishlist.FinalUrl, steamId))
+            {
+                logger.Info($"[Steam My Wishlist] rejected invalid wishlist page | finalUrl={wishlist.FinalUrl ?? string.Empty} | steamId={steamId} | keeping current cache");
+                return null;
+            }
+
+            var orderedAppIds = (wishlist.OrderedAppIds != null && wishlist.OrderedAppIds.Count > 0
+                    ? wishlist.OrderedAppIds
+                    : (wishlist.AppIds ?? new HashSet<int>()).ToList())
+                .Where(x => x > 0)
+                .Distinct()
+                .Take(20)
+                .ToList();
+
+            logger.Info($"[Steam My Wishlist] loaded appids | source={(wishlist.LoadedFromWebApi ? "web-api" : "store-page")} | total={wishlist.AppIds?.Count ?? 0} | selected={orderedAppIds.Count} | finalUrl={wishlist.FinalUrl}");
+
+            if (personalizationContext != null)
+            {
+                foreach (var appId in wishlist.AppIds ?? new HashSet<int>())
+                {
+                    if (appId > 0)
+                    {
+                        personalizationContext.WishlistSteamAppIds.Add(appId);
+                    }
+                }
+            }
+
+            var rank = 0;
+            foreach (var appId in orderedAppIds)
+            {
+                rank++;
+                var item = new SteamStoreItem
+                {
+                    AppId = appId,
+                    Name = "Steam App " + appId.ToString(CultureInfo.InvariantCulture),
+                    StoreUrl = BuildSteamAppStoreUrl(appId),
+                    Source = "Steam User Wishlist",
+                    SteamRank = rank,
+                    IsInWishlist = true
+                };
+
+                try
+                {
+                    await steamStoreService.EnrichStoreItemDetailsAsync(
+                        item,
+                        language,
+                        region,
+                        downloadMedia: false
+                    ).ConfigureAwait(false);
+
+                    if (steamStorePersonalizationService != null && steamStorePersonalizationService.LooksLikeNonGameContent(item))
+                    {
+                        logger.Info($"[Steam My Wishlist] dropped non-game | {item.Name} | AppId={item.AppId} | type={item.AppType}");
+                        continue;
+                    }
+
+                    item.IsInWishlist = true;
+                    result.Add(item);
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, $"[Steam My Wishlist] failed to enrich AppId={appId}");
+                }
+
+                if (reportProgress != null)
+                {
+                    reportProgress(Math.Min(95, 20 + (int)Math.Round((rank / Math.Max(1.0, orderedAppIds.Count)) * 65)));
+                }
+            }
+
+            result = PersonalizeSteamStoreSection(result, personalizationContext, "MyWishlist", 20)
+                .Take(20)
+                .ToList();
+
+            if (orderedAppIds.Count > 0 && result.Count == 0)
+            {
+                logger.Info("[Steam My Wishlist] all item enrichments failed | keeping current cache.");
+                return null;
+            }
+
+            foreach (var item in result)
+            {
+                item.IsInWishlist = true;
+            }
+
+            await steamStoreService.CacheStoreListImagesForSectionAsync(
+                result,
+                "STORE My Wishlist",
+                language,
+                region
+            ).ConfigureAwait(false);
+
+            await steamStoreService.SaveUserWishlistCacheAsync(
+                GetSteamMyWishlistCacheKey(),
+                language,
+                region,
+                result
+            ).ConfigureAwait(false);
+
+            await ProcessWishlistNotificationsAsync(result).ConfigureAwait(false);
+
+            logger.Info($"[Steam My Wishlist] cache saved | count={result.Count} | key={GetSteamMyWishlistCacheKey()}");
+            return result;
+        }
+
+        private async Task ProcessWishlistNotificationsAsync(List<SteamStoreItem> wishlistItems)
+        {
+            try
+            {
+                var items = (wishlistItems ?? new List<SteamStoreItem>())
+                    .Where(x => x != null && x.AppId > 0)
+                    .Take(20)
+                    .ToList();
+
+                if (items.Count == 0)
+                {
+                    return;
+                }
+
+                var cache = await LoadWishlistNotificationCacheAsync().ConfigureAwait(false);
+                var isFirstScan = cache == null || cache.Items == null || cache.Items.Count == 0;
+                if (cache == null)
+                {
+                    cache = new WishlistNotificationCacheRoot();
+                }
+
+                var byAppId = (cache.Items ?? new List<WishlistNotificationCacheItem>())
+                    .Where(x => x != null && x.AppId > 0)
+                    .GroupBy(x => x.AppId)
+                    .ToDictionary(x => x.Key, x => x.First());
+
+                var notificationsSent = 0;
+
+                foreach (var item in items)
+                {
+                    WishlistNotificationCacheItem oldEntry;
+                    byAppId.TryGetValue(item.AppId, out oldEntry);
+
+                    if (!isFirstScan && oldEntry != null && notificationsSent < MaxWishlistNotificationsPerRefresh)
+                    {
+                        var dealKey = BuildWishlistDealNotificationKey(item);
+                        if (IsWishlistDealNotificationCandidate(oldEntry, item, dealKey))
+                        {
+                            var discount = item.DiscountPercent > 0
+                                ? "-" + item.DiscountPercent.ToString(CultureInfo.InvariantCulture) + "%"
+                                : item.DiscountDisplay ?? string.Empty;
+
+                            ShowGlobalToast(
+                                LocFormat("LOCWishlistDealToast", "{0} from your wishlist is now {1} off.", Safe(item.Name), discount),
+                                "wishlistDeal"
+                            );
+
+                            oldEntry.LastDealNotifiedKey = dealKey;
+                            notificationsSent++;
+                        }
+                    }
+
+                    if (!isFirstScan && oldEntry != null && notificationsSent < MaxWishlistNotificationsPerRefresh)
+                    {
+                        if (IsWishlistReleaseNotificationCandidate(oldEntry, item))
+                        {
+                            ShowGlobalToast(
+                                LocFormat("LOCWishlistReleasedToast", "{0} from your wishlist is now available.", Safe(item.Name)),
+                                "wishlistReleased"
+                            );
+
+                            oldEntry.ReleaseNotified = true;
+                            notificationsSent++;
+                        }
+                    }
+
+                    byAppId[item.AppId] = BuildWishlistNotificationCacheItem(item, oldEntry);
+                }
+
+                cache.LastUpdatedUtc = DateTime.UtcNow;
+                cache.Items = byAppId.Values
+                    .Where(x => x != null && x.AppId > 0)
+                    .OrderByDescending(x => x.LastSeenUtc)
+                    .Take(200)
+                    .ToList();
+
+                await SaveWishlistNotificationCacheAsync(cache).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Wishlist Notify] Failed to process wishlist notifications.");
+            }
+        }
+
+        private bool IsWishlistDealNotificationCandidate(WishlistNotificationCacheItem oldEntry, SteamStoreItem item, string dealKey)
+        {
+            if (oldEntry == null || item == null || string.IsNullOrWhiteSpace(dealKey))
+            {
+                return false;
+            }
+
+            if (!IsSteamStoreGameItem(item))
+            {
+                return false;
+            }
+
+            if (item.DiscountPercent <= 0 || oldEntry.LastDiscountPercent > 0)
+            {
+                return false;
+            }
+
+            return !string.Equals(oldEntry.LastDealNotifiedKey, dealKey, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsWishlistReleaseNotificationCandidate(WishlistNotificationCacheItem oldEntry, SteamStoreItem item)
+        {
+            if (oldEntry == null || item == null || oldEntry.ReleaseNotified)
+            {
+                return false;
+            }
+
+            if (!IsSteamStoreGameItem(item))
+            {
+                return false;
+            }
+
+            var wasUnreleased = oldEntry.WasComingSoon || oldEntry.WasPreorder;
+            var nowReleased = !item.ComingSoon && !item.IsPreorder;
+
+            if (!wasUnreleased || !nowReleased)
+            {
+                return false;
+            }
+
+            if (!IsWishlistReleaseDateSafeForNotification(item.ReleaseDateDisplay, item))
+            {
+                logger.Info($"[Wishlist Notify] release candidate rejected | AppId={item.AppId} | Name={item.Name} | Release='{item.ReleaseDateDisplay}' | ComingSoon={item.ComingSoon} | Preorder={item.IsPreorder}");
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsSteamStoreGameItem(SteamStoreItem item)
+        {
+            return item != null && string.Equals(item.AppType ?? string.Empty, "game", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsWishlistReleaseDateSafeForNotification(string releaseDateDisplay, SteamStoreItem item)
+        {
+            var text = (releaseDateDisplay ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return !string.IsNullOrWhiteSpace(item?.FinalPriceDisplay) || item?.DiscountPercent > 0;
+            }
+
+            var lower = text.ToLowerInvariant();
+            var blockedTokens = new[]
+            {
+                "coming soon", "coming", "soon", "tba", "tbd", "to be announced",
+                "wishlist now", "announce", "announced", "quarter", "q1", "q2", "q3", "q4"
+            };
+
+            if (blockedTokens.Any(x => lower.IndexOf(x, StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return false;
+            }
+
+            var currentYear = DateTime.Now.Year;
+            foreach (Match match in Regex.Matches(text, @"\b(20\d{2}|19\d{2})\b"))
+            {
+                int year;
+                if (int.TryParse(match.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out year))
+                {
+                    if (Regex.IsMatch(text.Trim(), @"^(20\d{2}|19\d{2})$"))
+                    {
+                        return false;
+                    }
+
+                    if (year > currentYear)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            DateTime parsed;
+            if (DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out parsed) ||
+                DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out parsed))
+            {
+                return parsed.Date <= DateTime.Now.Date.AddDays(1);
+            }
+
+            return true;
+        }
+
+        private string BuildWishlistDealNotificationKey(SteamStoreItem item)
+        {
+            if (item == null || item.AppId <= 0 || item.DiscountPercent <= 0)
+            {
+                return string.Empty;
+            }
+
+            return string.Join(
+                ":",
+                item.AppId.ToString(CultureInfo.InvariantCulture),
+                item.DiscountPercent.ToString(CultureInfo.InvariantCulture),
+                (item.FinalPriceDisplay ?? string.Empty).Trim()
+            );
+        }
+
+        private WishlistNotificationCacheItem BuildWishlistNotificationCacheItem(SteamStoreItem item, WishlistNotificationCacheItem previous)
+        {
+            previous = previous ?? new WishlistNotificationCacheItem();
+            previous.AppId = item.AppId;
+            previous.Name = item.Name ?? string.Empty;
+            previous.LastDiscountPercent = item.DiscountPercent;
+            previous.LastFinalPriceDisplay = item.FinalPriceDisplay ?? string.Empty;
+            previous.WasComingSoon = item.ComingSoon;
+            previous.WasPreorder = item.IsPreorder;
+            previous.LastReleaseDateDisplay = item.ReleaseDateDisplay ?? string.Empty;
+            previous.LastSeenUtc = DateTime.UtcNow;
+            return previous;
+        }
+
+        private string GetWishlistNotificationCachePath()
+        {
+            return Path.Combine(GetPluginUserDataPath(), "SteamStore", "WishlistNotificationCache.json");
+        }
+
+        private async Task<WishlistNotificationCacheRoot> LoadWishlistNotificationCacheAsync()
+        {
+            try
+            {
+                var path = GetWishlistNotificationCachePath();
+                if (!File.Exists(path))
+                {
+                    return null;
+                }
+
+                var json = await Task.Run(() => File.ReadAllText(path)).ConfigureAwait(false);
+                return await Task.Run(() => JsonConvert.DeserializeObject<WishlistNotificationCacheRoot>(json)).ConfigureAwait(false);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private async Task SaveWishlistNotificationCacheAsync(WishlistNotificationCacheRoot cache)
+        {
+            try
+            {
+                var path = GetWishlistNotificationCachePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var json = await Task.Run(() => JsonConvert.SerializeObject(cache ?? new WishlistNotificationCacheRoot(), Formatting.Indented)).ConfigureAwait(false);
+                await Task.Run(() => File.WriteAllText(path, json)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Wishlist Notify] Failed to save wishlist notification cache.");
+            }
+        }
+
+        private sealed class WishlistNotificationCacheRoot
+        {
+            public DateTime LastUpdatedUtc { get; set; }
+            public List<WishlistNotificationCacheItem> Items { get; set; } = new List<WishlistNotificationCacheItem>();
+        }
+
+        private sealed class WishlistNotificationCacheItem
+        {
+            public int AppId { get; set; }
+            public string Name { get; set; }
+            public int LastDiscountPercent { get; set; }
+            public string LastFinalPriceDisplay { get; set; }
+            public bool WasComingSoon { get; set; }
+            public bool WasPreorder { get; set; }
+            public string LastReleaseDateDisplay { get; set; }
+            public string LastDealNotifiedKey { get; set; }
+            public bool ReleaseNotified { get; set; }
+            public DateTime LastSeenUtc { get; set; }
+        }
+
+        private async Task<List<SteamStoreItem>> RefreshSteamStoreForYouFromSteamAsync(
+            SteamStorePersonalizationContext personalizationContext,
+            SteamRecommendationProfile recommendationProfile,
+            string language,
+            string region,
+            Action<int> reportProgress,
+            bool allowVisibleStoreUiRebuild = true)
+        {
+            if (steamAccountSessionService == null || steamStoreRecommendationService == null)
+            {
+                return null;
+            }
+
+            var page = await steamAccountSessionService.GetRecommendedPageHtmlAsync(language, region, CancellationToken.None).ConfigureAwait(false);
+            if (page?.Session != null)
+            {
+                ApplySteamAccountSession(page.Session, page.Success ? "Connected to Steam." : page.Error, allowVisibleStoreUiRebuild);
+            }
+
+            if (page?.Success != true || string.IsNullOrWhiteSpace(page.Html))
+            {
+                logger.Info($"[Steam Recommender] unavailable | error={page?.Error ?? "unknown"} | finalUrl={page?.FinalUrl ?? string.Empty} | keeping current cache");
+                return null;
+            }
+
+            logger.Info($"[Steam Recommender] connected page loaded | finalUrl={page.FinalUrl} | html={page.Html.Length}");
+
+            // Build-safe strict mode:
+            // Do not call Steam wishlistdata here. For You now uses Steam Interactive Recommender first.
+            // If strict filters leave too few games, /recommended/ is used only as a low-priority supplement.
+            logger.Info("[Steam Recommender] wishlistdata disabled | recommender-primary strict mode v5");
+
+            var cacheKey = GetSteamForYouCacheKey(recommendationProfile);
+            var primaryItems = await steamStoreRecommendationService.RefreshFromSteamRecommendedHtmlAsync(
+                page.Html,
+                personalizationContext,
+                cacheKey,
+                language,
+                region,
+                reportProgress
+            ).ConfigureAwait(false);
+
+            if (primaryItems != null && primaryItems.Count >= 18)
+            {
+                return primaryItems;
+            }
+
+            logger.Info($"[Steam Recommender] primary below target | count={primaryItems?.Count ?? 0} | target=18 | trying /recommended/ supplement");
+
+            var supplementPage = await steamAccountSessionService.GetRecommendedFeedPageHtmlAsync(language, region, CancellationToken.None).ConfigureAwait(false);
+            if (supplementPage?.Session != null)
+            {
+                ApplySteamAccountSession(supplementPage.Session, supplementPage.Success ? "Connected to Steam." : supplementPage.Error, allowVisibleStoreUiRebuild);
+            }
+
+            if (supplementPage?.Success != true || string.IsNullOrWhiteSpace(supplementPage.Html))
+            {
+                logger.Info($"[Steam Recommended Supplement] unavailable | error={supplementPage?.Error ?? "unknown"} | finalUrl={supplementPage?.FinalUrl ?? string.Empty}");
+
+                if (primaryItems != null && primaryItems.Count > 0)
+                {
+                    return primaryItems;
+                }
+
+                logger.Info("[Steam Recommender] refresh produced no usable items | keeping current cache.");
+                return null;
+            }
+
+            logger.Info($"[Steam Recommended Supplement] connected page loaded | finalUrl={supplementPage.FinalUrl} | html={supplementPage.Html.Length}");
+
+            var finalItems = await steamStoreRecommendationService.FillFromSteamRecommendedFeedHtmlAsync(
+                supplementPage.Html,
+                primaryItems ?? new List<SteamStoreItem>(),
+                personalizationContext,
+                cacheKey,
+                language,
+                region,
+                reportProgress
+            ).ConfigureAwait(false);
+
+            if (finalItems == null || finalItems.Count == 0)
+            {
+                logger.Info("[Steam Recommender] refresh produced no usable items | keeping current cache.");
+                return null;
+            }
+
+            return finalItems;
         }
 
         public string GetResolvedSteamStoreLanguage()
@@ -5845,6 +8856,31 @@ namespace AnikiHelper
                 return null;
             }
 
+            var headerImageUrl = !string.IsNullOrWhiteSpace(item.HeaderImage)
+                ? item.HeaderImage
+                : item.CapsuleImageUrl;
+
+            var headerImageLocalPath = !string.IsNullOrWhiteSpace(item.HeaderImageLocalPath)
+                ? item.HeaderImageLocalPath
+                : item.CapsuleImageLocalPath;
+
+            // The Store UI is mostly designed around wide Steam headers. Keep capsule as fallback only.
+            var capsuleImageUrl = !string.IsNullOrWhiteSpace(headerImageUrl)
+                ? headerImageUrl
+                : item.CapsuleImageUrl;
+
+            var capsuleImageLocalPath = !string.IsNullOrWhiteSpace(headerImageLocalPath)
+                ? headerImageLocalPath
+                : item.CapsuleImageLocalPath;
+
+            var backgroundImageLocalPath = !string.IsNullOrWhiteSpace(item.BackgroundImageLocalPath)
+                ? item.BackgroundImageLocalPath
+                : headerImageLocalPath;
+
+            var backgroundImageUrl = !string.IsNullOrWhiteSpace(item.BackgroundImageUrl)
+                ? item.BackgroundImageUrl
+                : headerImageUrl;
+
             return new SteamStoreItem
             {
                 AppId = item.AppId,
@@ -5852,34 +8888,26 @@ namespace AnikiHelper
                 StoreUrl = item.StoreUrl,
                 Source = item.Source,
 
-                HeaderImageUrl = !string.IsNullOrWhiteSpace(item.HeaderImage)
-                    ? item.HeaderImage
-                    : item.CapsuleImageUrl,
+                HeaderImageUrl = headerImageUrl,
+                HeaderImageLocalPath = headerImageLocalPath,
 
-                HeaderImageLocalPath = !string.IsNullOrWhiteSpace(item.HeaderImageLocalPath)
-                    ? item.HeaderImageLocalPath
-                    : item.CapsuleImageLocalPath,
+                CapsuleImageUrl = capsuleImageUrl,
+                CapsuleImageLocalPath = capsuleImageLocalPath,
 
-                CapsuleImageUrl = !string.IsNullOrWhiteSpace(item.CapsuleImageUrl)
-                    ? item.CapsuleImageUrl
-                    : item.HeaderImage,
-
-                CapsuleImageLocalPath = !string.IsNullOrWhiteSpace(item.CapsuleImageLocalPath)
-                    ? item.CapsuleImageLocalPath
-                    : item.HeaderImageLocalPath,
-
-                BackgroundImageUrl = item.BackgroundImageUrl,
-                BackgroundImageLocalPath = item.BackgroundImageLocalPath,
+                BackgroundImageUrl = backgroundImageUrl,
+                BackgroundImageLocalPath = backgroundImageLocalPath,
 
                 ShortDescription = item.ShortDescription,
                 ReleaseDateDisplay = item.ReleaseDateDisplay,
                 FinalPriceDisplay = item.FinalPriceDisplay,
                 OriginalPriceDisplay = item.OriginalPriceDisplay,
                 DiscountDisplay = item.DiscountDisplay,
+                SteamRank = item.SteamRank,
                 ComingSoon = item.ComingSoon,
                 IsPreorder = item.IsPreorder,
                 Genres = item.Genres ?? new List<string>(),
                 Categories = item.Categories ?? new List<string>(),
+                Tags = item.Tags ?? new List<string>(),
                 Developers = item.Developers ?? new List<string>(),
                 Publishers = item.Publishers ?? new List<string>(),
                 Screenshot1Url = item.Screenshot1Url,
@@ -5895,6 +8923,1865 @@ namespace AnikiHelper
             };
         }
 
+
+        private SteamRecommendationProfile BuildSteamRecommendationProfile()
+        {
+            try
+            {
+                var games = PlayniteApi?.Database?.Games?.ToList() ?? new List<Playnite.SDK.Models.Game>();
+                if (Settings?.IncludeHidden != true)
+                {
+                    games = games.Where(g => g != null && g.Hidden != true).ToList();
+                }
+
+                if (games.Count == 0)
+                {
+                    return null;
+                }
+
+                List<Playnite.SDK.Models.Game> refTop3;
+                var refGame = GetOrSelectRefGameForToday(games, out refTop3);
+                if (refGame == null)
+                {
+                    return null;
+                }
+
+                var seedGames = new List<Playnite.SDK.Models.Game>();
+
+                // Recommended / For You should be based on the first 3 reference games,
+                // not only the single sticky RefGame of the day.
+                // Put refTop3 first so the three strongest recent/reference games drive the profile.
+                if (refTop3 != null)
+                {
+                    foreach (var game in refTop3.Take(3))
+                    {
+                        AddRecommendationSeedGame(seedGames, game);
+                    }
+                }
+
+                // Keep the sticky ref game as fallback, or as a 4th seed if it was not part of top3.
+                AddRecommendationSeedGame(seedGames, refGame);
+
+                if (seedGames.Count == 0)
+                {
+                    return null;
+                }
+
+                var profileSeeds = seedGames.Take(3).ToList();
+
+                var genres = new List<string>();
+                var tags = new List<string>();
+                var developers = new List<string>();
+                var publishers = new List<string>();
+
+                foreach (var game in profileSeeds)
+                {
+                    genres.AddRange(GetGenreNames(game));
+                    tags.AddRange(GetTagNames(game).Where(IsUsefulProfileTag));
+                    developers.AddRange(GetDeveloperNames(game));
+                    publishers.AddRange(GetPublisherNames(game));
+                }
+
+                var referenceNames = profileSeeds
+                    .Select(g => Safe(g?.Name))
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var profile = new SteamRecommendationProfile
+                {
+                    ReferenceName = referenceNames.FirstOrDefault() ?? Safe(refGame.Name),
+                    ReferenceNames = referenceNames,
+                    Genres = GetSpecificKeywords(genres)
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(14)
+                        .ToList(),
+                    Tags = GetSpecificKeywords(tags)
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(18)
+                        .ToList(),
+                    Developers = developers
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(6)
+                        .ToList(),
+                    Publishers = publishers
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(6)
+                        .ToList(),
+                    OwnedSteamAppIds = GetOwnedSteamAppIds(games),
+                    OwnedNormalizedNames = GetOwnedNormalizedGameNames(games),
+                    SeedSteamAppIds = GetRecommendationSeedAppIds(profileSeeds),
+                    SeedSourceNames = referenceNames
+                };
+
+                // Real buy recommendations: keep each of the Top 3 games as a separate weighted signal.
+                // This avoids one vague tag like "story rich" or "point and click" taking over the whole profile.
+                profile.SearchTermWeights = BuildSteamRecommendationTermWeights(profileSeeds);
+                profile.FamilyWeights = BuildSteamRecommendationFamilyWeights(profileSeeds);
+                profile.PreferredFamilies = profile.FamilyWeights
+                    .OrderByDescending(x => x.Value)
+                    .Select(x => x.Key)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Take(4)
+                    .ToList();
+                profile.Family = SelectDominantRecommendationFamily(profile.FamilyWeights);
+
+                profile.SearchTerms = BuildSteamRecommendationSearchTerms(profile);
+                if (profile.SearchTerms.Count == 0 && (profile.SeedSteamAppIds == null || profile.SeedSteamAppIds.Count == 0))
+                {
+                    return null;
+                }
+
+                profile.CacheKey = BuildSteamRecommendationCacheKey(profile);
+
+                var profileLogKey = profile.CacheKey + "|" + string.Join(",", profile.SeedSteamAppIds ?? new List<int>());
+                if (!string.Equals(lastLoggedSteamRecommendationProfileKey, profileLogKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    lastLoggedSteamRecommendationProfileKey = profileLogKey;
+                    // Quiet by default: this profile can be rebuilt several times by Hub/Store bindings.
+                }
+
+                return profile;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to build Steam recommendation profile.");
+                return null;
+            }
+        }
+
+
+        private List<int> GetRecommendationSeedAppIds(IEnumerable<Playnite.SDK.Models.Game> seedGames)
+        {
+            var result = new List<int>();
+
+            foreach (var game in seedGames ?? Enumerable.Empty<Playnite.SDK.Models.Game>())
+            {
+                var appId = TryGetKnownSteamAppId(game);
+                if (appId > 0 && !result.Contains(appId))
+                {
+                    result.Add(appId);
+                }
+            }
+
+            return result;
+        }
+
+        private int TryGetKnownSteamAppId(Playnite.SDK.Models.Game game)
+        {
+            if (game == null)
+            {
+                return 0;
+            }
+
+            try
+            {
+                var direct = GetSteamGameId(game);
+                if (int.TryParse(direct, out var directAppId) && directAppId > 0)
+                {
+                    return directAppId;
+                }
+
+                var cached = GetCachedSteamAppId(game);
+                if (int.TryParse(cached, out var cachedAppId) && cachedAppId > 0)
+                {
+                    return cachedAppId;
+                }
+            }
+            catch
+            {
+            }
+
+            return 0;
+        }
+
+        private string GetCachedSteamAppId(Playnite.SDK.Models.Game game)
+        {
+            if (game == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                SteamAppIdMappingEntry cached = null;
+
+                lock (steamAppIdMappingCacheLock)
+                {
+                    steamAppIdMappingCache.TryGetValue(game.Id, out cached);
+                }
+
+                if (cached != null &&
+                    !string.IsNullOrWhiteSpace(cached.SteamAppId) &&
+                    cached.ResolvedAtUtc != DateTime.MinValue &&
+                    DateTime.UtcNow - cached.ResolvedAtUtc < SteamAppIdMappingCacheDuration)
+                {
+                    return cached.SteamAppId;
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private void AddRecommendationSeedGame(List<Playnite.SDK.Models.Game> seedGames, Playnite.SDK.Models.Game game)
+        {
+            if (seedGames == null || game == null)
+            {
+                return;
+            }
+
+            if (seedGames.Any(x => x != null && x.Id == game.Id))
+            {
+                return;
+            }
+
+            seedGames.Add(game);
+        }
+
+        private Dictionary<string, int> BuildSteamRecommendationTermWeights(List<Playnite.SDK.Models.Game> seedGames)
+        {
+            var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (seedGames == null || seedGames.Count == 0)
+            {
+                return result;
+            }
+
+            var weights = new[] { 100, 70, 55 };
+
+            for (var i = 0; i < seedGames.Count && i < 3; i++)
+            {
+                var game = seedGames[i];
+                if (game == null)
+                {
+                    continue;
+                }
+
+                var weight = weights[Math.Min(i, weights.Length - 1)];
+                foreach (var term in BuildSteamRecommendationTermsForSeedGame(game))
+                {
+                    AddWeightedSteamRecommendationTerm(result, term, weight);
+                }
+            }
+
+            // If action signals are present, do not let point & click dominate the whole profile.
+            var hasAction = result.Keys.Any(IsActionRecommendationTerm);
+            if (hasAction && result.ContainsKey("point and click"))
+            {
+                result["point and click"] = Math.Min(result["point and click"], 35);
+            }
+
+            return result;
+        }
+
+        private Dictionary<string, int> BuildSteamRecommendationFamilyWeights(List<Playnite.SDK.Models.Game> seedGames)
+        {
+            var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (seedGames == null || seedGames.Count == 0)
+            {
+                return result;
+            }
+
+            var weights = new[] { 100, 70, 55 };
+
+            for (var i = 0; i < seedGames.Count && i < 3; i++)
+            {
+                var game = seedGames[i];
+                if (game == null)
+                {
+                    continue;
+                }
+
+                var family = DetectRecommendationSeedFamily(game);
+                if (string.IsNullOrWhiteSpace(family) || string.Equals(family, "generic", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var weight = weights[Math.Min(i, weights.Length - 1)];
+                if (!result.ContainsKey(family))
+                {
+                    result[family] = 0;
+                }
+
+                result[family] += weight;
+            }
+
+            return result;
+        }
+
+        private string SelectDominantRecommendationFamily(Dictionary<string, int> familyWeights)
+        {
+            if (familyWeights == null || familyWeights.Count == 0)
+            {
+                return "generic";
+            }
+
+            var ordered = familyWeights
+                .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+                .OrderByDescending(x => x.Value)
+                .ToList();
+
+            if (ordered.Count == 0)
+            {
+                return "generic";
+            }
+
+            if (ordered.Count == 1)
+            {
+                return ordered[0].Key;
+            }
+
+            // If the top family is clearly dominant, use it. Otherwise keep it mixed to avoid hard tunnel vision.
+            if (ordered[0].Value >= ordered[1].Value * 1.45)
+            {
+                return ordered[0].Key;
+            }
+
+            return "mixed";
+        }
+
+        private List<string> BuildSteamRecommendationTermsForSeedGame(Playnite.SDK.Models.Game game)
+        {
+            var result = new List<string>();
+            if (game == null)
+            {
+                return result;
+            }
+
+            var metadataValues = new List<string>();
+            metadataValues.AddRange(GetGenreNames(game));
+            metadataValues.AddRange(GetTagNames(game).Where(IsUsefulProfileTag));
+
+            var values = new List<string>();
+            values.Add(Safe(game.Name));
+            values.AddRange(metadataValues);
+
+            var text = NormalizeTextForGenre(string.Join(" | ", values));
+
+            var hasActionAdventure = ContainsAnyRecommendationSignal(text,
+                "action et aventure", "action aventure", "action adventure", "action-aventure");
+            var hasThirdPerson = ContainsAnyRecommendationSignal(text,
+                "3e personne", "3eme personne", "3ᵉ personne", "third person", "3rd person", "tps");
+            var hasStealth = ContainsAnyRecommendationSignal(text,
+                "infiltration", "stealth", "furtif", "assassinats", "assassination");
+            var hasShooter = ContainsAnyRecommendationSignal(text,
+                "tir", "shooter", "fps", "gun", "armes", "third person shooter");
+            var hasCombat = ContainsAnyRecommendationSignal(text,
+                "combat", "melee", "mêlée", "sword", "epee", "épée", "katana", "samurai", "onimusha");
+            var hasHackSlash = ContainsAnyRecommendationSignal(text,
+                "hack and slash", "hack n slash", "hack'n'slash", "samurai", "onimusha");
+            var hasCinematic = ContainsAnyRecommendationSignal(text,
+                "cinematic", "cinematique", "cinematographique", "cinématique", "cinématographique");
+            var hasStory = ContainsAnyRecommendationSignal(text,
+                "story rich", "scenario riche", "scénario riche", "narrative", "narratif", "riche en histoire");
+            var hasChoices = ContainsAnyRecommendationSignal(text,
+                "choices matter", "choix multiples", "choix");
+            var hasPointClick = ContainsAnyRecommendationSignal(text,
+                "point and click", "point & click", "pointer et cliquer");
+            var hasInteractive = ContainsAnyRecommendationSignal(text,
+                "interactive fiction", "fiction interactive", "aventure interactive");
+            var hasDark = ContainsAnyRecommendationSignal(text,
+                "sombre", "dark", "dark fantasy");
+
+            if (hasActionAdventure)
+            {
+                result.Add("action adventure");
+            }
+
+            if (hasThirdPerson && (hasActionAdventure || hasShooter || hasCombat))
+            {
+                result.Add(hasShooter ? "third person shooter" : "third person action");
+            }
+            else if (hasThirdPerson)
+            {
+                result.Add("third person");
+            }
+
+            if (hasStealth)
+            {
+                result.Add("stealth action");
+            }
+
+            if (hasShooter)
+            {
+                result.Add(hasThirdPerson ? "third person shooter" : "shooter");
+            }
+
+            if (hasCombat)
+            {
+                result.Add("action combat");
+            }
+
+            if (hasHackSlash)
+            {
+                result.Add("hack and slash");
+            }
+
+            if (hasCinematic && (hasActionAdventure || hasCombat || hasShooter || hasStealth))
+            {
+                result.Add("cinematic action");
+            }
+            else if (hasCinematic)
+            {
+                result.Add("story rich");
+            }
+
+            if (hasDark && (hasCombat || hasHackSlash))
+            {
+                result.Add("dark fantasy");
+            }
+
+            if (hasStory)
+            {
+                result.Add("story rich");
+            }
+
+            if (hasChoices)
+            {
+                result.Add("choices matter");
+            }
+
+            if (hasInteractive)
+            {
+                result.Add("interactive fiction");
+            }
+
+            // Point & click is useful only as a support signal. It should not dominate action/cinematic profiles.
+            if (hasPointClick && !hasActionAdventure && !hasShooter && !hasCombat)
+            {
+                result.Add("point and click");
+            }
+
+            foreach (var value in metadataValues)
+            {
+                var term = CanonicalizeSteamRecommendationSearchTerm(value);
+                if (!string.IsNullOrWhiteSpace(term) && ShouldUseSteamRecommendationSearchTerm(term))
+                {
+                    result.Add(term);
+                }
+            }
+
+            return result
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
+        }
+
+        private string DetectRecommendationSeedFamily(Playnite.SDK.Models.Game game)
+        {
+            if (game == null)
+            {
+                return "generic";
+            }
+
+            var values = new List<string>();
+            values.Add(Safe(game.Name));
+            values.AddRange(GetGenreNames(game));
+            values.AddRange(GetTagNames(game).Where(IsUsefulProfileTag));
+
+            return DetectRecommendationSignalFamily(values);
+        }
+
+        private string DetectRecommendationSignalFamily(IEnumerable<string> values)
+        {
+            var text = NormalizeTextForGenre(string.Join(" | ", values ?? Enumerable.Empty<string>()));
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return "generic";
+            }
+
+            if (ContainsAnyRecommendationSignal(text, "soulslike", "souls-like", "dark souls", "elden ring"))
+                return "souls";
+            if (ContainsAnyRecommendationSignal(text, "jrpg", "j-rpg", "tour par tour", "turn based"))
+                return "jrpg";
+            if (ContainsAnyRecommendationSignal(text, "survival horror", "psychological horror", "horreur"))
+                return "horror";
+            if (ContainsAnyRecommendationSignal(text, "action et aventure", "action aventure", "action adventure", "3e personne", "3eme personne", "third person", "infiltration", "stealth", "assassinats", "combat", "hack and slash", "onimusha", "samurai"))
+                return "action_adventure";
+            if (ContainsAnyRecommendationSignal(text, "shooter", "fps", "tps", "tir", "gun"))
+                return "shooter";
+            if (ContainsAnyRecommendationSignal(text, "story rich", "scenario riche", "scénario riche", "choices matter", "choix multiples", "point and click", "interactive fiction", "aventure interactive", "visual novel", "roman graphique"))
+                return "narrative";
+            if (ContainsAnyRecommendationSignal(text, "rogue", "roguelite", "roguelike"))
+                return "roguelite";
+            if (ContainsAnyRecommendationSignal(text, "platformer", "plateforme", "metroidvania"))
+                return "platformer";
+            if (ContainsAnyRecommendationSignal(text, "racing", "course", "voiture"))
+                return "racing";
+            if (ContainsAnyRecommendationSignal(text, "sport", "football", "basket"))
+                return "sport";
+
+            return "generic";
+        }
+
+        private bool ContainsAnyRecommendationSignal(string normalizedText, params string[] values)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedText) || values == null)
+            {
+                return false;
+            }
+
+            foreach (var value in values)
+            {
+                var n = NormalizeTextForGenre(value);
+                if (!string.IsNullOrWhiteSpace(n) && normalizedText.Contains(n))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void AddWeightedSteamRecommendationTerm(Dictionary<string, int> weights, string value, int weight)
+        {
+            if (weights == null || string.IsNullOrWhiteSpace(value) || weight <= 0)
+            {
+                return;
+            }
+
+            var term = CanonicalizeSteamRecommendationSearchTerm(value);
+            if (string.IsNullOrWhiteSpace(term) || !ShouldUseSteamRecommendationSearchTerm(term))
+            {
+                return;
+            }
+
+            if (!weights.ContainsKey(term))
+            {
+                weights[term] = 0;
+            }
+
+            weights[term] += weight;
+        }
+
+        private bool IsActionRecommendationTerm(string term)
+        {
+            var n = NormalizeTextForGenre(term);
+            return n == "action adventure" ||
+                   n == "third person action" ||
+                   n == "third person shooter" ||
+                   n == "stealth action" ||
+                   n == "cinematic action" ||
+                   n == "action combat" ||
+                   n == "hack and slash" ||
+                   n == "combat" ||
+                   n == "shooter" ||
+                   n == "dark fantasy";
+        }
+
+        private string GetRecommendationTermBucket(string term)
+        {
+            var n = NormalizeTextForGenre(term);
+            if (string.IsNullOrWhiteSpace(n))
+            {
+                return "generic";
+            }
+
+            if (n == "point and click") return "point_click";
+            if (n == "story rich" || n == "choices matter" || n == "interactive fiction" || n == "visual novel") return "narrative";
+            if (IsActionRecommendationTerm(n)) return "action";
+            if (n.Contains("horror")) return "horror";
+            if (n.Contains("racing") || n.Contains("driving")) return "racing";
+            if (n.Contains("sport")) return "sport";
+            if (n.Contains("rogue")) return "roguelite";
+            if (n.Contains("platformer") || n.Contains("metroidvania")) return "platformer";
+
+            return n;
+        }
+
+        private List<string> BuildSteamRecommendationSearchTerms(SteamRecommendationProfile profile)
+        {
+            var terms = new List<string>();
+            if (profile == null)
+            {
+                return terms;
+            }
+
+            var family = (profile.Family ?? string.Empty).ToLowerInvariant();
+
+            // Prefer weighted terms built independently from each of the Top 3 recent games.
+            // Example: 007 + Onimusha + Dispatch should produce action/stealth/combat/story terms,
+            // not collapse into one global "narrative" profile.
+            if (profile.SearchTermWeights != null && profile.SearchTermWeights.Count > 0)
+            {
+                var hasActionSignals = profile.SearchTermWeights.Keys.Any(IsActionRecommendationTerm);
+                var narrativeCount = 0;
+
+                foreach (var entry in profile.SearchTermWeights
+                    .Where(x => ShouldUseSteamRecommendationSearchTerm(x.Key))
+                    .OrderByDescending(x => x.Value)
+                    .ThenByDescending(x => GetRecommendationSearchTermPriority(x.Key, family))
+                    .ThenBy(x => x.Key))
+                {
+                    var term = entry.Key;
+                    var bucket = GetRecommendationTermBucket(term);
+
+                    // If action/stealth/combat signals exist, keep narrative terms as support, not as the whole search.
+                    if (hasActionSignals && string.Equals(bucket, "narrative", StringComparison.OrdinalIgnoreCase))
+                    {
+                        narrativeCount++;
+                        if (narrativeCount > 2)
+                        {
+                            continue;
+                        }
+                    }
+
+                    AddSteamRecommendationSearchTerm(terms, term);
+                    if (terms.Count >= 9)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (terms.Count == 0)
+            {
+                switch (family)
+                {
+                    case "action_adventure":
+                        AddSteamRecommendationSearchTerm(terms, "action adventure");
+                        AddSteamRecommendationSearchTerm(terms, "third person action");
+                        AddSteamRecommendationSearchTerm(terms, "stealth action");
+                        AddSteamRecommendationSearchTerm(terms, "cinematic action");
+                        break;
+
+                    case "souls":
+                        AddSteamRecommendationSearchTerm(terms, "soulslike");
+                        AddSteamRecommendationSearchTerm(terms, "dark fantasy");
+                        AddSteamRecommendationSearchTerm(terms, "action rpg");
+                        break;
+
+                    case "jrpg":
+                        AddSteamRecommendationSearchTerm(terms, "jrpg");
+                        AddSteamRecommendationSearchTerm(terms, "turn based rpg");
+                        AddSteamRecommendationSearchTerm(terms, "japanese rpg");
+                        break;
+
+                    case "narrative":
+                        AddSteamRecommendationSearchTerm(terms, "story rich");
+                        AddSteamRecommendationSearchTerm(terms, "choices matter");
+                        AddSteamRecommendationSearchTerm(terms, "interactive fiction");
+                        AddSteamRecommendationSearchTerm(terms, "point and click");
+                        break;
+
+                    case "horror":
+                        AddSteamRecommendationSearchTerm(terms, "survival horror");
+                        AddSteamRecommendationSearchTerm(terms, "psychological horror");
+                        break;
+
+                    case "shooter":
+                        AddSteamRecommendationSearchTerm(terms, "third person shooter");
+                        AddSteamRecommendationSearchTerm(terms, "fps");
+                        AddSteamRecommendationSearchTerm(terms, "shooter");
+                        break;
+
+                    case "roguelite":
+                        AddSteamRecommendationSearchTerm(terms, "roguelite");
+                        AddSteamRecommendationSearchTerm(terms, "roguelike");
+                        break;
+
+                    case "platformer":
+                        AddSteamRecommendationSearchTerm(terms, "metroidvania");
+                        AddSteamRecommendationSearchTerm(terms, "platformer");
+                        break;
+
+                    case "racing":
+                        AddSteamRecommendationSearchTerm(terms, "racing");
+                        AddSteamRecommendationSearchTerm(terms, "driving");
+                        break;
+
+                    case "fighting":
+                    case "anime_fight":
+                        AddSteamRecommendationSearchTerm(terms, "fighting");
+                        AddSteamRecommendationSearchTerm(terms, "versus fighting");
+                        break;
+
+                    case "sport":
+                        AddSteamRecommendationSearchTerm(terms, "sports");
+                        break;
+                }
+            }
+
+            var candidates = new List<string>();
+
+            foreach (var tag in profile.Tags ?? new List<string>())
+            {
+                AddSteamRecommendationSearchTerm(candidates, tag);
+            }
+
+            foreach (var genre in profile.Genres ?? new List<string>())
+            {
+                AddSteamRecommendationSearchTerm(candidates, genre);
+            }
+
+            var orderedCandidates = candidates
+                .Where(ShouldUseSteamRecommendationSearchTerm)
+                .OrderByDescending(x => profile.SearchTermWeights != null && profile.SearchTermWeights.ContainsKey(x) ? profile.SearchTermWeights[x] : 0)
+                .ThenByDescending(x => GetRecommendationSearchTermPriority(x, family))
+                .ThenBy(x => candidates.IndexOf(x))
+                .ToList();
+
+            foreach (var candidate in orderedCandidates)
+            {
+                AddSteamRecommendationSearchTerm(terms, candidate);
+                if (terms.Count >= 9)
+                {
+                    break;
+                }
+            }
+
+            // Developer search is only a last fallback. Otherwise small studio names often return weak/noisy matches.
+            if (terms.Count == 0)
+            {
+                foreach (var developer in (profile.Developers ?? new List<string>()).Take(1))
+                {
+                    AddSteamRecommendationSearchTerm(terms, developer);
+                }
+            }
+
+            if (terms.Count == 0)
+            {
+                AddSteamRecommendationSearchTerm(terms, profile.ReferenceName);
+            }
+
+            return terms
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(9)
+                .ToList();
+        }
+
+        private void AddSteamRecommendationSearchTerm(List<string> terms, string value)
+        {
+            if (terms == null || string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            var term = CanonicalizeSteamRecommendationSearchTerm(value);
+            if (string.IsNullOrWhiteSpace(term))
+            {
+                return;
+            }
+
+            if (term.Length < 3 || term.Length > 60)
+            {
+                return;
+            }
+
+            if (GenericGenreTagNames.Contains(term))
+            {
+                return;
+            }
+
+            if (term.StartsWith("[", StringComparison.OrdinalIgnoreCase) || term.Contains(":"))
+            {
+                return;
+            }
+
+            if (!ShouldUseSteamRecommendationSearchTerm(term))
+            {
+                return;
+            }
+
+            if (!terms.Any(x => string.Equals(x, term, StringComparison.OrdinalIgnoreCase)))
+            {
+                terms.Add(term);
+            }
+        }
+
+        private string CanonicalizeSteamRecommendationSearchTerm(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var raw = value.Trim();
+            var n = NormalizeTextForGenre(raw);
+
+            if (string.IsNullOrWhiteSpace(n))
+            {
+                return null;
+            }
+
+            if (n.Contains("third person shooter") ||
+                n.Contains("tir a la 3e personne") ||
+                n.Contains("tir a la 3eme personne") ||
+                n.Contains("tir a la 3ᵉ personne"))
+            {
+                return "third person shooter";
+            }
+
+            if (n.Contains("third person action") ||
+                n.Contains("3e personne") ||
+                n.Contains("3eme personne") ||
+                n.Contains("3ᵉ personne") ||
+                n.Contains("third person") ||
+                n.Contains("3rd person") ||
+                n.Contains("tps"))
+            {
+                return "third person action";
+            }
+
+            if (n.Contains("stealth action") || n.Contains("infiltration") || n.Contains("stealth") || n.Contains("furtif") || n.Contains("assassinat"))
+            {
+                return "stealth action";
+            }
+
+            if (n.Contains("action adventure") || n.Contains("action et aventure") || n.Contains("action aventure") || n.Contains("action-aventure"))
+            {
+                return "action adventure";
+            }
+
+            if (n.Contains("cinematic action") || n.Contains("cinematique action") || n.Contains("cinematographique action"))
+            {
+                return "cinematic action";
+            }
+
+            if (n.Contains("action combat") || n == "combat")
+            {
+                return "action combat";
+            }
+
+            if (n.Contains("third person shooter") || n == "shooter" || n == "tir")
+            {
+                return "shooter";
+            }
+
+            // Metadata that is too vague or harmful for recommendations.
+            if (n == "atmosphere" ||
+                n == "atmospheric" ||
+                n == "atmosphere riche" ||
+                n == "ambiance" ||
+                n == "singleplayer" ||
+                n == "single player" ||
+                n == "single-player" ||
+                n == "jeu solo" ||
+                n == "nudity" ||
+                n == "nudite" ||
+                n == "contenu a caractere sexuel" ||
+                n == "sexual content" ||
+                n == "adult content" ||
+                n == "action" ||
+                n == "aventure" ||
+                n == "adventure" ||
+                n == "casual" ||
+                n == "occasionnel" ||
+                n == "comic" ||
+                n == "comic book" ||
+                n == "bande dessinee" ||
+                n == "bd" ||
+                n == "serie" ||
+                n == "série")
+            {
+                return null;
+            }
+
+            if (n == "cinematic" || n == "cinematique" || n == "cinematographique")
+            {
+                return "story rich";
+            }
+
+            if (n == "multiple choices" || n == "choix multiples" || n.Contains("choices matter") || n.Contains("choix"))
+            {
+                return "choices matter";
+            }
+
+            if (n.Contains("story rich") || n.Contains("scenario riche") || n.Contains("scénario riche") || n.Contains("riche en histoire") || n.Contains("narratif") || n.Contains("narrative"))
+            {
+                return "story rich";
+            }
+
+            if (n.Contains("point and click") || n.Contains("pointer et cliquer") || n.Contains("point & click"))
+            {
+                return "point and click";
+            }
+
+            if (n.Contains("interactive fiction") || n.Contains("fiction interactive") || n.Contains("interactive adventure") || n.Contains("aventure interactive"))
+            {
+                return "interactive fiction";
+            }
+
+            if (n.Contains("visual novel"))
+            {
+                return "visual novel";
+            }
+
+            if (n.Contains("graphic novel") || n.Contains("roman graphique"))
+            {
+                return "story rich";
+            }
+
+            if (n.Contains("superhero") || n.Contains("super heros") || n.Contains("super héros") || n.Contains("superheros") || n.Contains("superhéro"))
+            {
+                return "superhero";
+            }
+
+            if (n.Contains("humor") || n.Contains("humour") || n.Contains("comedy") || n.Contains("comedie"))
+            {
+                return "comedy";
+            }
+
+            if (n.Contains("romance") || n.Contains("romantique"))
+            {
+                return "romance";
+            }
+
+            if (n.Contains("soulslike") || n.Contains("souls-like") || n.Contains("souls like"))
+            {
+                return "soulslike";
+            }
+
+            if (n.Contains("dark fantasy") || n.Contains("fantasy sombre"))
+            {
+                return "dark fantasy";
+            }
+
+            if (n.Contains("survival horror") || n.Contains("horreur survie"))
+            {
+                return "survival horror";
+            }
+
+            if (n.Contains("psychological horror") || n.Contains("horreur psychologique"))
+            {
+                return "psychological horror";
+            }
+
+            if (n.Contains("roguelite") || n.Contains("rogue-lite"))
+            {
+                return "roguelite";
+            }
+
+            if (n.Contains("roguelike") || n.Contains("rogue-like"))
+            {
+                return "roguelike";
+            }
+
+            if (n.Contains("metroidvania"))
+            {
+                return "metroidvania";
+            }
+
+            if (n.Contains("turn based") || n.Contains("tour par tour"))
+            {
+                return "turn based";
+            }
+
+            if (n.Contains("hack and slash") || n.Contains("hack'n'slash") || n.Contains("hack n slash"))
+            {
+                return "hack and slash";
+            }
+
+            return raw;
+        }
+
+
+        private bool ShouldUseSteamRecommendationSearchTerm(string term)
+        {
+            if (string.IsNullOrWhiteSpace(term))
+            {
+                return false;
+            }
+
+            var n = NormalizeTextForGenre(term);
+            if (string.IsNullOrWhiteSpace(n))
+            {
+                return false;
+            }
+
+            string[] badSearchTerms =
+            {
+                "comic book",
+                "graphic novel",
+                "art book",
+                "artbook",
+                "comedy",
+                "humor",
+                "humour",
+                "romance",
+                "singleplayer",
+                "single player",
+                "jeu solo",
+                "nudity",
+                "sexual content",
+                "demo",
+                "prologue",
+                "dlc",
+                "bundle",
+                "pack",
+                "creator",
+                "kit",
+                "tool",
+                "controller",
+                "controleur",
+                "contrôleur",
+                "3d",
+                "atmosphere",
+                "atmospheric",
+                "ambiance"
+            };
+
+            return !badSearchTerms.Any(x => string.Equals(n, x, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private int GetRecommendationSearchTermPriority(string term, string family)
+        {
+            var n = NormalizeTextForGenre(term);
+
+            if (string.IsNullOrWhiteSpace(n))
+            {
+                return 0;
+            }
+
+            if (n == "soulslike") return 120;
+            if (n == "action adventure" || n == "third person action" || n == "third person shooter") return 118;
+            if (n == "stealth action" || n == "cinematic action" || n == "action combat") return 116;
+            if (n == "survival horror" || n == "psychological horror") return 115;
+            if (n == "hack and slash") return 112;
+            if (n == "jrpg" || n == "turn based rpg") return 110;
+            if (n == "story rich") return 105;
+            if (n == "choices matter") return 100;
+            if (n == "point and click") return 95;
+            if (n == "interactive fiction") return 90;
+            if (n == "visual novel") return 88;
+            if (n == "superhero") return 84;
+            if (n == "dark fantasy" || n == "action rpg") return 80;
+            if (n == "metroidvania" || n == "roguelite" || n == "roguelike") return 78;
+            if (n == "fps" || n == "shooter") return 74;
+            if (n == "racing" || n == "sports") return 70;
+
+            return string.Equals(family, "generic", StringComparison.OrdinalIgnoreCase) ? 35 : 50;
+        }
+
+        private bool IsWeakRecommendationScoreTerm(string term)
+        {
+            if (string.IsNullOrWhiteSpace(term))
+            {
+                return true;
+            }
+
+            var n = NormalizeTextForGenre(term);
+            if (string.IsNullOrWhiteSpace(n))
+            {
+                return true;
+            }
+
+            string[] weakTerms =
+            {
+                "comic book",
+                "graphic novel",
+                "comedy",
+                "humor",
+                "humour",
+                "romance",
+                "singleplayer",
+                "single player",
+                "jeu solo",
+                "atmosphere",
+                "atmospheric",
+                "ambiance",
+                "point and click",
+                "controller",
+                "controleur",
+                "contrôleur",
+                "3d"
+            };
+
+            return weakTerms.Any(x => string.Equals(n, x, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private string BuildSteamRecommendationCacheKey(SteamRecommendationProfile profile)
+        {
+            try
+            {
+                if (profile == null)
+                {
+                    return "default";
+                }
+
+                var raw = string.Join("|", new[]
+                {
+                    string.Join(",", profile.ReferenceNames ?? new List<string>()),
+                    profile.ReferenceName ?? string.Empty,
+                    profile.Family ?? string.Empty,
+                    string.Join(",", profile.PreferredFamilies ?? new List<string>()),
+                    string.Join(",", profile.SearchTerms ?? new List<string>()),
+                    string.Join(",", profile.SeedSteamAppIds ?? new List<int>()),
+                    string.Join(",", (profile.SearchTermWeights ?? new Dictionary<string, int>()).OrderByDescending(x => x.Value).Select(x => x.Key + ":" + x.Value.ToString(CultureInfo.InvariantCulture)))
+                });
+
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    return "default";
+                }
+
+                using (var sha1 = SHA1.Create())
+                {
+                    var bytes = Encoding.UTF8.GetBytes(raw);
+                    var hash = sha1.ComputeHash(bytes);
+                    return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant().Substring(0, 16);
+                }
+            }
+            catch
+            {
+                return "default";
+            }
+        }
+
+        private static bool IsExternalWishlistOnlySource(Playnite.SDK.Models.Game game)
+        {
+            try
+            {
+                var sourceName = game?.Source?.Name ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(sourceName))
+                {
+                    return false;
+                }
+
+                sourceName = sourceName.Trim();
+                return string.Equals(sourceName, "GG.deals Wishlist", StringComparison.OrdinalIgnoreCase) ||
+                       (sourceName.IndexOf("gg.deals", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        sourceName.IndexOf("wishlist", StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private HashSet<int> GetOwnedSteamAppIds(IEnumerable<Playnite.SDK.Models.Game> games)
+        {
+            var result = new HashSet<int>();
+
+            if (games == null)
+            {
+                return result;
+            }
+
+            foreach (var game in games)
+            {
+                try
+                {
+                    // Games imported only as an external wishlist are visible in Playnite,
+                    // but they should not be treated as owned/in-library Store items.
+                    if (IsExternalWishlistOnlySource(game))
+                    {
+                        continue;
+                    }
+
+                    var appId = TryGetKnownSteamAppId(game);
+                    if (appId > 0)
+                    {
+                        result.Add(appId);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return result;
+        }
+
+        private HashSet<string> GetOwnedNormalizedGameNames(IEnumerable<Playnite.SDK.Models.Game> games)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (games == null)
+            {
+                return result;
+            }
+
+            foreach (var game in games)
+            {
+                try
+                {
+                    // Same rule as AppIds: GG.deals Wishlist entries are wishlist-only,
+                    // not real owned library entries.
+                    if (IsExternalWishlistOnlySource(game))
+                    {
+                        continue;
+                    }
+
+                    var normalized = NormalizeSteamSearchName(game?.Name);
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                    {
+                        result.Add(normalized);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return result;
+        }
+
+        private HashSet<int> GetPlayedSteamAppIds(IEnumerable<Playnite.SDK.Models.Game> games)
+        {
+            var result = new HashSet<int>();
+
+            if (games == null)
+            {
+                return result;
+            }
+
+            foreach (var game in games)
+            {
+                try
+                {
+                    if (game == null || game.Playtime == 0UL)
+                    {
+                        continue;
+                    }
+
+                    var appId = TryGetKnownSteamAppId(game);
+                    if (appId > 0)
+                    {
+                        result.Add(appId);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return result;
+        }
+
+        private HashSet<string> GetPlayedNormalizedGameNames(IEnumerable<Playnite.SDK.Models.Game> games)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (games == null)
+            {
+                return result;
+            }
+
+            foreach (var game in games)
+            {
+                try
+                {
+                    if (game == null || game.Playtime == 0UL)
+                    {
+                        continue;
+                    }
+
+                    var normalized = NormalizeSteamSearchName(game.Name);
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                    {
+                        result.Add(normalized);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return result;
+        }
+
+
+        private List<SteamStoreItem> BuildRankedSteamRecommendations(IEnumerable<SteamStoreItem> source, SteamRecommendationProfile profile)
+        {
+            var ranked = new List<SteamRecommendationRankedCandidate>();
+
+            if (source == null || profile == null)
+            {
+                return new List<SteamStoreItem>();
+            }
+
+            foreach (var item in source.Where(x => x != null))
+            {
+                if (item.AppId <= 0 || string.IsNullOrWhiteSpace(item.Name))
+                {
+                    continue;
+                }
+
+                if (profile.OwnedSteamAppIds != null && profile.OwnedSteamAppIds.Contains(item.AppId))
+                {
+                    continue;
+                }
+
+                var normalizedName = NormalizeSteamSearchName(item.Name);
+                if (!string.IsNullOrWhiteSpace(normalizedName) &&
+                    profile.OwnedNormalizedNames != null &&
+                    profile.OwnedNormalizedNames.Contains(normalizedName))
+                {
+                    continue;
+                }
+
+                if (LooksBlockedSteamRecommendation(item))
+                {
+                    continue;
+                }
+
+                var score = ScoreSteamRecommendation(item, profile);
+                var minScore = string.Equals(profile.Family, "generic", StringComparison.OrdinalIgnoreCase)
+                    ? 55
+                    : 65;
+
+                if (score < minScore)
+                {
+                    logger.Info($"[Recommended] Skip low score | score={score} < {minScore} | {item.Name} | reasons={BuildSteamRecommendationReason(item, profile, score)}");
+                    continue;
+                }
+
+                item.Source = "Steam Recommended For You";
+
+                ranked.Add(new SteamRecommendationRankedCandidate
+                {
+                    Item = item,
+                    Score = score
+                });
+            }
+
+            var ordered = ranked
+                .OrderByDescending(x => x.Score)
+                .ThenBy(x => x.Item?.SteamRank <= 0 ? int.MaxValue : x.Item.SteamRank)
+                .ThenByDescending(x => x.Item?.RecommendationsTotal ?? 0)
+                .ThenByDescending(x => x.Item?.DiscountPercent ?? 0)
+                .ThenBy(x => x.Item?.Name ?? string.Empty)
+                .ToList();
+
+            var selected = DiversifySteamRecommendationResults(ordered, profile, 12);
+
+            var rank = 1;
+            foreach (var candidate in selected)
+            {
+                logger.Info(
+                    $"[Recommended] Result #{rank} | score={candidate.Score} | {candidate.Item?.Name} | reasons={BuildSteamRecommendationReason(candidate.Item, profile, candidate.Score)}"
+                );
+                rank++;
+            }
+
+            return selected
+                .Select(x => x.Item)
+                .Where(x => x != null)
+                .ToList();
+        }
+
+        private List<SteamRecommendationRankedCandidate> DiversifySteamRecommendationResults(List<SteamRecommendationRankedCandidate> ordered, SteamRecommendationProfile profile, int maxResults)
+        {
+            var selected = new List<SteamRecommendationRankedCandidate>();
+            var bucketCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var selectedAppIds = new HashSet<int>();
+
+            foreach (var candidate in ordered ?? new List<SteamRecommendationRankedCandidate>())
+            {
+                if (candidate?.Item == null || selectedAppIds.Contains(candidate.Item.AppId))
+                {
+                    continue;
+                }
+
+                var bucket = GetSteamRecommendationCandidateBucket(candidate.Item, profile);
+                var maxForBucket = string.Equals(bucket, "point_click", StringComparison.OrdinalIgnoreCase) ? 1 : 3;
+
+                if (!bucketCounts.ContainsKey(bucket))
+                {
+                    bucketCounts[bucket] = 0;
+                }
+
+                if (bucketCounts[bucket] >= maxForBucket)
+                {
+                    continue;
+                }
+
+                selected.Add(candidate);
+                selectedAppIds.Add(candidate.Item.AppId);
+                bucketCounts[bucket]++;
+
+                if (selected.Count >= maxResults)
+                {
+                    return selected;
+                }
+            }
+
+            // Fill with remaining strong candidates if diversity caps made the list too short.
+            foreach (var candidate in ordered ?? new List<SteamRecommendationRankedCandidate>())
+            {
+                if (candidate?.Item == null || selectedAppIds.Contains(candidate.Item.AppId))
+                {
+                    continue;
+                }
+
+                selected.Add(candidate);
+                selectedAppIds.Add(candidate.Item.AppId);
+
+                if (selected.Count >= maxResults)
+                {
+                    break;
+                }
+            }
+
+            return selected;
+        }
+
+        private string GetSteamRecommendationCandidateBucket(SteamStoreItem item, SteamRecommendationProfile profile)
+        {
+            if (item == null || profile == null)
+            {
+                return "generic";
+            }
+
+            var itemTextParts = BuildSteamRecommendationTextParts(item);
+            var matchedTerm = (profile.SearchTerms ?? new List<string>())
+                .Where(x => SteamRecommendationContainsKeyword(itemTextParts, x))
+                .OrderByDescending(x => GetRecommendationTermWeight(profile, x))
+                .FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(matchedTerm))
+            {
+                return GetRecommendationTermBucket(matchedTerm);
+            }
+
+            return DetectRecommendationSignalFamily(itemTextParts);
+        }
+
+        private List<string> BuildSteamRecommendationTextParts(SteamStoreItem item)
+        {
+            var result = new List<string>();
+            if (item == null)
+            {
+                return result;
+            }
+
+            result.Add(item.Name ?? string.Empty);
+            result.Add(item.ShortDescription ?? string.Empty);
+            result.AddRange(item.Genres ?? new List<string>());
+            result.AddRange(item.Categories ?? new List<string>());
+            result.AddRange(item.Tags ?? new List<string>());
+            result.AddRange(item.Developers ?? new List<string>());
+            result.AddRange(item.Publishers ?? new List<string>());
+            return result;
+        }
+
+        private int GetRecommendationTermWeight(SteamRecommendationProfile profile, string term)
+        {
+            if (profile?.SearchTermWeights != null && !string.IsNullOrWhiteSpace(term) && profile.SearchTermWeights.ContainsKey(term))
+            {
+                return profile.SearchTermWeights[term];
+            }
+
+            return GetRecommendationSearchTermPriority(term, profile?.Family ?? string.Empty);
+        }
+
+        private int CountStrongRecommendationTermMatches(SteamStoreItem item, SteamRecommendationProfile profile)
+        {
+            if (item == null || profile == null)
+            {
+                return 0;
+            }
+
+            var itemTextParts = BuildSteamRecommendationTextParts(item);
+            var count = 0;
+
+            foreach (var term in profile.SearchTerms ?? new List<string>())
+            {
+                if (IsWeakRecommendationScoreTerm(term))
+                {
+                    continue;
+                }
+
+                if (SteamRecommendationContainsKeyword(itemTextParts, term))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private string BuildSteamRecommendationReason(SteamStoreItem item, SteamRecommendationProfile profile, int score)
+        {
+            if (item == null || profile == null)
+            {
+                return "none";
+            }
+
+            var reasons = new List<string>();
+            var itemGenres = (item.Genres ?? new List<string>())
+                .Concat(item.Categories ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var itemTextParts = new List<string>();
+            itemTextParts.Add(item.Name ?? string.Empty);
+            itemTextParts.Add(item.ShortDescription ?? string.Empty);
+            itemTextParts.AddRange(itemGenres);
+            itemTextParts.AddRange(item.Tags ?? new List<string>());
+            itemTextParts.AddRange(item.Developers ?? new List<string>());
+            itemTextParts.AddRange(item.Publishers ?? new List<string>());
+
+            var itemFamily = DetectFamily(
+                itemGenres
+                    .Concat(item.Tags ?? new List<string>())
+                    .Concat(new[] { item.Name ?? string.Empty, item.ShortDescription ?? string.Empty }),
+                null
+            );
+
+            reasons.Add("score=" + score.ToString(CultureInfo.InvariantCulture));
+
+            if (!string.IsNullOrWhiteSpace(profile.Family) && !string.IsNullOrWhiteSpace(itemFamily))
+            {
+                reasons.Add("family=" + profile.Family + "/" + itemFamily);
+            }
+
+            var sharedGenres = (profile.Genres ?? new List<string>())
+                .Intersect(itemGenres, StringComparer.OrdinalIgnoreCase)
+                .Take(4)
+                .ToList();
+            if (sharedGenres.Count > 0)
+            {
+                reasons.Add("genres=" + string.Join(", ", sharedGenres));
+            }
+
+            var matchedTags = (profile.Tags ?? new List<string>())
+                .Where(x => SteamRecommendationContainsKeyword(itemTextParts, x))
+                .Take(4)
+                .ToList();
+            if (matchedTags.Count > 0)
+            {
+                reasons.Add("tags=" + string.Join(", ", matchedTags));
+            }
+
+            var matchedTerms = (profile.SearchTerms ?? new List<string>())
+                .Where(x => SteamRecommendationContainsKeyword(itemTextParts, x))
+                .Take(4)
+                .ToList();
+            if (matchedTerms.Count > 0)
+            {
+                reasons.Add("terms=" + string.Join(", ", matchedTerms));
+            }
+
+            var sharedDevelopers = (profile.Developers ?? new List<string>())
+                .Intersect(item.Developers ?? new List<string>(), StringComparer.OrdinalIgnoreCase)
+                .Take(3)
+                .ToList();
+            if (sharedDevelopers.Count > 0)
+            {
+                reasons.Add("devs=" + string.Join(", ", sharedDevelopers));
+            }
+
+            var sharedPublishers = (profile.Publishers ?? new List<string>())
+                .Intersect(item.Publishers ?? new List<string>(), StringComparer.OrdinalIgnoreCase)
+                .Take(3)
+                .ToList();
+            if (sharedPublishers.Count > 0)
+            {
+                reasons.Add("pubs=" + string.Join(", ", sharedPublishers));
+            }
+
+            if (item.RecommendationsTotal > 0)
+            {
+                reasons.Add("steamReviews=" + item.RecommendationsTotal.ToString("N0"));
+            }
+
+            if (item.DiscountPercent > 0)
+            {
+                reasons.Add("discount=" + item.DiscountPercent.ToString(CultureInfo.InvariantCulture) + "%");
+            }
+
+            return reasons.Count > 0 ? string.Join(" | ", reasons) : "none";
+        }
+
+        private int ScoreSteamRecommendation(SteamStoreItem item, SteamRecommendationProfile profile)
+        {
+            if (item == null || profile == null)
+            {
+                return 0;
+            }
+
+            var itemGenres = (item.Genres ?? new List<string>())
+                .Concat(item.Categories ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var itemTextParts = BuildSteamRecommendationTextParts(item);
+
+            var itemFamily = DetectRecommendationSignalFamily(itemTextParts);
+
+            if (AreFamiliesIncompatible(profile.Family, itemFamily))
+            {
+                return 0;
+            }
+
+            var score = 0;
+
+            var strongMatches = CountStrongRecommendationTermMatches(item, profile);
+            if (strongMatches == 0)
+            {
+                // Same developer/publisher can still be useful, otherwise this is usually a noisy Steam result.
+                var sameDev = (profile.Developers ?? new List<string>()).Intersect(item.Developers ?? new List<string>(), StringComparer.OrdinalIgnoreCase).Any();
+                var samePub = (profile.Publishers ?? new List<string>()).Intersect(item.Publishers ?? new List<string>(), StringComparer.OrdinalIgnoreCase).Any();
+                if (!sameDev && !samePub)
+                {
+                    return 0;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.Family) &&
+                !string.Equals(profile.Family, "generic", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(profile.Family, "mixed", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(profile.Family, itemFamily, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 60;
+            }
+
+            if (profile.PreferredFamilies != null && profile.PreferredFamilies.Any(x => string.Equals(x, itemFamily, StringComparison.OrdinalIgnoreCase)))
+            {
+                score += 25;
+            }
+
+            var usefulProfileGenres = (profile.Genres ?? new List<string>())
+                .Select(CanonicalizeSteamRecommendationSearchTerm)
+                .Where(x => !string.IsNullOrWhiteSpace(x) && !IsWeakRecommendationScoreTerm(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var genre in usefulProfileGenres)
+            {
+                if (SteamRecommendationContainsKeyword(itemGenres, genre))
+                {
+                    score += 12;
+                }
+            }
+
+            var usefulProfileTags = (profile.Tags ?? new List<string>())
+                .Select(CanonicalizeSteamRecommendationSearchTerm)
+                .Where(x => !string.IsNullOrWhiteSpace(x) && !IsWeakRecommendationScoreTerm(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var tag in usefulProfileTags)
+            {
+                if (SteamRecommendationContainsKeyword(itemTextParts, tag))
+                {
+                    score += 16;
+                }
+            }
+
+            var sharedDevelopers = (profile.Developers ?? new List<string>())
+                .Intersect(item.Developers ?? new List<string>(), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            score += sharedDevelopers.Count * 70;
+
+            var sharedPublishers = (profile.Publishers ?? new List<string>())
+                .Intersect(item.Publishers ?? new List<string>(), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            score += sharedPublishers.Count * 18;
+
+            foreach (var term in profile.SearchTerms ?? new List<string>())
+            {
+                if (SteamRecommendationContainsKeyword(itemTextParts, term))
+                {
+                    var weight = GetRecommendationTermWeight(profile, term);
+                    var isWeak = IsWeakRecommendationScoreTerm(term);
+                    score += isWeak ? 6 : Math.Max(12, Math.Min(48, weight / 3));
+                }
+            }
+
+            if (item.SteamRank > 0)
+            {
+                score += Math.Max(0, 28 - Math.Min(28, item.SteamRank));
+            }
+
+            if (item.RecommendationsTotal > 0)
+            {
+                score += Math.Min(35, (int)Math.Round(Math.Log10(item.RecommendationsTotal + 1) * 9));
+            }
+
+            if (item.DiscountPercent > 0 || !string.IsNullOrWhiteSpace(item.DiscountDisplay))
+            {
+                score += 6;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.FinalPriceDisplay))
+            {
+                score += 6;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.StoreCardImage))
+            {
+                score += 8;
+            }
+
+            if (string.IsNullOrWhiteSpace(item.StoreCardImage))
+            {
+                score -= 20;
+            }
+
+            return Math.Max(0, score);
+        }
+
+        private bool SteamRecommendationContainsKeyword(IEnumerable<string> values, string keyword)
+        {
+            if (values == null || string.IsNullOrWhiteSpace(keyword))
+            {
+                return false;
+            }
+
+            var needle = NormalizeTextForGenre(keyword);
+            if (string.IsNullOrWhiteSpace(needle) || needle.Length < 3)
+            {
+                return false;
+            }
+
+            foreach (var value in values)
+            {
+                var haystack = NormalizeTextForGenre(value);
+                if (string.IsNullOrWhiteSpace(haystack))
+                {
+                    continue;
+                }
+
+                if (haystack.Contains(needle))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool LooksBlockedSteamRecommendation(SteamStoreItem item)
+        {
+            if (item == null)
+            {
+                return true;
+            }
+
+            var title = (item.Name ?? string.Empty).ToLowerInvariant();
+            var normalizedTitle = NormalizeTextForGenre(item.Name ?? string.Empty);
+            var text = string.Join(" ", new[]
+            {
+                item.Name ?? string.Empty,
+                item.ShortDescription ?? string.Empty,
+                string.Join(" ", item.Genres ?? new List<string>()),
+                string.Join(" ", item.Categories ?? new List<string>()),
+                string.Join(" ", item.Tags ?? new List<string>())
+            }).ToLowerInvariant();
+            var normalizedText = NormalizeTextForGenre(text);
+
+            if (title.Contains("art book") ||
+                title.Contains("artbook") ||
+                title.Contains("digital art") ||
+                title.Contains("wallpaper") ||
+                title.Contains("soundtrack") ||
+                title.Contains(" ost") ||
+                title.EndsWith(" ost", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains(" - comic book") ||
+                title.Contains(": comic book") ||
+                title.Contains("& comic book") ||
+                title.EndsWith(" comic book", StringComparison.OrdinalIgnoreCase) ||
+                normalizedTitle.Contains(" game creator") ||
+                normalizedTitle.Contains(" creator") ||
+                normalizedTitle.Contains(" tool") ||
+                normalizedTitle.Contains(" toolkit") ||
+                normalizedTitle.Contains(" kit") ||
+                normalizedTitle.Contains(" template") ||
+                normalizedTitle.Contains(" chapter 0") ||
+                normalizedTitle.Contains(" chapter zero") ||
+                normalizedTitle.Contains(" bundle") ||
+                normalizedTitle.Contains(" dlc") ||
+                normalizedTitle.Contains(" pack") ||
+                (normalizedTitle.Contains(" click") && !normalizedTitle.Contains("point and click")))
+            {
+                return true;
+            }
+
+            string[] blockedKeywords =
+            {
+                "demo",
+                "prologue",
+                "soundtrack",
+                "ost",
+                "art book",
+                "artbook",
+                "wallpaper",
+                "digital art",
+                "season pass",
+                "upgrade pack",
+                "starter pack",
+                "currency pack",
+                "downloadable content",
+                " dlc",
+                "bonus content",
+                "supporter pack",
+                "deluxe upgrade",
+                "creator",
+                "game creator",
+                "toolkit",
+                " template",
+                "chapter 0",
+                "chapter zero",
+                "hentai",
+                "adult only",
+                "nsfw",
+                "porn",
+                "sexual content",
+                "nudity",
+                "erotic",
+                "18+"
+            };
+
+            foreach (var keyword in blockedKeywords)
+            {
+                if (text.Contains(keyword) || normalizedText.Contains(NormalizeTextForGenre(keyword)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void ReplaceSteamStoreRecommendedCollections(List<SteamStoreItem> items)
+        {
+            var safeItems = items ?? new List<SteamStoreItem>();
+
+            ReplaceSteamStoreCollection(Settings.SteamStoreRecommended, safeItems);
+            ReplaceSteamStoreCollection(Settings.SteamStoreRecommendedHub, safeItems.Take(4).ToList());
+
+            Settings.NotifyHubForYouStorePageStateChanged();
+        }
+
+        private class SteamRecommendationProfile
+        {
+            public string ReferenceName { get; set; }
+            public List<string> ReferenceNames { get; set; } = new List<string>();
+            public string Family { get; set; }
+            public string CacheKey { get; set; }
+            public List<string> SearchTerms { get; set; } = new List<string>();
+            public List<string> Genres { get; set; } = new List<string>();
+            public List<string> Tags { get; set; } = new List<string>();
+            public List<string> Developers { get; set; } = new List<string>();
+            public List<string> Publishers { get; set; } = new List<string>();
+            public Dictionary<string, int> SearchTermWeights { get; set; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, int> FamilyWeights { get; set; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            public List<string> PreferredFamilies { get; set; } = new List<string>();
+            public HashSet<int> OwnedSteamAppIds { get; set; } = new HashSet<int>();
+            public HashSet<string> OwnedNormalizedNames { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public List<int> SeedSteamAppIds { get; set; } = new List<int>();
+            public List<string> SeedSourceNames { get; set; } = new List<string>();
+        }
+
+        private class SteamRecommendationRankedCandidate
+        {
+            public SteamStoreItem Item { get; set; }
+            public int Score { get; set; }
+        }
         public void SetSteamStoreSection(string section)
         {
             if (Settings == null)
@@ -5908,7 +10795,8 @@ namespace AnikiHelper
             }
 
             Settings.SteamStoreSelectedSection = section;
-            UpdateSteamStoreActiveSection();
+            UpdateSteamStoreActiveSection(preserveFocusedCard: false);
+            ResetSteamStoreItemsListToStart();
         }
 
         public void SwitchSteamStoreSection(int direction)
@@ -5931,7 +10819,8 @@ namespace AnikiHelper
                             return;
                         }
 
-                        if (Settings.SteamStoreLoading || Settings.SteamStoreDetailsVisible)
+                        if (Settings.SteamStoreDetailsVisible ||
+                            (Settings.SteamStoreLoading && !Settings.SteamStoreAvailable))
                         {
                             return;
                         }
@@ -5944,10 +10833,12 @@ namespace AnikiHelper
                         string[] sections =
                         {
                     "Deals",
+                    "Recommended",
+                    "MyWishlist",
                     "New",
-                    "Upcoming",
+                    "Popular",
                     "Wishlisted",
-                    "Popular"
+                    "Upcoming"
                 };
 
                         var currentSection = Settings.SteamStoreSelectedSection ?? "Deals";
@@ -6020,12 +10911,10 @@ namespace AnikiHelper
             }
         }
 
-        private async void FocusSteamStoreHeroButton()
+        private void FocusSteamStoreHeroButton()
         {
             try
             {
-                await Task.Delay(80);
-
                 var dispatcher = Application.Current?.Dispatcher;
 
                 if (dispatcher == null)
@@ -6033,7 +10922,7 @@ namespace AnikiHelper
                     return;
                 }
 
-                _ = dispatcher.BeginInvoke(new Action(() =>
+                Action focusAction = () =>
                 {
                     try
                     {
@@ -6063,9 +10952,8 @@ namespace AnikiHelper
 
                         overlay?.UpdateLayout();
 
-                        // Important:
-                        // We first focus the active top tab to rebuild the directional focus path.
-                        // Directly focusing the Hero after a section change can leave D-Pad Down blocked.
+                        // Rebuild directional focus path, but immediately move to Hero
+                        // in the same UI cycle so the tab focus does not visibly flash.
                         if (activeTabButton is UIElement tabElement && tabElement.IsVisible)
                         {
                             tabElement.Focus();
@@ -6077,30 +10965,105 @@ namespace AnikiHelper
 
                         overlay?.UpdateLayout();
 
-                        _ = dispatcher.BeginInvoke(new Action(() =>
+                        if (heroButton is UIElement heroElement && heroElement.IsVisible)
                         {
-                            try
-                            {
-                                overlay?.UpdateLayout();
+                            heroElement.Focus();
+                            Keyboard.Focus(heroElement);
 
-                                if (heroButton is UIElement heroElement && heroElement.IsVisible)
-                                {
-                                    heroElement.Focus();
-                                    Keyboard.Focus(heroElement);
-
-                                    var heroFocusScope = FocusManager.GetFocusScope(heroElement);
-                                    FocusManager.SetFocusedElement(heroFocusScope, heroElement);
-                                }
-                            }
-                            catch
-                            {
-                            }
-                        }), DispatcherPriority.ContextIdle);
+                            var heroFocusScope = FocusManager.GetFocusScope(heroElement);
+                            FocusManager.SetFocusedElement(heroFocusScope, heroElement);
+                        }
                     }
                     catch
                     {
                     }
-                }), DispatcherPriority.ContextIdle);
+                };
+
+                if (dispatcher.CheckAccess())
+                {
+                    focusAction();
+                }
+                else
+                {
+                    _ = dispatcher.BeginInvoke(focusAction, DispatcherPriority.Send);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private async void ResetSteamStoreItemsListToStart()
+        {
+            try
+            {
+                await Task.Delay(40);
+
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                _ = dispatcher.BeginInvoke(new Action(ResetSteamStoreItemsListToStartOnUi), DispatcherPriority.ContextIdle);
+
+                // Do it a second time after layout/data-template refresh.
+                // The Steam Store section change rebuilds the list and the internal ScrollViewer can restore
+                // its previous horizontal offset if we reset too early.
+                await Task.Delay(120);
+
+                _ = dispatcher.BeginInvoke(new Action(ResetSteamStoreItemsListToStartOnUi), DispatcherPriority.ContextIdle);
+            }
+            catch
+            {
+            }
+        }
+
+        private void ResetSteamStoreItemsListToStartOnUi()
+        {
+            try
+            {
+                var app = Application.Current;
+
+                if (app == null)
+                {
+                    return;
+                }
+
+                var visibleElements = app.Windows
+                    .OfType<Window>()
+                    .Where(w => w.IsVisible)
+                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                    .ToList();
+
+                var listBox = visibleElements
+                    .OfType<ListBox>()
+                    .FirstOrDefault(x => x.Name == "StoreItemsList" && x.IsVisible);
+
+                if (listBox == null)
+                {
+                    return;
+                }
+
+                listBox.UpdateLayout();
+
+                if (listBox.Items.Count > 0)
+                {
+                    listBox.SelectedIndex = 0;
+                    listBox.ScrollIntoView(listBox.Items[0]);
+                }
+
+                var scrollViewer = listBox.FindVisualChildren<ScrollViewer>().FirstOrDefault();
+
+                if (scrollViewer != null)
+                {
+                    scrollViewer.ScrollToHome();
+                    scrollViewer.ScrollToLeftEnd();
+                    scrollViewer.ScrollToHorizontalOffset(0);
+                }
+
+                listBox.UpdateLayout();
             }
             catch
             {
@@ -6122,8 +11085,14 @@ namespace AnikiHelper
                 case "Wishlisted":
                     return "SteamStoreTabWishlistedButton";
 
+                case "MyWishlist":
+                    return "SteamStoreTabMyWishlistButton";
+
                 case "Popular":
                     return "SteamStoreTabPopularButton";
+
+                case "Recommended":
+                    return "SteamStoreTabRecommendedButton";
 
                 case "Deals":
                 default:
@@ -6143,7 +11112,9 @@ namespace AnikiHelper
                 Settings.SteamStoreTopSellers.Count > 0 ||
                 Settings.SteamStoreNewReleases.Count > 0 ||
                 Settings.SteamStoreUpcoming.Count > 0 ||
-                Settings.SteamStoreWishlisted.Count > 0;
+                Settings.SteamStoreWishlisted.Count > 0 ||
+                Settings.SteamStoreMyWishlist.Count > 0 ||
+                Settings.SteamStoreRecommended.Count > 0;
 
             Settings.SteamStoreAvailable = hasAnyData;
 
@@ -6157,14 +11128,25 @@ namespace AnikiHelper
             }
         }
 
-        private void UpdateSteamStoreActiveSection()
+        private static bool IsSteamStoreSectionAuthOnly(string section)
+        {
+            return string.Equals(section, "MyWishlist", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(section, "Recommended", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void UpdateSteamStoreActiveSection(bool preserveFocusedCard = true)
         {
             if (Settings == null)
             {
                 return;
             }
 
+            var focusSnapshot = preserveFocusedCard
+                ? CaptureSteamStoreFocusSnapshot()
+                : null;
+
             var section = Settings.SteamStoreSelectedSection ?? "Featured";
+            var authRequiredForSection = IsSteamStoreSectionAuthOnly(section) && !CanUseConnectedSteamStoreAccount();
 
             IEnumerable<SteamStoreItem> source = null;
             var title = "Featured";
@@ -6186,9 +11168,19 @@ namespace AnikiHelper
                     title = "Most Wishlisted";
                     break;
 
+                case "MyWishlist":
+                    source = Settings.SteamStoreMyWishlist;
+                    title = "My Wishlist";
+                    break;
+
                 case "Popular":
                     source = Settings.SteamStoreTopSellers;
                     title = "Popular";
+                    break;
+
+                case "Recommended":
+                    source = Settings.SteamStoreRecommended;
+                    title = "Recommended For You";
                     break;
 
                 case "Deals":
@@ -6201,6 +11193,12 @@ namespace AnikiHelper
 
             Settings.SteamStoreSelectedSection = section;
             Settings.SteamStoreSelectedSectionTitle = title;
+            Settings.SteamStoreSelectedSectionRequiresSteamAuth = authRequiredForSection;
+
+            if (authRequiredForSection)
+            {
+                source = Enumerable.Empty<SteamStoreItem>();
+            }
 
             Settings.SteamStoreCurrentItems.Clear();
             Settings.SteamStoreCurrentListItems.Clear();
@@ -6213,11 +11211,11 @@ namespace AnikiHelper
                 }
             }
 
-            Settings.SteamStoreHeroItem = Settings.SteamStoreCurrentItems.FirstOrDefault();
+            Settings.SteamStoreHeroItem = SelectSteamStoreHeroItem(Settings.SteamStoreCurrentItems, section);
 
             foreach (var item in Settings.SteamStoreCurrentItems.Where(x => x != null))
             {
-                if (Settings.SteamStoreHeroItem != null && item.AppId == Settings.SteamStoreHeroItem.AppId)
+                if (IsSameSteamStoreItem(item, Settings.SteamStoreHeroItem))
                 {
                     continue;
                 }
@@ -6226,6 +11224,384 @@ namespace AnikiHelper
             }
 
             UpdateSteamStoreHeroProperties(Settings.SteamStoreHeroItem);
+
+            QueueSteamStoreFocusRestore(focusSnapshot);
+
+            // Quiet by default: hero selection can be recalculated by XAML bindings while the Hub is opening.
+        }
+
+        private sealed class SteamStoreFocusSnapshot
+        {
+            public string Section { get; set; }
+            public bool WasHeroFocused { get; set; }
+            public int AppId { get; set; }
+            public string Name { get; set; }
+            public int ListIndex { get; set; }
+        }
+
+        private SteamStoreFocusSnapshot CaptureSteamStoreFocusSnapshot()
+        {
+            try
+            {
+                var app = Application.Current;
+                var focused = Keyboard.FocusedElement as DependencyObject;
+
+                if (app == null || focused == null)
+                {
+                    return null;
+                }
+
+                var visibleElements = app.Windows
+                    .OfType<Window>()
+                    .Where(w => w.IsVisible)
+                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                    .ToList();
+
+                var overlay = visibleElements.FirstOrDefault(x => x.Name == "SteamStoreOverlay");
+                if (overlay == null || !overlay.IsVisible || !IsDescendantOrSelf(focused, overlay))
+                {
+                    return null;
+                }
+
+                var heroButton = visibleElements.FirstOrDefault(x => x.Name == "SteamStoreHeroButton");
+                if (heroButton != null && IsDescendantOrSelf(focused, heroButton))
+                {
+                    return new SteamStoreFocusSnapshot
+                    {
+                        Section = Settings.SteamStoreSelectedSection ?? string.Empty,
+                        WasHeroFocused = true,
+                        AppId = Settings.SteamStoreHeroItem?.AppId ?? 0,
+                        Name = Settings.SteamStoreHeroItem?.Name ?? string.Empty,
+                        ListIndex = -1
+                    };
+                }
+
+                var listBox = visibleElements
+                    .OfType<ListBox>()
+                    .FirstOrDefault(x => x.Name == "StoreItemsList" && x.IsVisible);
+
+                if (listBox == null || !IsDescendantOrSelf(focused, listBox))
+                {
+                    return null;
+                }
+
+                var item = FindSteamStoreItemDataContext(focused);
+                if (item == null)
+                {
+                    return null;
+                }
+
+                return new SteamStoreFocusSnapshot
+                {
+                    Section = Settings.SteamStoreSelectedSection ?? string.Empty,
+                    WasHeroFocused = false,
+                    AppId = item.AppId,
+                    Name = item.Name ?? string.Empty,
+                    ListIndex = Settings.SteamStoreCurrentListItems.IndexOf(item)
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private SteamStoreItem FindSteamStoreItemDataContext(DependencyObject element)
+        {
+            var current = element;
+
+            while (current != null)
+            {
+                var frameworkElement = current as FrameworkElement;
+                var item = frameworkElement?.DataContext as SteamStoreItem;
+                if (item != null)
+                {
+                    return item;
+                }
+
+                DependencyObject parent = null;
+
+                try
+                {
+                    parent = VisualTreeHelper.GetParent(current);
+                }
+                catch
+                {
+                    parent = null;
+                }
+
+                if (parent == null && current is FrameworkElement parentElement)
+                {
+                    parent = parentElement.Parent;
+                }
+
+                current = parent;
+            }
+
+            return null;
+        }
+
+        private void QueueSteamStoreFocusRestore(SteamStoreFocusSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                return;
+            }
+
+            _ = dispatcher.BeginInvoke(
+                new Action(() => RestoreSteamStoreFocusOnUi(snapshot, true)),
+                DispatcherPriority.ContextIdle);
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(120).ConfigureAwait(false);
+
+                try
+                {
+                    _ = dispatcher.BeginInvoke(
+                        new Action(() => RestoreSteamStoreFocusOnUi(snapshot, false)),
+                        DispatcherPriority.ContextIdle);
+                }
+                catch
+                {
+                }
+            });
+        }
+
+        private void RestoreSteamStoreFocusOnUi(SteamStoreFocusSnapshot snapshot, bool forceFirstPass)
+        {
+            try
+            {
+                if (snapshot == null || Settings == null || Settings.SteamStoreDetailsVisible || !IsSteamStoreViewVisible())
+                {
+                    return;
+                }
+
+                if (!string.Equals(
+                    snapshot.Section ?? string.Empty,
+                    Settings.SteamStoreSelectedSection ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                var app = Application.Current;
+                if (app == null)
+                {
+                    return;
+                }
+
+                var visibleElements = app.Windows
+                    .OfType<Window>()
+                    .Where(w => w.IsVisible)
+                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                    .ToList();
+
+                var heroButton = visibleElements.FirstOrDefault(x => x.Name == "SteamStoreHeroButton");
+                var listBox = visibleElements
+                    .OfType<ListBox>()
+                    .FirstOrDefault(x => x.Name == "StoreItemsList" && x.IsVisible);
+
+                if (!forceFirstPass)
+                {
+                    var currentFocus = Keyboard.FocusedElement as DependencyObject;
+                    var alreadyHasStoreFocus = currentFocus != null &&
+                        ((heroButton != null && IsDescendantOrSelf(currentFocus, heroButton)) ||
+                         (listBox != null && IsDescendantOrSelf(currentFocus, listBox)));
+
+                    if (alreadyHasStoreFocus)
+                    {
+                        return;
+                    }
+                }
+
+                if (snapshot.WasHeroFocused)
+                {
+                    FocusSteamStoreElement(heroButton as UIElement);
+                    return;
+                }
+
+                SteamStoreItem target = null;
+
+                if (snapshot.AppId > 0)
+                {
+                    target = Settings.SteamStoreCurrentListItems
+                        .FirstOrDefault(x => x != null && x.AppId == snapshot.AppId);
+                }
+
+                if (target == null && !string.IsNullOrWhiteSpace(snapshot.Name))
+                {
+                    target = Settings.SteamStoreCurrentListItems
+                        .FirstOrDefault(x => x != null && string.Equals(x.Name, snapshot.Name, StringComparison.OrdinalIgnoreCase));
+                }
+
+                var heroMatches = Settings.SteamStoreHeroItem != null &&
+                    ((snapshot.AppId > 0 && Settings.SteamStoreHeroItem.AppId == snapshot.AppId) ||
+                     (!string.IsNullOrWhiteSpace(snapshot.Name) &&
+                      string.Equals(Settings.SteamStoreHeroItem.Name, snapshot.Name, StringComparison.OrdinalIgnoreCase)));
+
+                if (target == null && heroMatches)
+                {
+                    FocusSteamStoreElement(heroButton as UIElement);
+                    return;
+                }
+
+                if (target == null && Settings.SteamStoreCurrentListItems.Count > 0)
+                {
+                    var fallbackIndex = Math.Max(0, Math.Min(snapshot.ListIndex, Settings.SteamStoreCurrentListItems.Count - 1));
+                    target = Settings.SteamStoreCurrentListItems[fallbackIndex];
+                }
+
+                if (target == null || listBox == null)
+                {
+                    FocusSteamStoreElement(heroButton as UIElement);
+                    return;
+                }
+
+                listBox.SelectedItem = target;
+                listBox.ScrollIntoView(target);
+                listBox.UpdateLayout();
+
+                var container = listBox.ItemContainerGenerator.ContainerFromItem(target) as DependencyObject;
+                var targetButton = container?.FindVisualChildren<ButtonBase>().FirstOrDefault();
+
+                if (targetButton == null)
+                {
+                    targetButton = listBox.FindVisualChildren<ButtonBase>()
+                        .FirstOrDefault(button =>
+                        {
+                            var buttonItem = button.DataContext as SteamStoreItem;
+                            return buttonItem != null && IsSameSteamStoreItem(buttonItem, target);
+                        });
+                }
+
+                FocusSteamStoreElement(targetButton);
+            }
+            catch
+            {
+            }
+        }
+
+        private void FocusSteamStoreElement(UIElement element)
+        {
+            if (element == null || !element.IsVisible)
+            {
+                return;
+            }
+
+            element.Focus();
+            Keyboard.Focus(element);
+
+            var focusScope = FocusManager.GetFocusScope(element);
+            FocusManager.SetFocusedElement(focusScope, element);
+        }
+
+        private SteamStoreItem SelectSteamStoreHeroItem(IEnumerable<SteamStoreItem> items, string section)
+        {
+            var list = items?.Where(x => x != null).ToList() ?? new List<SteamStoreItem>();
+            if (list.Count == 0)
+            {
+                return null;
+            }
+
+            var selected = list
+                .OrderByDescending(x => GetSteamStoreHeroPopularityScore(x, section))
+                .ThenBy(x => x.SteamRank > 0 ? x.SteamRank : int.MaxValue)
+                .ThenBy(x => string.IsNullOrWhiteSpace(x.Name) ? string.Empty : x.Name)
+                .FirstOrDefault();
+
+            return selected ?? list.FirstOrDefault();
+        }
+
+        private long GetSteamStoreHeroPopularityScore(SteamStoreItem item, string section)
+        {
+            if (item == null)
+            {
+                return long.MinValue;
+            }
+
+            long score = 0;
+
+            if (string.Equals(section, "Recommended", StringComparison.OrdinalIgnoreCase) && item.RecommendationScore > 0)
+            {
+                score += item.RecommendationScore * 100000L;
+            }
+
+            var rankScore = item.SteamRank > 0 ? Math.Max(0, 100000 - item.SteamRank) : 0;
+
+            if (string.Equals(section, "Deals", StringComparison.OrdinalIgnoreCase))
+            {
+                // For Deals, a real discount should matter more than raw list position.
+                // This avoids picking a popular item that is barely a deal just because it is rank #1/#2.
+                score += rankScore * 1000L;
+                score += Math.Max(0, item.DiscountPercent) * 500000L;
+
+                if (!string.IsNullOrWhiteSpace(item.OriginalPriceDisplay))
+                {
+                    score += 250000L;
+                }
+            }
+            else
+            {
+                // Steam search/category order is already the best lightweight popularity signal for
+                // Upcoming, Wishlisted, New Releases and Top Sellers. Lower rank = more popular.
+                score += rankScore * 1000L;
+            }
+
+            // AppDetails data is available for some sections/items. Use it as an extra signal,
+            // but don't force heavy media downloads just to choose the hero.
+            if (item.RecommendationsTotal > 0)
+            {
+                score += item.RecommendationsTotal * 10L;
+            }
+
+            if (item.MetacriticScore > 0)
+            {
+                score += item.MetacriticScore * 1000L;
+            }
+
+            if (!string.Equals(section, "Deals", StringComparison.OrdinalIgnoreCase) && item.DiscountPercent > 0)
+            {
+                score += item.DiscountPercent * 100L;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.HeaderImageLocalPath) || !string.IsNullOrWhiteSpace(item.CapsuleImageLocalPath))
+            {
+                score += 250;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.FinalPriceDisplay))
+            {
+                score += 100;
+            }
+
+            return score;
+        }
+
+        private bool IsSameSteamStoreItem(SteamStoreItem a, SteamStoreItem b)
+        {
+            if (a == null || b == null)
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(a, b))
+            {
+                return true;
+            }
+
+            if (a.AppId > 0 && b.AppId > 0)
+            {
+                return a.AppId == b.AppId;
+            }
+
+            return string.Equals(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
         }
 
         private void UpdateSteamStoreHeroProperties(SteamStoreItem hero)
@@ -6255,12 +11631,8 @@ namespace AnikiHelper
             Settings.SteamStoreHeroDiscount = hero.DiscountDisplay ?? string.Empty;
             Settings.SteamStoreHeroReleaseDate = hero.ReleaseDateDisplay ?? string.Empty;
 
-            Settings.SteamStoreHeroImage = FirstSteamStoreImage(
-                hero.HeaderImageLocalPath,
-                hero.HeaderImageUrl,
-                hero.CapsuleImageLocalPath,
-                hero.CapsuleImageUrl
-            );
+            // Hero uses the same wide-header priority as all Store cards.
+            Settings.SteamStoreHeroImage = hero.StoreCardImage ?? string.Empty;
 
             // Fond du hero : vrai background/screenshot uniquement.
             Settings.SteamStoreHeroBackgroundImage = FirstSteamStoreImage(
@@ -6295,7 +11667,8 @@ namespace AnikiHelper
                 var language = GetResolvedSteamStoreLanguage();
                 var region = GetResolvedSteamStoreRegion();
 
-                await steamStoreService.EnrichStoreItemDetailsAsync(hero, language, region);
+                // Hero/list refresh stays light. Heavy media is downloaded when the details view opens.
+                await steamStoreService.EnrichStoreItemDetailsAsync(hero, language, region, downloadMedia: false);
 
                 OnUi(() =>
                 {
@@ -6318,20 +11691,29 @@ namespace AnikiHelper
                 return string.Empty;
             }
 
+            // Prefer local files when they exist.
             foreach (var value in values)
             {
-                if (string.IsNullOrWhiteSpace(value))
+                if (string.IsNullOrWhiteSpace(value) || IsBadSteamSharedImage(value))
                 {
                     continue;
                 }
 
-                if (IsBadSteamSharedImage(value))
-                {
-                    continue;
-                }
-
-                // Si l'image locale n'existe pas, on laisse vide pour forcer le problème à être visible.
                 if (!IsSteamStoreUrl(value) && File.Exists(value))
+                {
+                    return value;
+                }
+            }
+
+            // Fallback to remote Steam CDN URLs so cards do not stay black if an image download failed.
+            foreach (var value in values)
+            {
+                if (string.IsNullOrWhiteSpace(value) || IsBadSteamSharedImage(value))
+                {
+                    continue;
+                }
+
+                if (IsSteamStoreUrl(value))
                 {
                     return value;
                 }
@@ -6360,19 +11742,372 @@ namespace AnikiHelper
         }
 
 
-        private void ReplaceSteamStoreCollection(System.Collections.ObjectModel.ObservableCollection<SteamStoreItem> target, System.Collections.Generic.List<SteamStoreItem> items)
-        {
-            target.Clear();
 
+        private async Task<SteamStorePersonalizationContext> BuildSteamStorePersonalizationContextAsync()
+        {
+            var context = new SteamStorePersonalizationContext();
+
+            try
+            {
+                var games = PlayniteApi?.Database?.Games?.ToList() ?? new List<Playnite.SDK.Models.Game>();
+                if (Settings?.IncludeHidden != true)
+                {
+                    games = games.Where(g => g != null && g.Hidden != true).ToList();
+                }
+
+                var externalWishlistOnlyCount = 0;
+                try
+                {
+                    externalWishlistOnlyCount = games.Count(IsExternalWishlistOnlySource);
+                }
+                catch
+                {
+                    externalWishlistOnlyCount = 0;
+                }
+
+                if (externalWishlistOnlyCount > 0)
+                {
+                    // Quiet by default. This can run every time Hub/Store cache is requested.
+                }
+
+                var libraryAppIds = GetOwnedSteamAppIds(games);
+                foreach (var appId in libraryAppIds)
+                {
+                    if (appId > 0)
+                    {
+                        context.OwnedSteamAppIds.Add(appId);
+                    }
+                }
+
+                var names = GetOwnedNormalizedGameNames(games);
+                foreach (var name in names)
+                {
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        context.OwnedNormalizedNames.Add(name);
+                    }
+                }
+
+                var playedAppIds = GetPlayedSteamAppIds(games);
+                foreach (var appId in playedAppIds)
+                {
+                    if (appId > 0)
+                    {
+                        context.PlayedSteamAppIds.Add(appId);
+                    }
+                }
+
+                var playedNames = GetPlayedNormalizedGameNames(games);
+                foreach (var name in playedNames)
+                {
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        context.PlayedNormalizedNames.Add(name);
+                    }
+                }
+
+                if (steamUserGamesService != null && Settings != null)
+                {
+                    var steamOwned = await steamUserGamesService.GetOwnedGameAppIdsAsync(
+                        Settings.SteamApiKey,
+                        GetEffectiveSteamIdInput(),
+                        TimeSpan.FromHours(12)
+                    ).ConfigureAwait(false);
+
+                    foreach (var appId in steamOwned)
+                    {
+                        if (appId > 0)
+                        {
+                            context.OwnedSteamAppIds.Add(appId);
+                        }
+                    }
+                }
+
+                if (steamStoreService != null && CanUseConnectedSteamStoreAccount())
+                {
+                    var language = GetResolvedSteamStoreLanguage();
+                    var region = GetResolvedSteamStoreRegion();
+                    var cachedWishlist = await steamStoreService.GetUserWishlistFromCacheOnlyAsync(
+                        GetSteamMyWishlistCacheKey(),
+                        language,
+                        region
+                    ).ConfigureAwait(false);
+
+                    foreach (var appId in (cachedWishlist ?? new List<SteamStoreItem>()).Select(x => x?.AppId ?? 0))
+                    {
+                        if (appId > 0)
+                        {
+                            context.WishlistSteamAppIds.Add(appId);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to build Steam Store personalization context.");
+            }
+
+            return context;
+        }
+
+        private async Task<List<SteamStoreRecommendationSeed>> BuildSteamStoreRecommendationSeedsAsync(SteamRecommendationProfile profile)
+        {
+            var result = new List<SteamStoreRecommendationSeed>();
+
+            try
+            {
+                if (profile != null && profile.SeedSteamAppIds != null)
+                {
+                    var index = 0;
+                    foreach (var appId in profile.SeedSteamAppIds.Where(x => x > 0).Distinct().Take(5))
+                    {
+                        var name = profile.SeedSourceNames != null && profile.SeedSourceNames.Count > index
+                            ? profile.SeedSourceNames[index]
+                            : string.Empty;
+
+                        result.Add(new SteamStoreRecommendationSeed
+                        {
+                            AppId = appId,
+                            Name = name,
+                            Source = "Playnite recent",
+                            Weight = Math.Max(100, 260 - (index * 45))
+                        });
+
+                        index++;
+                    }
+                }
+
+                if (profile != null && profile.ReferenceNames != null && profile.ReferenceNames.Count > 0)
+                {
+                    var games = PlayniteApi?.Database?.Games?.ToList() ?? new List<Playnite.SDK.Models.Game>();
+                    var selectedByName = games
+                        .Where(g => g != null && profile.ReferenceNames.Any(n => string.Equals(n, g.Name, StringComparison.OrdinalIgnoreCase)))
+                        .Take(4)
+                        .ToList();
+
+                    var resolvedIndex = 0;
+                    foreach (var game in selectedByName)
+                    {
+                        var alreadyKnown = result.Any(x => x != null && string.Equals(x.Name, game.Name, StringComparison.OrdinalIgnoreCase));
+                        if (alreadyKnown)
+                        {
+                            continue;
+                        }
+
+                        var resolved = await ResolveSteamGameIdAsync(game, CancellationToken.None, true).ConfigureAwait(false);
+                        if (int.TryParse(resolved, out var resolvedAppId) && resolvedAppId > 0)
+                        {
+                            result.Add(new SteamStoreRecommendationSeed
+                            {
+                                AppId = resolvedAppId,
+                                Name = game.Name ?? string.Empty,
+                                Source = "Playnite resolved",
+                                Weight = Math.Max(90, 220 - (resolvedIndex * 35))
+                            });
+                            resolvedIndex++;
+                        }
+                    }
+                }
+
+                if (steamUserGamesService != null && Settings != null)
+                {
+                    var recentSteamSeeds = await steamUserGamesService.GetRecentlyPlayedGameSeedsAsync(
+                        Settings.SteamApiKey,
+                        GetEffectiveSteamIdInput(),
+                        5,
+                        TimeSpan.FromHours(6)
+                    ).ConfigureAwait(false);
+
+                    foreach (var seed in recentSteamSeeds ?? new List<SteamUserRecentGameSeed>())
+                    {
+                        if (seed == null || seed.AppId <= 0)
+                        {
+                            continue;
+                        }
+
+                        result.Add(new SteamStoreRecommendationSeed
+                        {
+                            AppId = seed.AppId,
+                            Name = seed.Name ?? string.Empty,
+                            Source = "Steam recent",
+                            Weight = Math.Max(80, seed.Weight)
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to build Steam Store recommendation seeds.");
+            }
+
+            var groupedSeeds = result
+                .Where(x => x != null && x.AppId > 0)
+                .GroupBy(x => x.AppId)
+                .Select(g => new SteamStoreRecommendationSeed
+                {
+                    AppId = g.Key,
+                    Name = g.Select(x => x.Name).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty,
+                    Source = string.Join(" + ", g.Select(x => x.Source).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).Take(3)),
+                    Weight = g.Sum(x => Math.Max(1, x.Weight))
+                })
+                .OrderByDescending(x => x.Weight)
+                .ToList();
+
+            var filteredSeeds = groupedSeeds
+                .Where(x => steamStorePersonalizationService == null || !steamStorePersonalizationService.LooksLikeBadRecommendationSeed(x))
+                .Take(4)
+                .ToList();
+
+            var skippedSeeds = groupedSeeds
+                .Where(x => steamStorePersonalizationService != null && steamStorePersonalizationService.LooksLikeBadRecommendationSeed(x))
+                .Take(6)
+                .ToList();
+
+            foreach (var seed in skippedSeeds)
+            {
+                logger.Info($"[Recommended] Seed filtered before request | {seed.AppId}:{seed.Name} | source={seed.Source}");
+            }
+
+            return filteredSeeds;
+        }
+
+        private List<SteamStoreItem> PersonalizeSteamStoreSection(
+            IEnumerable<SteamStoreItem> items,
+            SteamStorePersonalizationContext context,
+            string section,
+            int maxItems)
+        {
+            if (steamStorePersonalizationService == null)
+            {
+                var list = (items ?? Enumerable.Empty<SteamStoreItem>())
+                    .Where(x => x != null)
+                    .Take(maxItems > 0 ? maxItems : int.MaxValue)
+                    .ToList();
+
+                ApplySteamStoreFlags(list, context);
+                return list;
+            }
+
+            return steamStorePersonalizationService.FilterSection(items, context, section, maxItems);
+        }
+
+        private void ApplySteamStoreFlags(IEnumerable<SteamStoreItem> items, SteamStorePersonalizationContext context)
+        {
             if (items == null)
             {
                 return;
             }
 
+            foreach (var item in items.Where(x => x != null))
+            {
+                if (steamStorePersonalizationService != null)
+                {
+                    steamStorePersonalizationService.ApplyStoreFlags(item, context);
+                }
+                else if (context != null)
+                {
+                    item.IsInLibrary = item.AppId > 0 && context.OwnedSteamAppIds != null && context.OwnedSteamAppIds.Contains(item.AppId);
+                    item.IsInWishlist = item.IsInWishlist || (item.AppId > 0 && context.WishlistSteamAppIds != null && context.WishlistSteamAppIds.Contains(item.AppId));
+                }
+            }
+        }
+
+        private async Task<List<SteamStoreItem>> RefreshSteamStoreRecommendedByAppIdAsync(
+            SteamRecommendationProfile recommendationProfile,
+            SteamStorePersonalizationContext personalizationContext,
+            string language,
+            string region,
+            Action<int> reportProgress)
+        {
+            if (recommendationProfile == null || steamStoreRecommendationService == null)
+            {
+                return new List<SteamStoreItem>();
+            }
+
+            var seeds = await BuildSteamStoreRecommendationSeedsAsync(recommendationProfile).ConfigureAwait(false);
+            if (seeds == null || seeds.Count == 0)
+            {
+                return new List<SteamStoreItem>();
+            }
+
+            return await steamStoreRecommendationService.RefreshFromSeedsAsync(
+                seeds,
+                personalizationContext,
+                recommendationProfile.CacheKey,
+                language,
+                region,
+                reportProgress
+            ).ConfigureAwait(false);
+        }
+
+        private void ReplaceSteamStoreCollection(System.Collections.ObjectModel.ObservableCollection<SteamStoreItem> target, System.Collections.Generic.List<SteamStoreItem> items)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            items = items ?? new System.Collections.Generic.List<SteamStoreItem>();
+
+            // Important:
+            // Si la collection contient déjà les mêmes cartes, on ne la vide pas.
+            // Sinon WPF détruit les ButtonEx existants et le focus peut repartir sur la top bar,
+            // surtout sur la page Deals du Hub.
+            if (AreSteamStoreCollectionsEquivalentForUi(target, items))
+            {
+                return;
+            }
+
+            target.Clear();
+
             foreach (var item in items)
             {
                 target.Add(item);
             }
+        }
+
+        private bool AreSteamStoreCollectionsEquivalentForUi(
+    System.Collections.ObjectModel.ObservableCollection<SteamStoreItem> current,
+    System.Collections.Generic.List<SteamStoreItem> incoming)
+        {
+            if (current == null || incoming == null)
+            {
+                return false;
+            }
+
+            if (current.Count != incoming.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < current.Count; i++)
+            {
+                if (!AreSteamStoreItemsEquivalentForUi(current[i], incoming[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool AreSteamStoreItemsEquivalentForUi(SteamStoreItem current, SteamStoreItem incoming)
+        {
+            if (current == null || incoming == null)
+            {
+                return false;
+            }
+
+            return current.AppId == incoming.AppId &&
+                   string.Equals(current.Name, incoming.Name, StringComparison.Ordinal) &&
+                   string.Equals(current.HeaderImageLocalPath, incoming.HeaderImageLocalPath, StringComparison.Ordinal) &&
+                   string.Equals(current.CapsuleImageLocalPath, incoming.CapsuleImageLocalPath, StringComparison.Ordinal) &&
+                   string.Equals(current.FinalPriceDisplay, incoming.FinalPriceDisplay, StringComparison.Ordinal) &&
+                   string.Equals(current.OriginalPriceDisplay, incoming.OriginalPriceDisplay, StringComparison.Ordinal) &&
+                   string.Equals(current.DiscountDisplay, incoming.DiscountDisplay, StringComparison.Ordinal) &&
+                   string.Equals(current.ReleaseDateDisplay, incoming.ReleaseDateDisplay, StringComparison.Ordinal) &&
+                   current.IsInWishlist == incoming.IsInWishlist &&
+                   current.IsInLibrary == incoming.IsInLibrary;
         }
 
         private async Task LoadSteamStoreCacheOnlyAsync()
@@ -6392,8 +12127,18 @@ namespace AnikiHelper
                 return;
             }
 
+            var nowUtc = DateTime.UtcNow;
+            if (HasSteamStoreCacheUiData() && (nowUtc - lastSteamStoreCacheOnlyLoadUtc) < SteamStoreCacheOnlyLoadThrottle)
+            {
+                return;
+            }
+
+            lastSteamStoreCacheOnlyLoadUtc = nowUtc;
+
             var language = GetResolvedSteamStoreLanguage();
             var region = GetResolvedSteamStoreRegion();
+            var recommendationProfile = BuildSteamRecommendationProfile();
+            var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
 
             var dealsTask = steamStoreService.GetDealsFromCacheOnlyAsync(language, region);
             var topSellersTask = steamStoreService.GetTopSellersFromCacheOnlyAsync(language, region);
@@ -6408,20 +12153,76 @@ namespace AnikiHelper
                 .Where(x => x != null)
                 .ToList();
 
+            var canUseConnectedSteamStoreAccount = CanUseConnectedSteamStoreAccount();
+            var myWishlistItems = steamStoreService != null && canUseConnectedSteamStoreAccount
+                ? await steamStoreService.GetUserWishlistFromCacheOnlyAsync(GetSteamMyWishlistCacheKey(), language, region).ConfigureAwait(false)
+                : new List<SteamStoreItem>();
+
+            if (personalizationContext != null && canUseConnectedSteamStoreAccount)
+            {
+                foreach (var appId in (myWishlistItems ?? new List<SteamStoreItem>()).Select(x => x?.AppId ?? 0))
+                {
+                    if (appId > 0)
+                    {
+                        personalizationContext.WishlistSteamAppIds.Add(appId);
+                    }
+                }
+            }
+
             var newReleaseItems = steamUpcomingGamesService.LoadNewReleasesFromCacheOnly(language, region)
                 .Select(ConvertUpcomingToStoreItem)
                 .Where(x => x != null)
                 .ToList();
 
+            var recommendedItems = new List<SteamStoreItem>();
+            if (canUseConnectedSteamStoreAccount && recommendationProfile != null && steamStoreRecommendationService != null)
+            {
+                // Strict For You cache-only mode:
+                // load only the real Steam /recommender/ cache. No old profile cache, no keyword cache, no fake fallback.
+                recommendedItems = steamStoreRecommendationService.LoadFromCacheOnly(GetSteamForYouCacheKey(recommendationProfile), language, region)
+                    ?? new List<SteamStoreItem>();
+
+                // Quiet cache-only load; repeated Hub/Store bindings should not spam logs.
+            }
+            else if (!canUseConnectedSteamStoreAccount)
+            {
+                // Quiet cache-only skip; auth UI state already communicates this.
+            }
+
+            recommendedItems = (recommendedItems ?? new List<SteamStoreItem>()).Take(20).ToList();
+            ApplySteamStoreFlags(recommendedItems, personalizationContext);
+
             await Task.WhenAll(dealsTask, topSellersTask);
+
+            var personalizedMyWishlistItems = PersonalizeSteamStoreSection(
+                myWishlistItems,
+                personalizationContext,
+                "MyWishlist",
+                20);
 
             OnUi(() =>
             {
-                ReplaceSteamStoreCollection(Settings.SteamStoreDeals, dealsTask.Result);
-                ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newReleaseItems);
-                ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, topSellersTask.Result);
-                ReplaceSteamStoreCollection(Settings.SteamStoreUpcoming, upcomingItems);
-                ReplaceSteamStoreCollection(Settings.SteamStoreWishlisted, wishlistedItems);
+                ReplaceSteamStoreCollection(Settings.SteamStoreDeals, PersonalizeSteamStoreSection(dealsTask.Result, personalizationContext, "Deals", 24));
+                ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, PersonalizeSteamStoreSection(newReleaseItems, personalizationContext, "New", 24));
+                ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, PersonalizeSteamStoreSection(topSellersTask.Result, personalizationContext, "TopSellers", 24));
+                ReplaceSteamStoreCollection(Settings.SteamStoreUpcoming, PersonalizeSteamStoreSection(upcomingItems, personalizationContext, "Upcoming", 24));
+                ReplaceSteamStoreCollection(Settings.SteamStoreWishlisted, PersonalizeSteamStoreSection(wishlistedItems, personalizationContext, "Wishlisted", 24));
+
+                // Cache-only loading must never erase already visible authenticated data.
+                // An empty cache can simply mean that authentication was not ready yet or that
+                // the cache file has not been written. A confirmed logout is handled elsewhere.
+                if (canUseConnectedSteamStoreAccount)
+                {
+                    if ((personalizedMyWishlistItems?.Count ?? 0) > 0 || Settings.SteamStoreMyWishlist.Count == 0)
+                    {
+                        ReplaceSteamStoreCollection(Settings.SteamStoreMyWishlist, personalizedMyWishlistItems);
+                    }
+
+                    if ((recommendedItems?.Count ?? 0) > 0 || Settings.SteamStoreRecommended.Count == 0)
+                    {
+                        ReplaceSteamStoreRecommendedCollections(recommendedItems);
+                    }
+                }
 
                 UpdateSteamStoreActiveSection();
                 UpdateSteamStoreAvailabilityState();
@@ -6430,37 +12231,15 @@ namespace AnikiHelper
             });
         }
 
-        private async Task PreloadSteamStoreBackgroundsAsync(List<SteamStoreItem> items, string language, string region)
+        private Task PreloadSteamStoreBackgroundsAsync(List<SteamStoreItem> items, string language, string region)
         {
-            if (items == null || items.Count == 0)
-            {
-                return;
-            }
-
-            foreach (var item in items.Take(10))
-            {
-                try
-                {
-                    if (item == null || item.AppId <= 0)
-                    {
-                        continue;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(item.BackgroundImageLocalPath))
-                    {
-                        continue;
-                    }
-
-                    await steamStoreService.EnrichStoreItemDetailsAsync(item, language, region);
-                }
-                catch (Exception ex)
-                {
-                    logger.Warn(ex, "[AnikiHelper] Failed to preload Steam Store background.");
-                }
-            }
+            // Kept as a no-op for compatibility with older call sites.
+            // Store lists must not download heavy background/screenshots anymore;
+            // OpenSteamStoreDetails performs the media download on demand.
+            return Task.CompletedTask;
         }
 
-        private async Task RefreshSteamStoreAllAsync(bool manageLoading = true)
+        private async Task RefreshSteamStoreAllAsync(bool manageLoading = true, bool allowVisibleStoreUiRebuild = true)
         {
             if (Settings?.SteamStoreEnabled != true)
             {
@@ -6497,27 +12276,29 @@ namespace AnikiHelper
             {
                 var language = GetResolvedSteamStoreLanguage();
                 var region = GetResolvedSteamStoreRegion();
+                var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
 
                 var dealsTask = steamStoreService.GetDealsAsync(language, region, TimeSpan.FromDays(1));
                 var topSellersTask = steamStoreService.GetTopSellersAsync(language, region, TimeSpan.FromDays(1));
 
                 await Task.WhenAll(dealsTask, topSellersTask);
 
-                await PreloadSteamStoreBackgroundsAsync(dealsTask.Result, language, region);
-                await PreloadSteamStoreBackgroundsAsync(topSellersTask.Result, language, region);
+                // Backgrounds/screenshots are no longer preloaded for lists.
+                // They are downloaded lazily when the details view opens.
 
                 OnUi(() =>
                 {
-                    ReplaceSteamStoreCollection(Settings.SteamStoreDeals, dealsTask.Result);
-                    ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, topSellersTask.Result);
-                    UpdateSteamStoreActiveSection();
+                    ReplaceSteamStoreCollection(Settings.SteamStoreDeals, PersonalizeSteamStoreSection(dealsTask.Result, personalizationContext, "Deals", 24));
+                    ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, PersonalizeSteamStoreSection(topSellersTask.Result, personalizationContext, "TopSellers", 24));
+                    UpdateSteamStoreActiveSectionIfAllowed(allowVisibleStoreUiRebuild);
 
                     var hasAnyData =
                         Settings.SteamStoreDeals.Count > 0 ||
                         Settings.SteamStoreTopSellers.Count > 0 ||
                         Settings.SteamStoreNewReleases.Count > 0 ||
                         Settings.SteamStoreUpcoming.Count > 0 ||
-                        Settings.SteamStoreWishlisted.Count > 0;
+                        Settings.SteamStoreWishlisted.Count > 0 ||
+                        Settings.SteamStoreRecommended.Count > 0;
 
                     Settings.SteamStoreAvailable = hasAnyData;
                     Settings.SteamStoreError = hasAnyData ? string.Empty : "No store data available";
@@ -6622,13 +12403,6 @@ namespace AnikiHelper
 
             try
             {
-                if ((DateTime.UtcNow - lastSteamStoreOpenRequestUtc) < TimeSpan.FromSeconds(2))
-                {
-                    return;
-                }
-
-                lastSteamStoreOpenRequestUtc = DateTime.UtcNow;
-
                 if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
                 {
                     return;
@@ -6641,8 +12415,26 @@ namespace AnikiHelper
 
                 await LoadSteamStoreCacheOnlyAsync();
 
+                // Hub bindings can request Store data too. In that case we only load the cache.
+                // Do not start the real Store-view throttle here, otherwise opening the Store
+                // shortly after the Hub can suppress its network refresh for 30 seconds.
+                if (!IsSteamStoreViewVisible())
+                {
+                    return;
+                }
+
+                var nowUtc = DateTime.UtcNow;
+                if (HasSteamStoreCacheUiData() && (nowUtc - lastSteamStoreOpenRequestUtc) < SteamStoreOpenRequestThrottle)
+                {
+                    return;
+                }
+
+                lastSteamStoreOpenRequestUtc = nowUtc;
+
                 var language = GetResolvedSteamStoreLanguage();
                 var region = GetResolvedSteamStoreRegion();
+                var recommendationProfile = BuildSteamRecommendationProfile();
+                var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
 
                 var storeMustRefresh = await steamStoreService.IsAnyStoreCacheMissingOrExpiredAsync(
                     language,
@@ -6668,7 +12460,68 @@ namespace AnikiHelper
                     TimeSpan.FromDays(1)
                 );
 
-                if (!storeMustRefresh && !upcomingMustRefresh && !wishlistedMustRefresh && !newReleasesMustRefresh)
+                var canUseConnectedSteamStoreAccount = CanUseConnectedSteamStoreAccount();
+
+                var myWishlistMustRefresh = steamStoreService != null &&
+                    canUseConnectedSteamStoreAccount &&
+                    await steamStoreService.IsUserWishlistCacheMissingOrExpiredAsync(
+                        GetSteamMyWishlistCacheKey(),
+                        language,
+                        region,
+                        TimeSpan.FromDays(1)
+                    ).ConfigureAwait(false);
+
+                var recommendedCacheKey = GetSteamForYouCacheKey(recommendationProfile);
+
+                var recommendedMustRefresh = canUseConnectedSteamStoreAccount &&
+                    recommendationProfile != null &&
+                    (steamStoreRecommendationService == null ||
+                     steamStoreRecommendationService.IsCacheMissingOrExpired(
+                        recommendedCacheKey,
+                        language,
+                        region,
+                        TimeSpan.FromDays(1)
+                    ));
+
+                // The saved flag only says that a Steam account was connected previously.
+                // Before loading personalized Store pages, verify the real Store-domain CEF
+                // session now. Community cookies are deliberately not accepted here.
+                if ((myWishlistMustRefresh || recommendedMustRefresh) &&
+                    steamAccountSessionService != null)
+                {
+                    try
+                    {
+                        var storeSession = await steamAccountSessionService
+                            .ProbeAsync(CancellationToken.None)
+                            .ConfigureAwait(false);
+
+                        ApplySteamAccountSession(
+                            storeSession,
+                            storeSession?.IsConnected == true
+                                ? "Steam Store session is connected."
+                                : "Steam Store session is not connected.",
+                            allowVisibleStoreUiRebuild: false
+                        );
+
+                        canUseConnectedSteamStoreAccount = CanUseConnectedSteamStoreAccount();
+                        if (!canUseConnectedSteamStoreAccount)
+                        {
+                            myWishlistMustRefresh = false;
+                            recommendedMustRefresh = false;
+                            logger.Info("[Steam Store] personal refresh skipped | Store-domain session is not connected.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // A network/CEF failure is not a logout. Keep the current cache and do
+                        // not start the two personal refreshes with an unverified session.
+                        logger.Warn(ex, "[Steam Store] Store session validation failed; personal cache preserved.");
+                        myWishlistMustRefresh = false;
+                        recommendedMustRefresh = false;
+                    }
+                }
+
+                if (!storeMustRefresh && !upcomingMustRefresh && !wishlistedMustRefresh && !myWishlistMustRefresh && !newReleasesMustRefresh && !recommendedMustRefresh)
                 {
                     return;
                 }
@@ -6683,7 +12536,7 @@ namespace AnikiHelper
                 try
                 {
                     logger.Info(
-                        $"[AnikiHelper] Steam Store refresh START | Store={storeMustRefresh} | Upcoming={upcomingMustRefresh} | Wishlisted={wishlistedMustRefresh} | New={newReleasesMustRefresh} | Lang={language} | Region={region}"
+                        $"[AnikiHelper] Steam Store refresh START | Store={storeMustRefresh} | Upcoming={upcomingMustRefresh} | MostWishlisted={wishlistedMustRefresh} | MyWishlist={myWishlistMustRefresh} | New={newReleasesMustRefresh} | Recommended={recommendedMustRefresh} | Lang={language} | Region={region}"
                     );
 
                     var refreshTasks = new List<Task>();
@@ -6705,7 +12558,17 @@ namespace AnikiHelper
                         totalRefreshSteps++;
                     }
 
+                    if (myWishlistMustRefresh)
+                    {
+                        totalRefreshSteps++;
+                    }
+
                     if (newReleasesMustRefresh)
+                    {
+                        totalRefreshSteps++;
+                    }
+
+                    if (recommendedMustRefresh)
                     {
                         totalRefreshSteps++;
                     }
@@ -6738,7 +12601,7 @@ namespace AnikiHelper
                         {
                             try
                             {
-                                await RefreshSteamStoreAllAsync(false);
+                                await RefreshSteamStoreAllAsync(false, false);
                             }
                             catch (Exception ex)
                             {
@@ -6759,15 +12622,18 @@ namespace AnikiHelper
                             {
                                 var upcoming = await steamUpcomingGamesService.RefreshAsync(language, region);
 
-                                var upcomingStoreItems = upcoming
-                                    .Select(ConvertUpcomingToStoreItem)
-                                    .Where(x => x != null)
-                                    .ToList();
+                                var upcomingStoreItems = PersonalizeSteamStoreSection(
+                                    upcoming
+                                        .Select(ConvertUpcomingToStoreItem)
+                                        .Where(x => x != null),
+                                    personalizationContext,
+                                    "Upcoming",
+                                    24);
 
                                 OnUi(() =>
                                 {
                                     ReplaceSteamStoreCollection(Settings.SteamStoreUpcoming, upcomingStoreItems);
-                                    UpdateSteamStoreActiveSection();
+                                    UpdateSteamStoreActiveSectionIfAllowed(false);
                                 });
                             }
                             catch (Exception ex)
@@ -6789,20 +12655,62 @@ namespace AnikiHelper
                             {
                                 var wishlisted = await steamUpcomingGamesService.RefreshWishlistedAsync(language, region);
 
-                                var wishlistedStoreItems = wishlisted
-                                    .Select(ConvertUpcomingToStoreItem)
-                                    .Where(x => x != null)
-                                    .ToList();
+                                var wishlistedStoreItems = PersonalizeSteamStoreSection(
+                                    wishlisted
+                                        .Select(ConvertUpcomingToStoreItem)
+                                        .Where(x => x != null),
+                                    personalizationContext,
+                                    "Wishlisted",
+                                    24);
 
                                 OnUi(() =>
                                 {
                                     ReplaceSteamStoreCollection(Settings.SteamStoreWishlisted, wishlistedStoreItems);
-                                    UpdateSteamStoreActiveSection();
+                                    UpdateSteamStoreActiveSectionIfAllowed(false);
                                 });
                             }
                             catch (Exception ex)
                             {
                                 logger.Warn(ex, "[AnikiHelper] Steam Wishlisted refresh failed.");
+                            }
+                            finally
+                            {
+                                reportRefreshStepDone();
+                            }
+                        }));
+                    }
+
+                    if (myWishlistMustRefresh)
+                    {
+                        refreshTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var myWishlistStoreItems = await RefreshSteamStoreMyWishlistFromSteamAsync(
+                                    personalizationContext,
+                                    language,
+                                    region,
+                                    progress => SetSteamStoreLoadingProgress(progress),
+                                    allowVisibleStoreUiRebuild: false
+                                ).ConfigureAwait(false);
+
+                                OnUi(() =>
+                                {
+                                    if (myWishlistStoreItems != null)
+                                    {
+                                        ReplaceSteamStoreCollection(Settings.SteamStoreMyWishlist, myWishlistStoreItems);
+                                    }
+                                    else
+                                    {
+                                        logger.Info("[Steam My Wishlist] refresh failed | current collection preserved.");
+                                    }
+
+                                    UpdateSteamStoreActiveSectionIfAllowed(false);
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Steam My Wishlist refresh failed.");
                             }
                             finally
                             {
@@ -6819,20 +12727,70 @@ namespace AnikiHelper
                             {
                                 var newReleases = await steamUpcomingGamesService.RefreshNewReleasesAsync(language, region);
 
-                                var newReleaseStoreItems = newReleases
-                                    .Select(ConvertUpcomingToStoreItem)
-                                    .Where(x => x != null)
-                                    .ToList();
+                                var newReleaseStoreItems = PersonalizeSteamStoreSection(
+                                    newReleases
+                                        .Select(ConvertUpcomingToStoreItem)
+                                        .Where(x => x != null),
+                                    personalizationContext,
+                                    "New",
+                                    24);
 
                                 OnUi(() =>
                                 {
                                     ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, newReleaseStoreItems);
-                                    UpdateSteamStoreActiveSection();
+                                    UpdateSteamStoreActiveSectionIfAllowed(false);
                                 });
                             }
                             catch (Exception ex)
                             {
                                 logger.Warn(ex, "[AnikiHelper] Steam New Releases refresh failed.");
+                            }
+                            finally
+                            {
+                                reportRefreshStepDone();
+                            }
+                        }));
+                    }
+
+                    if (recommendedMustRefresh && recommendationProfile != null)
+                    {
+                        refreshTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var recommendedStoreItems = await RefreshSteamStoreForYouFromSteamAsync(
+                                    personalizationContext,
+                                    recommendationProfile,
+                                    language,
+                                    region,
+                                    progress => SetSteamStoreLoadingProgress(progress),
+                                    allowVisibleStoreUiRebuild: false
+                                ).ConfigureAwait(false);
+
+                                if (recommendedStoreItems == null)
+                                {
+                                    logger.Info("[Steam Recommender] refresh failed | current collection preserved.");
+
+                                    OnUi(() =>
+                                    {
+                                        UpdateSteamStoreActiveSectionIfAllowed(false);
+                                    });
+                                }
+                                else
+                                {
+                                    recommendedStoreItems = recommendedStoreItems.Take(20).ToList();
+                                    ApplySteamStoreFlags(recommendedStoreItems, personalizationContext);
+
+                                    OnUi(() =>
+                                    {
+                                        ReplaceSteamStoreRecommendedCollections(recommendedStoreItems);
+                                        UpdateSteamStoreActiveSectionIfAllowed(false);
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Warn(ex, "[AnikiHelper] Steam Recommended refresh failed.");
                             }
                             finally
                             {
@@ -6856,7 +12814,7 @@ namespace AnikiHelper
                 {
                     OnUi(() =>
                     {
-                        UpdateSteamStoreActiveSection();
+                        UpdateSteamStoreActiveSectionIfAllowed(false);
                         UpdateSteamStoreAvailabilityState();
                     });
 
@@ -6899,7 +12857,12 @@ namespace AnikiHelper
                 var language = GetResolvedSteamStoreLanguage();
                 var region = GetResolvedSteamStoreRegion();
 
-                var items = await steamStoreService.GetDealsAsync(language, region, TimeSpan.FromDays(1));
+                var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
+                var items = PersonalizeSteamStoreSection(
+                    await steamStoreService.GetDealsAsync(language, region, TimeSpan.FromDays(1)).ConfigureAwait(false),
+                    personalizationContext,
+                    "Deals",
+                    24);
 
                 Settings.SteamStoreDeals.Clear();
 
@@ -6980,7 +12943,12 @@ namespace AnikiHelper
                 var language = GetResolvedSteamStoreLanguage();
                 var region = GetResolvedSteamStoreRegion();
 
-                var items = await steamStoreService.GetTopSellersAsync(language, region, TimeSpan.FromDays(1));
+                var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
+                var items = PersonalizeSteamStoreSection(
+                    await steamStoreService.GetTopSellersAsync(language, region, TimeSpan.FromDays(1)).ConfigureAwait(false),
+                    personalizationContext,
+                    "TopSellers",
+                    24);
 
                 Settings.SteamStoreTopSellers.Clear();
 
@@ -7117,6 +13085,52 @@ namespace AnikiHelper
             }
         }
 
+        private ButtonBase FindButtonInOpenWindows(string buttonName)
+        {
+            if (string.IsNullOrWhiteSpace(buttonName))
+            {
+                return null;
+            }
+
+            var app = Application.Current;
+            if (app == null)
+            {
+                return null;
+            }
+
+            foreach (var window in app.Windows.OfType<Window>())
+            {
+                if (window == null)
+                {
+                    continue;
+                }
+
+                var button = FindVisualChildByName<ButtonBase>(window, buttonName);
+                if (button != null)
+                {
+                    return button;
+                }
+            }
+
+            return null;
+        }
+
+        private static void ExecuteButton(ButtonBase button)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
+            {
+                button.Command.Execute(button.CommandParameter);
+                return;
+            }
+
+            button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        }
+
         public void OpenAchievementsFromQuickAccess()
         {
             try
@@ -7127,53 +13141,38 @@ namespace AnikiHelper
                     return;
                 }
 
-                dispatcher.BeginInvoke(new Action(() =>
+                Action openAction = () =>
                 {
                     try
                     {
-                        // Ferme la fenêtre Quick Access avant d’ouvrir Achievements
+                        // Ferme visuellement le Quick Access.
+                        // CloseTopWindow() fait déjà Hide() puis Close() en idle, donc c'est mieux que Close direct.
                         CloseTopWindow();
 
-                        dispatcher.BeginInvoke(new Action(() =>
+                        var button = FindButtonInOpenWindows("HiddenOpenAchievementsButton");
+
+                        if (button == null)
                         {
-                            try
-                            {
-                                var app = Application.Current;
-                                if (app == null)
-                                {
-                                    return;
-                                }
+                            logger.Warn("[AnikiHelper] HiddenOpenAchievementsButton was not found.");
+                            return;
+                        }
 
-                                var button = app.Windows
-                                    .OfType<Window>()
-                                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
-                                    .FirstOrDefault(x => x.Name == "HiddenOpenAchievementsButton") as System.Windows.Controls.Primitives.ButtonBase;
-
-                                if (button == null)
-                                {
-                                    logger.Warn("[AnikiHelper] HiddenOpenAchievementsButton was not found.");
-                                    return;
-                                }
-
-                                if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
-                                {
-                                    button.Command.Execute(button.CommandParameter);
-                                    return;
-                                }
-
-                                button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.Warn(ex, "[AnikiHelper] Failed to trigger HiddenOpenAchievementsButton.");
-                            }
-                        }), DispatcherPriority.Background);
+                        ExecuteButton(button);
                     }
                     catch (Exception ex)
                     {
                         logger.Warn(ex, "[AnikiHelper] OpenAchievementsFromQuickAccess inner failed.");
                     }
-                }), DispatcherPriority.Background);
+                };
+
+                if (dispatcher.CheckAccess())
+                {
+                    openAction();
+                }
+                else
+                {
+                    dispatcher.BeginInvoke(openAction, DispatcherPriority.Normal);
+                }
             }
             catch (Exception ex)
             {
@@ -8030,6 +14029,167 @@ namespace AnikiHelper
             }
         }
 
+        public void ExecuteMusicTransportCommand(string commandKey)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(commandKey))
+                {
+                    return;
+                }
+
+                var normalizedCommand = commandKey.Trim().ToLowerInvariant();
+
+                // When the music player is hosted inside the in-game overlay, avoid going
+                // through playnite:// URI dispatch first. URI dispatch can be unreliable
+                // while a game owns focus. UniPlaySong exposes the same active-media
+                // transport service in the Playnite process, so call it directly when possible.
+                if (TryExecuteUniPlaySongActiveMediaCommand(normalizedCommand))
+                {
+                    return;
+                }
+
+                string uri = null;
+
+                switch (normalizedCommand)
+                {
+                    case "previous":
+                    case "prev":
+                        uri = "playnite://uniplaysong/previous";
+                        break;
+
+                    case "play":
+                        uri = "playnite://uniplaysong/play";
+                        break;
+
+                    case "pause":
+                        uri = "playnite://uniplaysong/pause";
+                        break;
+
+                    case "playpause":
+                    case "toggleplaypause":
+                    case "playpausetoggle":
+                    case "toggle":
+                        uri = "playnite://uniplaysong/playpausetoggle";
+                        break;
+
+                    case "next":
+                    case "skip":
+                        uri = "playnite://uniplaysong/next";
+                        break;
+
+                    case "mute":
+                    case "togglemute":
+                        uri = "playnite://uniplaysong/togglemute";
+                        break;
+
+                    case "stop":
+                        uri = "playnite://uniplaysong/stop";
+                        break;
+
+                    case "restart":
+                        uri = "playnite://uniplaysong/restart";
+                        break;
+                }
+
+                if (string.IsNullOrWhiteSpace(uri))
+                {
+                    logger.Warn($"[AnikiHelper] Unknown music transport command: {commandKey}");
+                    return;
+                }
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = uri,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, $"[AnikiHelper] Failed to execute music transport command: {commandKey}");
+            }
+        }
+
+        private bool TryExecuteUniPlaySongActiveMediaCommand(string normalizedCommand)
+        {
+            try
+            {
+                var app = Application.Current;
+
+                if (app == null || app.Properties == null || !app.Properties.Contains("UniPlaySongPlugin"))
+                {
+                    return false;
+                }
+
+                var uniPlaySongPlugin = app.Properties["UniPlaySongPlugin"];
+
+                if (uniPlaySongPlugin == null)
+                {
+                    return false;
+                }
+
+                var activeMediaServiceField = uniPlaySongPlugin.GetType().GetField(
+                    "_activeMediaService",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+                var activeMediaService = activeMediaServiceField?.GetValue(uniPlaySongPlugin);
+
+                if (activeMediaService == null)
+                {
+                    return false;
+                }
+
+                string methodName = null;
+
+                switch (normalizedCommand)
+                {
+                    case "previous":
+                    case "prev":
+                        methodName = "Previous";
+                        break;
+
+                    case "playpause":
+                    case "toggleplaypause":
+                    case "playpausetoggle":
+                    case "toggle":
+                        methodName = "PlayPause";
+                        break;
+
+                    case "next":
+                    case "skip":
+                        methodName = "Next";
+                        break;
+
+                    case "mute":
+                    case "togglemute":
+                        methodName = "ToggleMute";
+                        break;
+                }
+
+                if (string.IsNullOrWhiteSpace(methodName))
+                {
+                    return false;
+                }
+
+                var method = activeMediaService.GetType().GetMethod(
+                    methodName,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+
+                if (method == null || method.GetParameters().Length != 0)
+                {
+                    return false;
+                }
+
+                method.Invoke(activeMediaService, null);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, $"[AnikiHelper] Failed to execute UniPlaySong active media command: {normalizedCommand}");
+                return false;
+            }
+        }
+
         private void AddControllerSupportSafe()
         {
             try
@@ -8041,6 +14201,8 @@ namespace AnikiHelper
                     {
                         "ControllerCommands",
                         "ControllerShortcuts",
+                        "ControllerShortcuts_Hub",
+                        "ControllerShortcutsHub",
                         "ControllerOverride",
                         "GlobalControllerShortcuts",
                         "GlobalControllerShortcutsHub",
@@ -8217,6 +14379,7 @@ namespace AnikiHelper
                         return new AnikiControllerCommandsControl();
 
                     case "ControllerShortcuts":
+                    case "ControllerShortcutsHub":
                         return new AnikiControllerShortcutControl(suppressDefaults: false, global: false);
 
                     case "ControllerOverride":
@@ -8798,7 +14961,7 @@ namespace AnikiHelper
             }
         }
 
-        private void SuggestedRotationTimer_Tick(object sender, EventArgs e)
+        private void LibraryNewsRotationTimer_Tick(object sender, EventArgs e)
         {
             try
             {
@@ -8822,19 +14985,19 @@ namespace AnikiHelper
                     return;
                 }
 
-                RotateSuggestedGamesIfNeeded();
+                RotateLibraryNewsIfNeeded();
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] SuggestedRotationTimer_Tick failed.");
+                logger.Warn(ex, "[AnikiHelper] LibraryNewsRotationTimer_Tick failed.");
             }
         }
 
-        private async Task StartSuggestedRotationWithDelayAsync(int delayMs)
+        private async Task StartLibraryNewsRotationWithDelayAsync(int delayMs)
         {
             try
             {
-                await Task.Delay(delayMs);
+                await Task.Delay(delayMs).ConfigureAwait(false);
 
                 if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
                 {
@@ -8846,11 +15009,24 @@ namespace AnikiHelper
                     return;
                 }
 
-                suggestedRotationTimer?.Start();
+                OnUi(() => libraryNewsRotationTimer?.Start());
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] StartSuggestedRotationWithDelayAsync failed.");
+                logger.Warn(ex, "[AnikiHelper] StartLibraryNewsRotationWithDelayAsync failed.");
+            }
+        }
+
+        private async Task RefreshHubLibraryNewsTargetedWithDelayAsync(int delayMs)
+        {
+            try
+            {
+                await Task.Delay(delayMs).ConfigureAwait(false);
+                await RefreshHubLibraryNewsTargetedAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Delayed Hub Library News refresh failed.");
             }
         }
 
@@ -8884,25 +15060,11 @@ namespace AnikiHelper
             }
 
             var today = DateTime.Now.Date;
-
-            // Si on a déjà un RefGame choisi aujourd'hui, on le réutilise
-            if (s.RefGameLastId != Guid.Empty && s.RefGameLastChangeDate.Date == today)
-            {
-                var cached = games.FirstOrDefault(g => g.Id == s.RefGameLastId)
-                             ?? PlayniteApi.Database.Games.Get(s.RefGameLastId);
-
-                if (cached != null)
-                {
-                    return cached;
-                }
-
-                // si jeu supprimé / plus dans la liste filtrée
-                s.RefGameLastId = Guid.Empty;
-            }
-
             var limit = DateTime.Now.AddDays(-14);
 
-            // Top 3 : joué dans les 14 jours, tri Playtime -> PlayCount -> LastActivity
+            // Top 3 : joué dans les 14 jours, tri Playtime -> PlayCount -> LastActivity.
+            // Important: always compute this before the sticky RefGame return,
+            // otherwise Recommended/For You silently falls back to a single reference game.
             var candidates = games
                 .Where(g =>
                     g != null
@@ -8915,6 +15077,28 @@ namespace AnikiHelper
                 .ToList();
 
             top3 = candidates.Take(3).ToList();
+
+            // Si on a déjà un RefGame choisi aujourd'hui, on le réutilise,
+            // but keep the freshly computed Top 3 for the recommendation profile.
+            if (s.RefGameLastId != Guid.Empty && s.RefGameLastChangeDate.Date == today)
+            {
+                var cached = games.FirstOrDefault(g => g.Id == s.RefGameLastId)
+                             ?? PlayniteApi.Database.Games.Get(s.RefGameLastId);
+
+                if (cached != null)
+                {
+                    if (!top3.Any(g => g != null && g.Id == cached.Id))
+                    {
+                        // Keep sticky game available as fallback seed without replacing the real Top 3.
+                        top3.Add(cached);
+                    }
+
+                    return cached;
+                }
+
+                // si jeu supprimé / plus dans la liste filtrée
+                s.RefGameLastId = Guid.Empty;
+            }
 
             // RefGame = le dernier lancé parmi le Top 3
             Playnite.SDK.Models.Game refGame = null;
@@ -8935,6 +15119,11 @@ namespace AnikiHelper
                     .FirstOrDefault();
             }
 
+            if (refGame != null && !top3.Any(g => g != null && g.Id == refGame.Id))
+            {
+                top3.Add(refGame);
+            }
+
             // Sticky journée
             if (refGame != null)
             {
@@ -8946,7 +15135,7 @@ namespace AnikiHelper
             return refGame;
         }
 
-        private string GetStartupVideoPath()
+        private string ResolveVideoPath(string fileName)
         {
             try
             {
@@ -8959,7 +15148,7 @@ namespace AnikiHelper
                         "Fullscreen",
                         ShutdownThemeFolderName,
                         ShutdownVideoFolderName,
-                        StartupVideoFileName);
+                        fileName);
 
                     if (File.Exists(themeVideo))
                     {
@@ -8976,7 +15165,7 @@ namespace AnikiHelper
                         "Fullscreen",
                         ShutdownThemeFolderName,
                         ShutdownVideoFolderName,
-                        StartupVideoFileName);
+                        fileName);
 
                     if (File.Exists(themeVideo))
                     {
@@ -8984,62 +15173,91 @@ namespace AnikiHelper
                     }
                 }
 
-                return Path.Combine(GetDataRoot(), "ShutdownVideo", StartupVideoFileName);
+                return Path.Combine(GetDataRoot(), "ShutdownVideo", fileName);
             }
             catch
             {
-                return Path.Combine(GetDataRoot(), "ShutdownVideo", StartupVideoFileName);
+                return Path.Combine(GetDataRoot(), "ShutdownVideo", fileName);
             }
+        }
+
+        private string GetLuckyStartupVideoFileName()
+        {
+            try
+            {
+                if (Settings?.IsLuckyDay == true)
+                {
+                    switch (Settings.LuckyStyleIndex)
+                    {
+                        case 1:
+                            return StartupLuckyDay1VideoFileName;
+                        case 2:
+                            return StartupLuckyDay2VideoFileName;
+                    }
+                }
+            }
+            catch { }
+
+            return StartupVideoFileName;
+        }
+
+        private string GetLuckyShutdownVideoFileName()
+        {
+            try
+            {
+                if (Settings?.IsLuckyDay == true)
+                {
+                    switch (Settings.LuckyStyleIndex)
+                    {
+                        case 1:
+                            return ShutdownLuckyDay1VideoFileName;
+                        case 2:
+                            return ShutdownLuckyDay2VideoFileName;
+                    }
+                }
+            }
+            catch { }
+
+            return ShutdownVideoFileName;
+        }
+
+        private string GetStartupVideoPath()
+        {
+            var preferredFileName = GetLuckyStartupVideoFileName();
+
+            if (!string.Equals(preferredFileName, StartupVideoFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                var luckyVideoPath = ResolveVideoPath(preferredFileName);
+                if (File.Exists(luckyVideoPath))
+                {
+                    return luckyVideoPath;
+                }
+            }
+
+            return ResolveVideoPath(StartupVideoFileName);
         }
 
         private string GetShutdownVideoPath()
         {
-            try
+            var preferredFileName = GetLuckyShutdownVideoFileName();
+
+            if (!string.Equals(preferredFileName, ShutdownVideoFileName, StringComparison.OrdinalIgnoreCase))
             {
-                var configRoot = PlayniteApi?.Paths?.ConfigurationPath;
-                if (!string.IsNullOrEmpty(configRoot))
+                var luckyVideoPath = ResolveVideoPath(preferredFileName);
+                if (File.Exists(luckyVideoPath))
                 {
-                    var themeVideo = Path.Combine(
-                        configRoot,
-                        "Themes",
-                        "Fullscreen",
-                        ShutdownThemeFolderName,
-                        ShutdownVideoFolderName,
-                        ShutdownVideoFileName);
-
-                    if (File.Exists(themeVideo))
-                    {
-                        return themeVideo;
-                    }
+                    return luckyVideoPath;
                 }
-
-                var appRoot = PlayniteApi?.Paths?.ApplicationPath;
-                if (!string.IsNullOrEmpty(appRoot))
-                {
-                    var themeVideo = Path.Combine(
-                        appRoot,
-                        "Themes",
-                        "Fullscreen",
-                        ShutdownThemeFolderName,
-                        ShutdownVideoFolderName,
-                        ShutdownVideoFileName);
-
-                    if (File.Exists(themeVideo))
-                    {
-                        return themeVideo;
-                    }
-                }
-
-                return Path.Combine(GetDataRoot(), "ShutdownVideo", ShutdownVideoFileName);
             }
-            catch
-            {
-                return Path.Combine(GetDataRoot(), "ShutdownVideo", ShutdownVideoFileName);
-            }
+
+            return ResolveVideoPath(ShutdownVideoFileName);
         }
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -9049,6 +15267,30 @@ namespace AnikiHelper
 
         [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(int vKey);
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct GameReadyWindowRect
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out GameReadyWindowRect lpRect);
+
 
         private bool TrySetUniPlaySongGameStartingPause(bool pause)
         {
@@ -9341,12 +15583,18 @@ namespace AnikiHelper
                     return;
                 }
 
+                // Cache Playnite AVANT d’afficher l’overlay vidéo.
+                // Ça évite le flash de l’interface au début de la vidéo.
+                HidePlayniteWindowsForStartup(null);
+
                 overlay = new AnikiVideoOverlayWindow(videoPath, StartupVideoFailSafeTimeout);
                 overlay.Show();
                 overlay.Activate();
 
                 await Application.Current.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
 
+                // Sécurité : si une fenêtre Playnite apparaît après le premier hide,
+                // on la recache, mais on ne cache pas l’overlay vidéo.
                 HidePlayniteWindowsForStartup(overlay);
 
                 await Task.Delay(StartupVideoDuration);
@@ -9575,29 +15823,39 @@ namespace AnikiHelper
                 DebugLog($"[AnikiHelper][OnApplicationStarted] base.OnApplicationStarted took {swTotal.ElapsedMilliseconds}ms");
 
                 sw.Restart();
-                eventSoundService.PlayApplicationStarted();
-                DebugLog($"[AnikiHelper][OnApplicationStarted] PlayApplicationStarted took {sw.ElapsedMilliseconds}ms");
-
-                sw.Restart();
                 var isFullscreen = PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
                 DebugLog($"[AnikiHelper][OnApplicationStarted] Fullscreen check took {sw.ElapsedMilliseconds}ms | fullscreen={isFullscreen}");
 
                 if (!isFullscreen)
                 {
+                    sw.Restart();
+                    eventSoundService.PlayApplicationStarted();
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] PlayApplicationStarted took {sw.ElapsedMilliseconds}ms");
+
                     DebugLog($"[AnikiHelper][OnApplicationStarted] STOP not fullscreen | total={swTotal.ElapsedMilliseconds}ms");
                     return;
                 }
 
-
                 sw.Restart();
                 var isAnikiThemeActive = IsAnikiThemeActive();
                 DebugLog($"[AnikiHelper][OnApplicationStarted] IsAnikiThemeActive took {sw.ElapsedMilliseconds}ms | active={isAnikiThemeActive}");
+
+                var delayApplicationStartedSoundUntilAfterVideo = isAnikiThemeActive && Settings.StartupIntroVideoEnabled;
+
+                if (!delayApplicationStartedSoundUntilAfterVideo)
+                {
+                    sw.Restart();
+                    eventSoundService.PlayApplicationStarted();
+                    DebugLog($"[AnikiHelper][OnApplicationStarted] PlayApplicationStarted took {sw.ElapsedMilliseconds}ms");
+                }
 
                 if (isAnikiThemeActive)
                 {
                     InitializeLuckyDaySession();
                 }
 
+                // IMPORTANT: keep theme settings/options early.
+                // Delaying this makes the UI appear with wrong theme/options during startup.
                 try
                 {
                     if (isAnikiThemeActive)
@@ -9624,6 +15882,20 @@ namespace AnikiHelper
                 catch (Exception ex)
                 {
                     logger.Warn(ex, "[AnikiHelper] Failed to start in-game overlay service.");
+                }
+
+                try
+                {
+                    if (isAnikiThemeActive)
+                    {
+                        sw.Restart();
+                        steamFriendsService?.Start();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] steamFriendsService.Start took {sw.ElapsedMilliseconds}ms");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to start Steam Friends service.");
                 }
 
                 try
@@ -9667,37 +15939,18 @@ namespace AnikiHelper
 
                 sw.Restart();
                 hubPage3CardsInitialized = false;
+                hubStartupCachePrimed = false;
                 DebugLog($"[AnikiHelper][OnApplicationStarted] hubPage3CardsInitialized reset took {sw.ElapsedMilliseconds}ms");
 
-                sw.Restart();
-                EnsureMonthlySnapshotSafe();
-                DebugLog($"[AnikiHelper][OnApplicationStarted] EnsureMonthlySnapshotSafe took {sw.ElapsedMilliseconds}ms");
-
-                sw.Restart();
-                RecalcStatsSafe();
-                DebugLog($"[AnikiHelper][OnApplicationStarted] RecalcStatsSafe took {sw.ElapsedMilliseconds}ms");
+                QueueWelcomeHubCriticalCachePrime(isAnikiThemeActive);
+                QueueStartupFocusRecovery(isAnikiThemeActive);
 
                 sw.Restart();
                 PlayniteApi.Database.DatabaseOpened += (_, __) =>
                 {
-                    var swDb = Stopwatch.StartNew();
-                    DebugLog("[AnikiHelper][DatabaseOpened] START");
-
-                    hubPage3CardsInitialized = false;
-                    DebugLog($"[AnikiHelper][DatabaseOpened] hubPage3CardsInitialized reset at {swDb.ElapsedMilliseconds}ms");
-
-                    EnsureMonthlySnapshotSafe();
-                    DebugLog($"[AnikiHelper][DatabaseOpened] EnsureMonthlySnapshotSafe at {swDb.ElapsedMilliseconds}ms");
-
-                    RecalcStatsSafe();
-                    DebugLog($"[AnikiHelper][DatabaseOpened] RecalcStatsSafe at {swDb.ElapsedMilliseconds}ms");
-
-                    DebugLog($"[AnikiHelper][DatabaseOpened] END total={swDb.ElapsedMilliseconds}ms");
+                    QueueDatabaseOpenedStatsRefresh();
                 };
                 DebugLog($"[AnikiHelper][OnApplicationStarted] DatabaseOpened handler attach took {sw.ElapsedMilliseconds}ms");
-
-                // Profile genre is intentionally cache-based.
-                DebugLog("[AnikiHelper][OnApplicationStarted] Profile genre cache mode active.");
 
                 try
                 {
@@ -9714,47 +15967,7 @@ namespace AnikiHelper
                     logger.Warn(ex, "[AnikiHelper] Failed to reset session notification state.");
                 }
 
-                if (isAnikiThemeActive)
-                {
-                    sw.Restart();
-                    AddonsUpdateStyler.Start();
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] AddonsUpdateStyler.Start took {sw.ElapsedMilliseconds}ms");
-                }
-
-                sw.Restart();
-                System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                    () =>
-                    {
-                        var swUi = Stopwatch.StartNew();
-                        DebugLog("[AnikiHelper][OnApplicationStarted][UI Loaded] Dynamic color init START");
-
-                        EnsureDynamicColorCacheVersion();
-                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] EnsureDynamicColorCacheVersion at {swUi.ElapsedMilliseconds}ms");
-
-                        DynamicAuto.Init(PlayniteApi);
-                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] DynamicAuto.Init at {swUi.ElapsedMilliseconds}ms");
-
-                        DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] Dynamic color init END total={swUi.ElapsedMilliseconds}ms");
-                    },
-                    System.Windows.Threading.DispatcherPriority.Loaded
-                );
-                DebugLog($"[AnikiHelper][OnApplicationStarted] Dynamic color InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
-
-                if (isAnikiThemeActive)
-                {
-                    sw.Restart();
-                    System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                        () =>
-                        {
-                            var swUi = Stopwatch.StartNew();
-                            SettingsWindowStyler.Start();
-                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] SettingsWindowStyler.Start took {swUi.ElapsedMilliseconds}ms");
-                        },
-                        System.Windows.Threading.DispatcherPriority.Loaded
-                    );
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] SettingsWindowStyler InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
-                }
-
+                // Small early UI service. Keep this before the delayed block because the theme can use it for layout bindings.
                 if (isAnikiThemeActive)
                 {
                     sw.Restart();
@@ -9781,36 +15994,6 @@ namespace AnikiHelper
                     DebugLog($"[AnikiHelper][OnApplicationStarted] Aspect ratio InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
                 }
 
-                if (isAnikiThemeActive)
-                {
-                    sw.Restart();
-                    System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                        () =>
-                        {
-                            var swUi = Stopwatch.StartNew();
-                            FastScrollViewerService.Start();
-                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] FastScrollViewerService.Start took {swUi.ElapsedMilliseconds}ms");
-                        },
-                        System.Windows.Threading.DispatcherPriority.Loaded
-                    );
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] FastScrollViewerService InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
-                }
-
-                if (isAnikiThemeActive)
-                {
-                    sw.Restart();
-                    System.Windows.Application.Current?.Dispatcher?.InvokeAsync(
-                        () =>
-                        {
-                            var swUi = Stopwatch.StartNew();
-                            VisualPackBackgroundComposer.Start();
-                            DebugLog($"[AnikiHelper][OnApplicationStarted][UI Loaded] VisualPackBackgroundComposer.Start took {swUi.ElapsedMilliseconds}ms");
-                        },
-                        System.Windows.Threading.DispatcherPriority.Loaded
-                    );
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] VisualPackBackgroundComposer InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
-                }
-
                 if (isAnikiThemeActive && Settings.ShutdownVideoEnabled)
                 {
                     sw.Restart();
@@ -9818,6 +16001,8 @@ namespace AnikiHelper
                     DebugLog($"[AnikiHelper][OnApplicationStarted] FullscreenShutdownVideoHook.Start took {sw.ElapsedMilliseconds}ms");
                 }
 
+                // Queue the startup video before the heavy non-critical startup work.
+                // If the intro option is disabled, no black video overlay is created here.
                 if (isAnikiThemeActive && Settings.StartupIntroVideoEnabled)
                 {
                     sw.Restart();
@@ -9836,21 +16021,722 @@ namespace AnikiHelper
                             {
                                 logger.Warn(ex, "[AnikiHelper] Startup video launch failed.");
                             }
+                            finally
+                            {
+                                try
+                                {
+                                    var swSound = Stopwatch.StartNew();
+                                    eventSoundService.PlayApplicationStarted();
+                                    DebugLog($"[AnikiHelper][OnApplicationStarted][StartupVideo] PlayApplicationStarted after video took {swSound.ElapsedMilliseconds}ms");
+                                }
+                                catch (Exception ex)
+                                {
+                                    logger.Warn(ex, "[AnikiHelper] Startup sound after video failed.");
+                                }
+                            }
                         },
                         System.Windows.Threading.DispatcherPriority.Send
                     );
                     DebugLog($"[AnikiHelper][OnApplicationStarted] Startup video InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
                 }
 
-                if (isAnikiThemeActive)
-                {
-                    sw.Restart();
-                    newsRotationTimer?.Start();
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] newsRotationTimer.Start took {sw.ElapsedMilliseconds}ms");
+                QueuePostStartupNonCriticalWork(isAnikiThemeActive);
 
-                    sw.Restart();
-                    _ = StartSuggestedRotationWithDelayAsync(3000);
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] StartSuggestedRotationWithDelayAsync launch took {sw.ElapsedMilliseconds}ms");
+                DebugLog($"[AnikiHelper][OnApplicationStarted] END queued non-critical work | total={swTotal.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, $"[AnikiHelper][OnApplicationStarted] FATAL ERROR after {swTotal.ElapsedMilliseconds}ms");
+            }
+        }
+
+        private void QueueStartupFocusRecovery(bool isAnikiThemeActive)
+        {
+            try
+            {
+                if (!isAnikiThemeActive)
+                {
+                    return;
+                }
+
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        // Do not fight the Aniki startup video. It already restores Playnite focus when it closes.
+                        if (Settings?.StartupIntroVideoEnabled == true)
+                        {
+                            await Task.Delay((int)StartupVideoDuration.TotalMilliseconds + 250);
+                        }
+
+                        // Handheld shells / AnyFSE / BootVid can briefly return Playnite visually without
+                        // giving WPF a valid keyboard focus. Retry a few times instead of forcing a specific
+                        // target such as the game list, because the theme may start on Login, Hub, or Library.
+                        int[] delaysMs = new[] { 150, 700, 1500, 3000, 5000 };
+
+                        for (int i = 0; i < delaysMs.Length; i++)
+                        {
+                            await Task.Delay(delaysMs[i]);
+                            RestorePlayniteStartupFocus($"startup-recovery-{i + 1}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Startup focus recovery failed.");
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to queue startup focus recovery.");
+            }
+        }
+
+        private void RestorePlayniteStartupFocus(string context)
+        {
+            try
+            {
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (IsAnyAnikiModalOrOverlayWindowOpen())
+                {
+                    return;
+                }
+
+                var app = Application.Current;
+                var main = app?.MainWindow;
+
+                if (main == null || !main.IsVisible)
+                {
+                    return;
+                }
+
+                bool hasValidFocus = HasValidMainWindowKeyboardFocus(main);
+
+                if (hasValidFocus && IsPlayniteForegroundWindow())
+                {
+                    return;
+                }
+
+                var handle = new WindowInteropHelper(main).Handle;
+
+                try
+                {
+                    if (handle != IntPtr.Zero)
+                    {
+                        SetForegroundWindow(handle);
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    main.Activate();
+                    main.Focus();
+                }
+                catch { }
+
+                // Last pass: if WPF still has no valid focused element, ask WPF to focus the first
+                // visible/focusable element in the current screen. This is intentionally generic:
+                // Login screen, Hub, and Library keep their own natural focus target.
+                try
+                {
+                    if (!HasValidMainWindowKeyboardFocus(main))
+                    {
+                        if (main.Content is FrameworkElement root)
+                        {
+                            root.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+                        }
+                        else
+                        {
+                            main.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+                        }
+                    }
+                }
+                catch { }
+
+                DebugLog($"[AnikiHelper][StartupFocusRecovery] {context} | restored | foreground={IsPlayniteForegroundWindow()} | validFocus={HasValidMainWindowKeyboardFocus(main)}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, $"[AnikiHelper] Startup focus recovery pass failed ({context}).");
+            }
+        }
+
+        private bool HasValidMainWindowKeyboardFocus(Window main)
+        {
+            try
+            {
+                if (main == null || !main.IsVisible || !main.IsKeyboardFocusWithin)
+                {
+                    return false;
+                }
+
+                var focused = Keyboard.FocusedElement as DependencyObject;
+                if (focused == null)
+                {
+                    return false;
+                }
+
+                return IsDescendantOrSelf(focused, main);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsDescendantOrSelf(DependencyObject current, DependencyObject target)
+        {
+            try
+            {
+                while (current != null)
+                {
+                    if (ReferenceEquals(current, target))
+                    {
+                        return true;
+                    }
+
+                    DependencyObject parent = null;
+
+                    try
+                    {
+                        parent = VisualTreeHelper.GetParent(current);
+                    }
+                    catch
+                    {
+                        parent = null;
+                    }
+
+                    if (parent == null && current is FrameworkElement element)
+                    {
+                        parent = element.Parent;
+                    }
+
+                    if (parent == null && current is FrameworkContentElement contentElement)
+                    {
+                        parent = contentElement.Parent as DependencyObject;
+                    }
+
+                    current = parent;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private bool IsAnyAnikiModalOrOverlayWindowOpen()
+        {
+            try
+            {
+                return Application.Current?.Windows
+                    .OfType<Window>()
+                    .Any(w =>
+                    {
+                        if (w == null || !w.IsVisible || ReferenceEquals(w, Application.Current.MainWindow))
+                        {
+                            return false;
+                        }
+
+                        if (w is AnikiVideoOverlayWindow)
+                        {
+                            return true;
+                        }
+
+                        var typeName = w.GetType().FullName ?? string.Empty;
+
+                        return w.Tag is string ||
+                               typeName.IndexOf("SettingsWindow", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               typeName.IndexOf("TextInputWindow", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               typeName.IndexOf("Aniki", StringComparison.OrdinalIgnoreCase) >= 0;
+                    }) == true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string GetWelcomeHubStartupCachePath()
+        {
+            return Path.Combine(GetDataRoot(), "Hub Cache", "WelcomeHubStartupCache.json");
+        }
+
+        private static void ReplaceObservableCollection<T>(ObservableCollection<T> target, IEnumerable<T> source)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            target.Clear();
+
+            if (source == null)
+            {
+                return;
+            }
+
+            foreach (var item in source)
+            {
+                if (item != null)
+                {
+                    target.Add(item);
+                }
+            }
+        }
+
+        private void LoadWelcomeHubStartupCacheFast()
+        {
+            try
+            {
+                if (hubStartupVisibleCacheLoaded || Settings == null)
+                {
+                    return;
+                }
+
+                var path = GetWelcomeHubStartupCachePath();
+
+                if (!File.Exists(path))
+                {
+                    DebugLog("[AnikiHelper][HubStartupCache] No startup cache found.");
+                    return;
+                }
+
+                var cache = Serialization.FromJsonFile<WelcomeHubStartupCache>(path);
+
+                if (cache == null)
+                {
+                    return;
+                }
+
+                var dispatcher = Application.Current?.Dispatcher;
+
+                Action apply = () =>
+                {
+                    try
+                    {
+                        var s = Settings;
+
+                        if (s == null)
+                        {
+                            return;
+                        }
+
+                        s.TotalCount = cache.TotalCount;
+                        s.InstalledCount = cache.InstalledCount;
+                        s.NotInstalledCount = cache.NotInstalledCount;
+                        s.HiddenCount = cache.HiddenCount;
+                        s.FavoriteCount = cache.FavoriteCount;
+
+                        s.TotalPlaytimeMinutes = cache.TotalPlaytimeMinutes;
+                        s.AveragePlaytimeMinutes = cache.AveragePlaytimeMinutes;
+
+                        s.ProfileGenreKey = cache.ProfileGenreKey ?? string.Empty;
+                        s.ProfileGenreLabel = cache.ProfileGenreLabel ?? string.Empty;
+                        s.ProfileTopPlatformName = cache.ProfileTopPlatformName ?? string.Empty;
+                        s.ProfileTopFranchiseName = cache.ProfileTopFranchiseName ?? string.Empty;
+                        s.ProfileTopTagName = cache.ProfileTopTagName ?? string.Empty;
+
+                        s.ThisMonthPlayedCount = cache.ThisMonthPlayedCount;
+                        s.ThisMonthPlayedTotalMinutes = cache.ThisMonthPlayedTotalMinutes;
+                        s.ThisMonthTopGameName = cache.ThisMonthTopGameName ?? string.Empty;
+                        s.ThisMonthTopGamePlaytime = cache.ThisMonthTopGamePlaytime ?? string.Empty;
+                        s.ThisMonthTopGameCoverPath = cache.ThisMonthTopGameCoverPath ?? string.Empty;
+                        s.ThisMonthTopGameBackgroundPath = cache.ThisMonthTopGameBackgroundPath ?? string.Empty;
+                        s.ThisMonthTopGameId = cache.ThisMonthTopGameId;
+
+                        s.ThisYearPlayedCount = cache.ThisYearPlayedCount;
+                        s.ThisYearPlayedTotalMinutes = cache.ThisYearPlayedTotalMinutes;
+                        s.ThisYearTopGameName = cache.ThisYearTopGameName ?? string.Empty;
+                        s.ThisYearTopGamePlaytime = cache.ThisYearTopGamePlaytime ?? string.Empty;
+                        s.ThisYearTopGameCoverPath = cache.ThisYearTopGameCoverPath ?? string.Empty;
+                        s.ThisYearTopGameBackgroundPath = cache.ThisYearTopGameBackgroundPath ?? string.Empty;
+                        s.ThisYearTopGameId = cache.ThisYearTopGameId;
+
+                        s.RecentPlayedBackgroundPath = cache.RecentPlayedBackgroundPath ?? string.Empty;
+
+                        s.HubRecentAddedName = cache.HubRecentAddedName ?? string.Empty;
+                        s.HubRecentAddedDate = cache.HubRecentAddedDate ?? string.Empty;
+                        s.HubRecentAddedBackgroundPath = cache.HubRecentAddedBackgroundPath ?? string.Empty;
+                        s.HubRecentAddedGameId = cache.HubRecentAddedGameId;
+
+                        s.HubNeverPlayedName = cache.HubNeverPlayedName ?? string.Empty;
+                        s.HubNeverPlayedDate = cache.HubNeverPlayedDate ?? string.Empty;
+                        s.HubNeverPlayedBackgroundPath = cache.HubNeverPlayedBackgroundPath ?? string.Empty;
+                        s.HubNeverPlayedGameId = cache.HubNeverPlayedGameId;
+
+                        ReplaceObservableCollection(s.TopPlayed, cache.TopPlayed);
+                        ReplaceObservableCollection(s.CompletionStates, cache.CompletionStates);
+                        ReplaceObservableCollection(s.GameProviders, cache.GameProviders);
+                        ReplaceObservableCollection(s.RecentPlayed, cache.RecentPlayed);
+                        ReplaceObservableCollection(s.RecentAdded, cache.RecentAdded);
+                        ReplaceObservableCollection(s.NeverPlayed, cache.NeverPlayed);
+                        ReplaceObservableCollection(s.SteamRecentUpdates, cache.SteamRecentUpdates);
+
+                        s.HubLibraryRecommendedGames =
+                            new ObservableCollection<HubLibraryRecommendedGameItem>(
+                                cache.HubLibraryRecommendedGames ?? new List<HubLibraryRecommendedGameItem>()
+                            );
+
+                        try
+                        {
+                            if (s.SteamGlobalNewsA != null && s.SteamGlobalNewsA.Count > 0)
+                            {
+                                UpdateLatestNewsRotationFromList(s.SteamGlobalNewsA.ToList());
+                            }
+
+                            if (s.SteamRecentUpdates != null && s.SteamRecentUpdates.Count > 0)
+                            {
+                                UpdateLibraryNewsRotationFromUpdates(s.SteamRecentUpdates.ToList());
+                            }
+                        }
+                        catch { }
+
+                        hubStartupVisibleCacheLoaded = true;
+
+                        DebugLog($"[AnikiHelper][HubStartupCache] Visible cache loaded. SavedUtc={cache.SavedUtc:o}");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to apply welcome hub startup cache.");
+                    }
+                };
+
+                if (dispatcher != null && !dispatcher.CheckAccess())
+                {
+                    dispatcher.Invoke(apply);
+                }
+                else
+                {
+                    apply();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to load welcome hub startup cache.");
+            }
+        }
+
+        private void SaveWelcomeHubStartupCacheSnapshotSafe()
+        {
+            try
+            {
+                if (Settings == null)
+                {
+                    return;
+                }
+
+                var s = Settings;
+
+                var cache = new WelcomeHubStartupCache
+                {
+                    SavedUtc = DateTime.UtcNow,
+
+                    TotalCount = s.TotalCount,
+                    InstalledCount = s.InstalledCount,
+                    NotInstalledCount = s.NotInstalledCount,
+                    HiddenCount = s.HiddenCount,
+                    FavoriteCount = s.FavoriteCount,
+
+                    TotalPlaytimeMinutes = s.TotalPlaytimeMinutes,
+                    AveragePlaytimeMinutes = s.AveragePlaytimeMinutes,
+
+                    ProfileGenreKey = s.ProfileGenreKey,
+                    ProfileGenreLabel = s.ProfileGenreLabel,
+                    ProfileTopPlatformName = s.ProfileTopPlatformName,
+                    ProfileTopFranchiseName = s.ProfileTopFranchiseName,
+                    ProfileTopTagName = s.ProfileTopTagName,
+
+                    ThisMonthPlayedCount = s.ThisMonthPlayedCount,
+                    ThisMonthPlayedTotalMinutes = s.ThisMonthPlayedTotalMinutes,
+                    ThisMonthTopGameName = s.ThisMonthTopGameName,
+                    ThisMonthTopGamePlaytime = s.ThisMonthTopGamePlaytime,
+                    ThisMonthTopGameCoverPath = s.ThisMonthTopGameCoverPath,
+                    ThisMonthTopGameBackgroundPath = s.ThisMonthTopGameBackgroundPath,
+                    ThisMonthTopGameId = s.ThisMonthTopGameId,
+
+                    ThisYearPlayedCount = s.ThisYearPlayedCount,
+                    ThisYearPlayedTotalMinutes = s.ThisYearPlayedTotalMinutes,
+                    ThisYearTopGameName = s.ThisYearTopGameName,
+                    ThisYearTopGamePlaytime = s.ThisYearTopGamePlaytime,
+                    ThisYearTopGameCoverPath = s.ThisYearTopGameCoverPath,
+                    ThisYearTopGameBackgroundPath = s.ThisYearTopGameBackgroundPath,
+                    ThisYearTopGameId = s.ThisYearTopGameId,
+
+                    RecentPlayedBackgroundPath = s.RecentPlayedBackgroundPath,
+
+                    HubRecentAddedName = s.HubRecentAddedName,
+                    HubRecentAddedDate = s.HubRecentAddedDate,
+                    HubRecentAddedBackgroundPath = s.HubRecentAddedBackgroundPath,
+                    HubRecentAddedGameId = s.HubRecentAddedGameId,
+
+                    HubNeverPlayedName = s.HubNeverPlayedName,
+                    HubNeverPlayedDate = s.HubNeverPlayedDate,
+                    HubNeverPlayedBackgroundPath = s.HubNeverPlayedBackgroundPath,
+                    HubNeverPlayedGameId = s.HubNeverPlayedGameId,
+
+                    TopPlayed = s.TopPlayed?.ToList() ?? new List<TopPlayedItem>(),
+                    CompletionStates = s.CompletionStates?.ToList() ?? new List<CompletionStatItem>(),
+                    GameProviders = s.GameProviders?.ToList() ?? new List<ProviderStatItem>(),
+                    RecentPlayed = s.RecentPlayed?.ToList() ?? new List<QuickItem>(),
+                    RecentAdded = s.RecentAdded?.ToList() ?? new List<QuickItem>(),
+                    NeverPlayed = s.NeverPlayed?.ToList() ?? new List<QuickItem>(),
+                    SteamRecentUpdates = s.SteamRecentUpdates?.ToList() ?? new List<SteamRecentUpdateItem>(),
+                    HubLibraryRecommendedGames = s.HubLibraryRecommendedGames?.ToList() ?? new List<HubLibraryRecommendedGameItem>()
+                };
+
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        var path = GetWelcomeHubStartupCachePath();
+                        Directory.CreateDirectory(Path.GetDirectoryName(path));
+
+                        var json = Serialization.ToJson(cache, true);
+                        File.WriteAllText(path, json);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to write welcome hub startup cache.");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to snapshot welcome hub startup cache.");
+            }
+        }
+
+        private void QueueWelcomeHubCriticalCachePrime(bool isAnikiThemeActive)
+        {
+            try
+            {
+                if (!isAnikiThemeActive)
+                {
+                    return;
+                }
+
+                // 1) Affichage immédiat depuis le dernier cache connu.
+                // Pas de gros recalcul ici.
+                LoadWelcomeHubStartupCacheFast();
+
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(2000).ConfigureAwait(false);
+                        PrimeWelcomeHubCriticalCache();
+                    });
+
+                    return;
+                }
+
+                // 2) Recalcul plus tard, une fois que Playnite a eu le temps d'afficher l'UI.
+                dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+                        var delayMs = Settings?.StartupIntroVideoEnabled == true
+                            ? (int)StartupVideoDuration.TotalMilliseconds + 500
+                            : 1500;
+
+                        await Task.Delay(delayMs);
+
+                        await dispatcher.InvokeAsync(
+                            () => PrimeWelcomeHubCriticalCache(),
+                            DispatcherPriority.ApplicationIdle
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Delayed welcome hub critical cache prime failed.");
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to queue welcome hub critical cache prime.");
+            }
+        }
+
+        private void PrimeWelcomeHubCriticalCache()
+        {
+            if (hubStartupCachePrimed)
+            {
+                return;
+            }
+
+            var swTotal = Stopwatch.StartNew();
+            var sw = Stopwatch.StartNew();
+
+            try
+            {
+                DebugLog("[AnikiHelper][HubStartupPrime] START");
+
+                hubPage3CardsInitialized = false;
+
+                sw.Restart();
+                RecalcStatsSafe();
+                DebugLog($"[AnikiHelper][HubStartupPrime] RecalcStatsSafe took {sw.ElapsedMilliseconds}ms");
+
+                sw.Restart();
+                LoadNewsFromCacheIfNeeded();
+                DebugLog($"[AnikiHelper][HubStartupPrime] LoadNewsFromCacheIfNeeded took {sw.ElapsedMilliseconds}ms");
+
+                sw.Restart();
+                RefreshSteamRecentUpdatesFromCache();
+                DebugLog($"[AnikiHelper][HubStartupPrime] RefreshSteamRecentUpdatesFromCache took {sw.ElapsedMilliseconds}ms");
+
+                hubStartupCachePrimed = true;
+
+                SaveWelcomeHubStartupCacheSnapshotSafe();
+
+                DebugLog($"[AnikiHelper][HubStartupPrime] END total={swTotal.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Welcome hub critical cache prime failed.");
+            }
+        }
+
+        private void QueueDatabaseOpenedStatsRefresh()
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    RunDatabaseOpenedStatsRefresh();
+                    return;
+                }
+
+                dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        var delayMs = Settings?.StartupIntroVideoEnabled == true
+                            ? (int)StartupVideoDuration.TotalMilliseconds + 1200
+                            : 3000;
+
+                        await Task.Delay(delayMs);
+                        RunDatabaseOpenedStatsRefresh();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Delayed DatabaseOpened stats refresh failed.");
+                    }
+                }, DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to queue DatabaseOpened stats refresh.");
+            }
+        }
+
+        private void RunDatabaseOpenedStatsRefresh()
+        {
+            var swDb = Stopwatch.StartNew();
+            DebugLog("[AnikiHelper][DatabaseOpened] START delayed");
+
+            hubPage3CardsInitialized = false;
+            DebugLog($"[AnikiHelper][DatabaseOpened] hubPage3CardsInitialized reset at {swDb.ElapsedMilliseconds}ms");
+
+            try
+            {
+                Settings?.LoadOverlayApps();
+                DebugLog($"[AnikiHelper][DatabaseOpened] LoadOverlayApps/HubApps at {swDb.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to refresh Software Tools for Hub Apps after database opened.");
+            }
+
+            EnsureMonthlySnapshotSafe();
+            DebugLog($"[AnikiHelper][DatabaseOpened] EnsureMonthlySnapshotSafe at {swDb.ElapsedMilliseconds}ms");
+
+            RecalcStatsSafe();
+            DebugLog($"[AnikiHelper][DatabaseOpened] RecalcStatsSafe at {swDb.ElapsedMilliseconds}ms");
+
+            SaveWelcomeHubStartupCacheSnapshotSafe();
+
+            DebugLog($"[AnikiHelper][DatabaseOpened] END total={swDb.ElapsedMilliseconds}ms");
+        }
+
+        private void QueuePostStartupNonCriticalWork(bool isAnikiThemeActive)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    RunPostStartupNonCriticalWork(isAnikiThemeActive);
+                    return;
+                }
+
+                dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        var delayMs = isAnikiThemeActive ? 2500 : 500;
+
+                        if (isAnikiThemeActive && Settings?.StartupIntroVideoEnabled == true)
+                        {
+                            delayMs = (int)StartupVideoDuration.TotalMilliseconds + 300;
+                        }
+
+                        DebugLog($"[AnikiHelper][PostStartup] queued | delay={delayMs}ms | startupVideo={Settings?.StartupIntroVideoEnabled}");
+
+                        await Task.Delay(delayMs);
+                        RunPostStartupNonCriticalWork(isAnikiThemeActive);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Delayed post-startup work failed.");
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to queue post-startup work.");
+            }
+        }
+
+        private void RunPostStartupNonCriticalWork(bool isAnikiThemeActive)
+        {
+            var swTotal = Stopwatch.StartNew();
+            var sw = Stopwatch.StartNew();
+
+            DebugLog("[AnikiHelper][PostStartup] START");
+
+            try
+            {
+                if (!hubStartupCachePrimed)
+                {
+                    hubPage3CardsInitialized = false;
+                    DebugLog($"[AnikiHelper][PostStartup] hubPage3CardsInitialized reset took {sw.ElapsedMilliseconds}ms");
+                }
+                else
+                {
+                    DebugLog("[AnikiHelper][PostStartup] hub core cache already primed; keeping page 1 data alive.");
                 }
 
                 if (isAnikiThemeActive)
@@ -9858,23 +16744,111 @@ namespace AnikiHelper
                     try
                     {
                         sw.Restart();
-                        LoadNewsFromCacheIfNeeded();
-                        DebugLog($"[AnikiHelper][OnApplicationStarted] LoadNewsFromCacheIfNeeded took {sw.ElapsedMilliseconds}ms");
+                        Settings?.LoadOverlayApps();
+                        DebugLog($"[AnikiHelper][PostStartup] LoadOverlayApps/HubApps took {sw.ElapsedMilliseconds}ms");
                     }
                     catch (Exception ex)
                     {
-                        logger.Warn(ex, "[AnikiHelper] LoadNewsFromCacheIfNeeded failed.");
+                        logger.Warn(ex, "[AnikiHelper] Failed to refresh Software Tools for Hub Apps during startup.");
                     }
+                }
 
-                    try
+                sw.Restart();
+                EnsureMonthlySnapshotSafe();
+                DebugLog($"[AnikiHelper][PostStartup] EnsureMonthlySnapshotSafe took {sw.ElapsedMilliseconds}ms");
+
+                if (!hubStartupCachePrimed)
+                {
+                    sw.Restart();
+                    RecalcStatsSafe();
+                    DebugLog($"[AnikiHelper][PostStartup] RecalcStatsSafe took {sw.ElapsedMilliseconds}ms");
+                }
+                else
+                {
+                    DebugLog("[AnikiHelper][PostStartup] RecalcStatsSafe skipped; hub data was loaded before login close.");
+                }
+
+                DebugLog("[AnikiHelper][PostStartup] Profile genre cache mode active.");
+
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    AddonsUpdateStyler.Start();
+                    DebugLog($"[AnikiHelper][PostStartup] AddonsUpdateStyler.Start took {sw.ElapsedMilliseconds}ms");
+                }
+
+                sw.Restart();
+                DebugLog("[AnikiHelper][PostStartup] Dynamic color init START");
+                EnsureDynamicColorCacheVersion();
+                DebugLog($"[AnikiHelper][PostStartup] EnsureDynamicColorCacheVersion at {sw.ElapsedMilliseconds}ms");
+                DynamicAuto.Init(PlayniteApi);
+                DebugLog($"[AnikiHelper][PostStartup] DynamicAuto.Init at {sw.ElapsedMilliseconds}ms");
+
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    SettingsWindowStyler.Start();
+                    DebugLog($"[AnikiHelper][PostStartup] SettingsWindowStyler.Start took {sw.ElapsedMilliseconds}ms");
+
+                    sw.Restart();
+                    FastScrollViewerService.Start();
+                    DebugLog($"[AnikiHelper][PostStartup] FastScrollViewerService.Start took {sw.ElapsedMilliseconds}ms");
+
+                    sw.Restart();
+                    VisualPackBackgroundComposer.Start();
+                    DebugLog($"[AnikiHelper][PostStartup] VisualPackBackgroundComposer.Start took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive)
+                {
+                    sw.Restart();
+                    newsRotationTimer?.Start();
+                    DebugLog($"[AnikiHelper][PostStartup] newsRotationTimer.Start took {sw.ElapsedMilliseconds}ms");
+
+                    sw.Restart();
+                    _ = StartLibraryNewsRotationWithDelayAsync(HubLibraryNewsRotationStartupDelayMs);
+                    DebugLog($"[AnikiHelper][PostStartup] Hub news rotation timer scheduled from cache took {sw.ElapsedMilliseconds}ms");
+                }
+
+                if (isAnikiThemeActive)
+                {
+                    if (!hubStartupCachePrimed)
                     {
-                        sw.Restart();
-                        RefreshSteamRecentUpdatesFromCache();
-                        DebugLog($"[AnikiHelper][OnApplicationStarted] RefreshSteamRecentUpdatesFromCache took {sw.ElapsedMilliseconds}ms");
+                        try
+                        {
+                            sw.Restart();
+                            LoadNewsFromCacheIfNeeded();
+                            DebugLog($"[AnikiHelper][PostStartup] LoadNewsFromCacheIfNeeded took {sw.ElapsedMilliseconds}ms");
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.Warn(ex, "[AnikiHelper] LoadNewsFromCacheIfNeeded failed.");
+                        }
+
+                        try
+                        {
+                            sw.Restart();
+                            RefreshSteamRecentUpdatesFromCache();
+                            _ = RefreshHubLibraryNewsTargetedWithDelayAsync(HubLibraryNewsBackgroundRefreshStartupDelayMs);
+                            DebugLog($"[AnikiHelper][PostStartup] Hub news cache loaded + light background refresh scheduled took {sw.ElapsedMilliseconds}ms");
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.Warn(ex, "[AnikiHelper] RefreshSteamRecentUpdatesFromCache failed.");
+                        }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        logger.Warn(ex, "[AnikiHelper] RefreshSteamRecentUpdatesFromCache failed.");
+                        try
+                        {
+                            sw.Restart();
+                            _ = RefreshHubLibraryNewsTargetedWithDelayAsync(HubLibraryNewsBackgroundRefreshStartupDelayMs);
+                            DebugLog($"[AnikiHelper][PostStartup] Hub cache already primed; background refresh scheduled took {sw.ElapsedMilliseconds}ms");
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.Warn(ex, "[AnikiHelper] Hub background refresh schedule failed.");
+                        }
                     }
 
                     if (Settings.NewsScanEnabled)
@@ -9883,7 +16857,7 @@ namespace AnikiHelper
                         {
                             sw.Restart();
                             _ = ScheduleGlobalSteamNewsRefreshAsync();
-                            DebugLog($"[AnikiHelper][OnApplicationStarted] ScheduleGlobalSteamNewsRefreshAsync launch took {sw.ElapsedMilliseconds}ms");
+                            DebugLog($"[AnikiHelper][PostStartup] ScheduleGlobalSteamNewsRefreshAsync launch took {sw.ElapsedMilliseconds}ms");
                         }
                         catch (Exception ex)
                         {
@@ -9895,7 +16869,7 @@ namespace AnikiHelper
                     {
                         sw.Restart();
                         _ = SchedulePlayniteNewsRefreshAsync();
-                        DebugLog($"[AnikiHelper][OnApplicationStarted] SchedulePlayniteNewsRefreshAsync launch took {sw.ElapsedMilliseconds}ms");
+                        DebugLog($"[AnikiHelper][PostStartup] SchedulePlayniteNewsRefreshAsync launch took {sw.ElapsedMilliseconds}ms");
                     }
                     catch (Exception ex)
                     {
@@ -9909,7 +16883,7 @@ namespace AnikiHelper
                     {
                         sw.Restart();
                         TryAskForSteamUpdateCacheOnStartup();
-                        DebugLog($"[AnikiHelper][OnApplicationStarted] TryAskForSteamUpdateCacheOnStartup took {sw.ElapsedMilliseconds}ms");
+                        DebugLog($"[AnikiHelper][PostStartup] TryAskForSteamUpdateCacheOnStartup took {sw.ElapsedMilliseconds}ms");
                     }
                 }
                 catch (Exception ex)
@@ -9923,19 +16897,19 @@ namespace AnikiHelper
                     {
                         sw.Restart();
                         _ = ScheduleSteamRecentUpdatesScanAsync(30);
-                        DebugLog($"[AnikiHelper][OnApplicationStarted] ScheduleSteamRecentUpdatesScanAsync launch took {sw.ElapsedMilliseconds}ms");
+                        DebugLog($"[AnikiHelper][PostStartup] ScheduleSteamRecentUpdatesScanAsync launch took {sw.ElapsedMilliseconds}ms");
                     }
                     catch (Exception ex)
                     {
                         logger.Warn(ex, "[AnikiHelper] ScheduleSteamRecentUpdatesScanAsync failed.");
                     }
-                }            
+                }
 
                 try
                 {
                     sw.Restart();
                     _ = CheckRequiredPluginVersionAfterFullscreenStartupAsync();
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] CheckRequiredPluginVersionAfterFullscreenStartupAsync launch took {sw.ElapsedMilliseconds}ms");
+                    DebugLog($"[AnikiHelper][PostStartup] CheckRequiredPluginVersionAfterFullscreenStartupAsync launch took {sw.ElapsedMilliseconds}ms");
                 }
                 catch (Exception ex)
                 {
@@ -9946,20 +16920,46 @@ namespace AnikiHelper
                 {
                     sw.Restart();
                     _ = CheckWhatsNewAfterStartupAsync();
-                    DebugLog($"[AnikiHelper][OnApplicationStarted] CheckWhatsNewAfterStartupAsync launch took {sw.ElapsedMilliseconds}ms");
+                    DebugLog($"[AnikiHelper][PostStartup] CheckWhatsNewAfterStartupAsync launch took {sw.ElapsedMilliseconds}ms");
                 }
                 catch (Exception ex)
                 {
                     logger.Warn(ex, "[AnikiHelper] CheckWhatsNewAfterStartupAsync failed.");
                 }
 
-                DebugLog($"[AnikiHelper][OnApplicationStarted] END total={swTotal.ElapsedMilliseconds}ms");
+                if (isAnikiThemeActive)
+                {
+                    try
+                    {
+                        sw.Restart();
+                        _ = ScheduleStartupSteamAuthCheckAsync();
+                        DebugLog($"[AnikiHelper][PostStartup] ScheduleStartupSteamAuthCheckAsync launch took {sw.ElapsedMilliseconds}ms");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] ScheduleStartupSteamAuthCheckAsync failed.");
+                    }
+
+                    try
+                    {
+                        sw.Restart();
+                        _ = ScheduleStartupSteamNotificationRefreshAsync();
+                        DebugLog($"[AnikiHelper][PostStartup] ScheduleStartupSteamNotificationRefreshAsync launch took {sw.ElapsedMilliseconds}ms");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] ScheduleStartupSteamNotificationRefreshAsync failed.");
+                    }
+                }
+
+                DebugLog($"[AnikiHelper][PostStartup] END total={swTotal.ElapsedMilliseconds}ms");
             }
             catch (Exception ex)
             {
-                logger.Error(ex, $"[AnikiHelper][OnApplicationStarted] FATAL ERROR after {swTotal.ElapsedMilliseconds}ms");
+                logger.Error(ex, $"[AnikiHelper][PostStartup] FATAL ERROR after {swTotal.ElapsedMilliseconds}ms");
             }
         }
+
 
         private bool HandleMediaGalleryRefreshShortcut(OnControllerButtonStateChangedArgs args)
         {
@@ -10273,7 +17273,8 @@ namespace AnikiHelper
                     return false;
                 }
 
-                if (Settings.SteamStoreLoading || Settings.SteamStoreDetailsVisible)
+                if (Settings.SteamStoreDetailsVisible ||
+                    (Settings.SteamStoreLoading && !Settings.SteamStoreAvailable))
                 {
                     return false;
                 }
@@ -10293,15 +17294,162 @@ namespace AnikiHelper
             }
         }
 
+        private bool ShouldProcessKonamiCode()
+        {
+            try
+            {
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return false;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return false;
+                }
+
+                if (!IsPlayniteForegroundWindow())
+                {
+                    return false;
+                }
+
+                if (Settings == null)
+                {
+                    return false;
+                }
+
+                // Bloque le Konami Code sur le Hub / écran d'accueil.
+                if (Settings.IsWelcomeHubOpen || Settings.IsWelcomeHubClosing)
+                {
+                    return false;
+                }
+
+                // Bloque sur le Steam Store et ses sous-vues.
+                if (Settings.SteamStoreDetailsVisible || Settings.SteamStoreScreenshotViewerVisible)
+                {
+                    return false;
+                }
+
+                if (IsSteamStoreViewVisible())
+                {
+                    return false;
+                }
+
+                // Bloque dans l'overlay in-game.
+                if (inGameOverlayService != null && inGameOverlayService.IsOverlayVisible)
+                {
+                    return false;
+                }
+
+                // Bloque dans les fenêtres du plugin : Quick Access / Main Menu, News, Settings custom, Screenshots, etc.
+                if (anikiWindowManager != null && anikiWindowManager.HasOpenWindow)
+                {
+                    return false;
+                }
+
+                // Sécurité en plus : bloque si une fenêtre secondaire Playnite/plugin est ouverte.
+                if (IsSecondaryWindowVisibleForKonami())
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to check Konami Code allowed context.");
+                return false;
+            }
+        }
+
+        private bool IsSecondaryWindowVisibleForKonami()
+        {
+            try
+            {
+                var app = Application.Current;
+
+                if (app == null)
+                {
+                    return false;
+                }
+
+                if (app.Dispatcher != null && !app.Dispatcher.CheckAccess())
+                {
+                    return app.Dispatcher.Invoke(new Func<bool>(IsSecondaryWindowVisibleForKonami));
+                }
+
+                var mainWindow = app.MainWindow;
+
+                return app.Windows
+                    .OfType<Window>()
+                    .Any(w =>
+                        w != null &&
+                        w.IsVisible &&
+                        !ReferenceEquals(w, mainWindow) &&
+                        !(w is AnikiVideoOverlayWindow));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public void OpenInGameOverlayFromThemeButton()
+        {
+            try
+            {
+                if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                {
+                    return;
+                }
+
+                if (!IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                inGameOverlayService?.OpenOverlayFromThemeButton();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open in-game overlay from theme button.");
+            }
+        }
+
+        public bool OpenOverlayCapturePreview(AnikiMediaItem mediaItem)
+        {
+            try
+            {
+                return inGameOverlayService?.ShowCapturePreview(mediaItem) == true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open overlay capture preview.");
+                return false;
+            }
+        }
+
         public override void OnControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
         {
+            if (args != null && args.State == ControllerInputState.Pressed)
+            {
+                lastControllerInputUtc = DateTime.UtcNow;
+            }
+
             var allowInGameOverlay =
                 PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen &&
                 IsAnikiThemeActive();
 
-            if (allowInGameOverlay)
+            if (args != null && args.State == ControllerInputState.Pressed)
             {
-                konamiCodeService?.ProcessControllerInput(args);
+                if (ShouldProcessKonamiCode())
+                {
+                    konamiCodeService?.ProcessControllerInput(args);
+                }
+                else
+                {
+                    konamiCodeService?.CancelCurrentSequence();
+                }
             }
 
             if (allowInGameOverlay)
@@ -10314,6 +17462,11 @@ namespace AnikiHelper
 
             }
 
+            if (steamFriendsService != null && steamFriendsService.HandleControllerButtonStateChanged(args))
+            {
+                return;
+            }
+
             if (HandleMediaGalleryRefreshShortcut(args))
             {
                 return;
@@ -10321,20 +17474,22 @@ namespace AnikiHelper
 
             AnikiControllerInput.SetState(args);
 
-            if (horizontalFocusFixService != null &&
-                horizontalFocusFixService.HandleHubHorizontalControllerNavigation(
-                    args.Button.ToString(),
-                    args.State.ToString()))
-            {
-                return;
-            }
-
+            // Steam Store is displayed over the Hub.
+            // Handle Store inputs before Hub navigation so RB/LB are not swallowed by the Hub handler.
             if (HandleSteamStoreScreenshotViewerInput(args))
             {
                 return;
             }
 
             if (HandleSteamStoreShoulderNavigation(args))
+            {
+                return;
+            }
+
+            if (horizontalFocusFixService != null &&
+                horizontalFocusFixService.HandleHubHorizontalControllerNavigation(
+                    args.Button.ToString(),
+                    args.State.ToString()))
             {
                 return;
             }
@@ -10392,11 +17547,12 @@ namespace AnikiHelper
                 logger.Error(e, "AnikiHelper shutdown: PlayApplicationStopped failed");
             }
 
+            try { steamFriendsService?.Dispose(); } catch { }
             try { steamUpdateTimer?.Stop(); } catch { }
             try { steamUpdatesCacheFlushTimer?.Stop(); } catch { }
             try { steamGameNewsCacheFlushTimer?.Stop(); } catch { }
             try { newsRotationTimer?.Stop(); } catch { }
-            try { suggestedRotationTimer?.Stop(); } catch { }
+            try { libraryNewsRotationTimer?.Stop(); } catch { }
             try { navigationSettleTimer?.Stop(); } catch { }
 
             try
@@ -10466,8 +17622,8 @@ namespace AnikiHelper
         {
             try
             {
-                // Attente de 6s après démarrage, silencieuse
-                await Task.Delay(6000);
+                // Cache-first startup: wait longer before any online refresh so the Hub opens instantly.
+                await Task.Delay(60000);
 
                 if (!Settings.NewsScanEnabled)
                 {
@@ -10482,12 +17638,12 @@ namespace AnikiHelper
             }
         }
 
-        // Schedules a Playnite Actu scan (GitHub feed) ~8 seconds after startup
+        // Schedules a Playnite Actu scan (GitHub feed) after startup, delayed to keep the Hub cache-first.
         private async Task SchedulePlayniteNewsRefreshAsync()
         {
             try
             {
-                await Task.Delay(8000);
+                await Task.Delay(60000);
                 await RefreshPlayniteNewsAsync(force: false, silent: true);
             }
             catch (Exception ex)
@@ -10564,6 +17720,7 @@ namespace AnikiHelper
                     ResetSteamUpdate();
                     ResetSteamGameNews();
                     ResetSteamPlayerCount();
+                    ResetSteamFriendsDetailsForCurrentGame();
 
                     Settings?.ClearCurrentGameMediaState();
 
@@ -10594,6 +17751,7 @@ namespace AnikiHelper
                     ResetSteamUpdate();
                     ResetSteamGameNews();
                     ResetSteamPlayerCount();
+                    ResetSteamFriendsDetailsForCurrentGame();
 
                     Settings?.ClearCurrentGameMediaState();
 
@@ -10614,6 +17772,7 @@ namespace AnikiHelper
                     ResetSteamUpdate();
                     ResetSteamGameNews();
                     ResetSteamPlayerCount();
+                    ResetSteamFriendsDetailsForCurrentGame();
 
                     Settings?.ClearCurrentGameMediaState();
 
@@ -10673,6 +17832,8 @@ namespace AnikiHelper
                             DebugLog($"[AnikiHelper][SteamDetailsTask][CANCELLED] Cancelled before player count. Game='{game.Name}'");
                             return;
                         }
+
+                        UpdateSteamFriendsDetailsForGame(game);
 
                         if (Settings != null && Settings.SteamPlayerCountEnabled)
                         {
@@ -10738,6 +17899,8 @@ namespace AnikiHelper
 
             Settings?.UpdateSelectedGameInstallSizeNoDecimal(g);
 
+            Settings?.RefreshDuplicateHiderAvailability(g);
+
             DynamicAuto.NotifyGameSelected(g);
 
             if (g == null)
@@ -10756,6 +17919,7 @@ namespace AnikiHelper
                 ResetSteamUpdate();
                 ResetSteamGameNews();
                 ResetSteamPlayerCount();
+                ResetSteamFriendsDetailsForCurrentGame();
                 return;
             }
 
@@ -10775,6 +17939,7 @@ namespace AnikiHelper
                 ResetSteamUpdate();
                 ResetSteamGameNews();
                 ResetSteamPlayerCount();
+                ResetSteamFriendsDetailsForCurrentGame();
                 return;
             }
 
@@ -10794,6 +17959,7 @@ namespace AnikiHelper
                 ResetSteamUpdate();
                 ResetSteamGameNews();
                 ResetSteamPlayerCount();
+                ResetSteamFriendsDetailsForCurrentGame();
                 return;
             }
 
@@ -10822,6 +17988,11 @@ namespace AnikiHelper
 
             pendingUpdateGame = g;
             steamUpdateTimer?.Stop();
+
+            if (isInFullscreenDetailsView)
+            {
+                UpdateSteamFriendsDetailsForGame(g);
+            }
 
         }
 
@@ -10936,19 +18107,28 @@ namespace AnikiHelper
                     hasCustomDuration = true;
                 }
 
+                var autoDetectGameReady = Settings?.GameLaunchSplashAutoDetectReadyEnabled ?? true;
+                var maximumWait = Settings?.GameLaunchSplashMaximumWaitMs ?? GameLaunchSplashMaxWaitAfterGameStartedMs;
+                var launchFailureSafetyDuration = hasCustomDuration || !autoDetectGameReady
+                    ? minimumDuration
+                    : Math.Max(minimumDuration, maximumWait);
+
                 DebugLog(
                     $"[AnikiHelper][Splash][Timer] " +
                     $"Game='{game.Name}', " +
                     $"Default={defaultDuration}, " +
                     $"HasCustom={hasCustomDuration}, " +
-                    $"Final={minimumDuration}"
+                    $"Final={minimumDuration}, " +
+                    $"AutoDetectReady={autoDetectGameReady}, " +
+                    $"MaximumWait={maximumWait}, " +
+                    $"LaunchFailureSafety={launchFailureSafetyDuration}"
                 );
 
-                splashScreenRuntimeService.StartLaunchFailureSafety(minimumDuration);
-                DebugLog($"[AnikiHelper][Splash][Safety] Launch failure safety started. Duration={minimumDuration}ms");
+                splashScreenRuntimeService.StartLaunchFailureSafety(launchFailureSafetyDuration);
+                DebugLog($"[AnikiHelper][Splash][Safety] Launch failure safety started. Duration={launchFailureSafetyDuration}ms");
 
-                StartUniPlaySongLaunchFailureRelease(game.Id, minimumDuration);
-                DebugLog($"[AnikiHelper][Splash][UPS] Launch failure release scheduled. Duration={minimumDuration}ms");
+                StartUniPlaySongLaunchFailureRelease(game.Id, launchFailureSafetyDuration);
+                DebugLog($"[AnikiHelper][Splash][UPS] Launch failure release scheduled. Duration={launchFailureSafetyDuration}ms");
 
                 DebugLog($"[AnikiHelper][GameStarting][END] Game='{game.Name}'");
             }
@@ -10956,6 +18136,221 @@ namespace AnikiHelper
             {
                 logger.Warn(ex, $"[AnikiHelper][GameStarting][ERROR] Failed while starting game splash. Game='{args?.Game?.Name ?? "NULL"}'");
             }
+        }
+
+        private bool IsGameLaunchSplashGameReady(Game game, int? startedProcessId)
+        {
+            try
+            {
+                if (game == null)
+                {
+                    return false;
+                }
+
+                IntPtr readyWindow;
+                if (startedProcessId.HasValue &&
+                    TryFindGameReadyWindowForProcess(startedProcessId.Value, out readyWindow))
+                {
+                    DebugLog(
+                        $"[AnikiHelper][Splash][GameReady] " +
+                        $"Detected game window. Game='{game.Name}', " +
+                        $"ProcessId={startedProcessId.Value}, " +
+                        $"Handle={readyWindow}"
+                    );
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"[AnikiHelper][Splash][GameReady] Detection failed. Game='{game?.Name ?? "NULL"}', Error={ex.Message}");
+                return false;
+            }
+        }
+
+        private bool TryFindGameReadyWindowForProcess(int processId, out IntPtr readyWindow)
+        {
+            readyWindow = IntPtr.Zero;
+
+            if (processId <= 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                var process = Process.GetProcessById(processId);
+
+                if (IsIgnoredGameReadyProcess(process.ProcessName))
+                {
+                    return false;
+                }
+
+                var mainWindowHandle = process.MainWindowHandle;
+                if (IsUsableGameReadyWindow(mainWindowHandle, processId))
+                {
+                    readyWindow = mainWindowHandle;
+                    return true;
+                }
+            }
+            catch
+            {
+                // Some protected or already-exited processes can throw here.
+                // EnumWindows below is safer and will simply fail closed if the PID is gone.
+            }
+
+            var foundWindow = IntPtr.Zero;
+
+            try
+            {
+                EnumWindows((hWnd, lParam) =>
+                {
+                    uint windowProcessId;
+                    GetWindowThreadProcessId(hWnd, out windowProcessId);
+
+                    if (windowProcessId == processId && IsUsableGameReadyWindow(hWnd, processId))
+                    {
+                        foundWindow = hWnd;
+                        return false;
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch
+            {
+                foundWindow = IntPtr.Zero;
+            }
+
+            readyWindow = foundWindow;
+            return readyWindow != IntPtr.Zero;
+        }
+
+        private bool IsUsableGameReadyWindow(IntPtr hWnd, int expectedProcessId)
+        {
+            if (hWnd == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!IsWindowVisible(hWnd) || IsIconic(hWnd))
+                {
+                    return false;
+                }
+
+                uint windowProcessId;
+                GetWindowThreadProcessId(hWnd, out windowProcessId);
+
+                if (windowProcessId != expectedProcessId)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    var process = Process.GetProcessById(expectedProcessId);
+                    if (IsIgnoredGameReadyProcess(process.ProcessName))
+                    {
+                        return false;
+                    }
+                }
+                catch
+                {
+                    return false;
+                }
+
+                GameReadyWindowRect rect;
+                if (!GetWindowRect(hWnd, out rect))
+                {
+                    return false;
+                }
+
+                var width = rect.Right - rect.Left;
+                var height = rect.Bottom - rect.Top;
+
+                if (width < 320 || height < 180)
+                {
+                    return false;
+                }
+
+                var title = GetWindowTitleSafe(hWnd);
+                if (IsIgnoredGameReadyTitle(title))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string GetWindowTitleSafe(IntPtr hWnd)
+        {
+            try
+            {
+                var builder = new StringBuilder(512);
+                GetWindowText(hWnd, builder, builder.Capacity);
+                return builder.ToString() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private bool IsIgnoredGameReadyProcess(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+            {
+                return true;
+            }
+
+            var name = processName.Trim().ToLowerInvariant();
+
+            return name == "playnite" ||
+                   name == "playnite.fullscreenapp" ||
+                   name == "playnite.desktopapp" ||
+                   name == "steam" ||
+                   name == "steamwebhelper" ||
+                   name == "epicgameslauncher" ||
+                   name == "epicwebhelper" ||
+                   name == "eadesktop" ||
+                   name == "ealink" ||
+                   name == "ubisoftconnect" ||
+                   name == "upc" ||
+                   name == "galaxyclient" ||
+                   name == "battle.net" ||
+                   name == "agent" ||
+                   name == "explorer" ||
+                   name == "discord" ||
+                   name == "devenv" ||
+                   name == "blend" ||
+                   name == "code" ||
+                   name == "chrome" ||
+                   name == "firefox" ||
+                   name == "msedge";
+        }
+
+        private bool IsIgnoredGameReadyTitle(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return false;
+            }
+
+            var normalized = title.ToLowerInvariant();
+
+            return normalized.Contains("microsoft blend") ||
+                   normalized.Contains("visual studio") ||
+                   normalized.Contains("playnite") ||
+                   normalized.Contains("discord") ||
+                   normalized.Contains("explorer");
         }
 
         private void MigrateLegacyCustomSplashToGameFolder(Game game)
@@ -11013,56 +18408,117 @@ namespace AnikiHelper
                 MigrateLegacyCustomSplashToGameFolder(game);
 
                 var mode = Settings?.GameLaunchSplashSelectionMode ?? SplashScreenSelectionMode.Automatic;
+                var priorityOrder = GetGameLaunchSplashPriorityOrder(mode);
 
-                if (mode == SplashScreenSelectionMode.Automatic)
-                {
-                    var gameSplash = splashScreenService?.ResolveSplash(game, SplashScreenSelectionMode.Automatic);
-
-                    if (!string.IsNullOrWhiteSpace(gameSplash?.FilePath) && File.Exists(gameSplash.FilePath))
-                    {
-                        return gameSplash.FilePath;
-                    }
-
-                    var custom = GetStoredCustomSplashPath(game);
-                    if (!string.IsNullOrWhiteSpace(custom) && File.Exists(custom))
-                    {
-                        return custom;
-                    }
-
-                    var playniteBackground = GetPlayniteGameBackground(game);
-                    if (!string.IsNullOrWhiteSpace(playniteBackground))
-                    {
-                        return playniteBackground;
-                    }
-
-                    var sharedFallback = splashScreenService?.ResolveSharedFallback(game);
-
-                    if (!string.IsNullOrWhiteSpace(sharedFallback?.FilePath) && File.Exists(sharedFallback.FilePath))
-                    {
-                        return sharedFallback.FilePath;
-                    }
-
-                    return null;
-                }
-
-                var v2Splash = splashScreenService?.ResolveSplash(game, mode);
-
-                if (!string.IsNullOrWhiteSpace(v2Splash?.FilePath) && File.Exists(v2Splash.FilePath))
-                {
-                    return v2Splash.FilePath;
-                }
-
-                var legacyCustom = GetStoredCustomSplashPath(game);
-                if (!string.IsNullOrWhiteSpace(legacyCustom) && File.Exists(legacyCustom))
-                {
-                    return legacyCustom;
-                }
-
-                return GetPlayniteGameBackground(game);
+                return ResolveGameLaunchSplashByPriority(game, priorityOrder);
             }
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] Failed to resolve splash background.");
+            }
+
+            return null;
+        }
+
+        private IReadOnlyList<SplashScreenPriorityTarget> GetGameLaunchSplashPriorityOrder(SplashScreenSelectionMode mode)
+        {
+            switch (mode)
+            {
+                // UI label: Source priority
+                case SplashScreenSelectionMode.AlwaysSource:
+                    return new[]
+                    {
+                        SplashScreenPriorityTarget.Source,
+                        SplashScreenPriorityTarget.GameCustom,
+                        SplashScreenPriorityTarget.GameBackground,
+                        SplashScreenPriorityTarget.Platform,
+                        SplashScreenPriorityTarget.Global
+                    };
+
+                // UI label: Platform priority
+                case SplashScreenSelectionMode.AlwaysPlatform:
+                    return new[]
+                    {
+                        SplashScreenPriorityTarget.Platform,
+                        SplashScreenPriorityTarget.GameCustom,
+                        SplashScreenPriorityTarget.GameBackground,
+                        SplashScreenPriorityTarget.Source,
+                        SplashScreenPriorityTarget.Global
+                    };
+
+                // UI label: Global only
+                case SplashScreenSelectionMode.AlwaysGlobal:
+                    return new[]
+                    {
+                        SplashScreenPriorityTarget.Global
+                    };
+
+                case SplashScreenSelectionMode.CustomPriority:
+                    var customOrder = Settings?.GetGameLaunchSplashCustomPriorityOrder();
+                    if (customOrder != null && customOrder.Count > 0)
+                    {
+                        return customOrder;
+                    }
+
+                    goto case SplashScreenSelectionMode.Automatic;
+
+                // UI label: Game priority
+                case SplashScreenSelectionMode.Automatic:
+                default:
+                    return new[]
+                    {
+                        SplashScreenPriorityTarget.GameCustom,
+                        SplashScreenPriorityTarget.GameBackground,
+                        SplashScreenPriorityTarget.Source,
+                        SplashScreenPriorityTarget.Platform,
+                        SplashScreenPriorityTarget.Global
+                    };
+            }
+        }
+
+        private string ResolveGameLaunchSplashByPriority(Game game, IEnumerable<SplashScreenPriorityTarget> priorityOrder)
+        {
+            if (game == null)
+            {
+                return null;
+            }
+
+            var used = new HashSet<SplashScreenPriorityTarget>();
+
+            foreach (var target in priorityOrder ?? Enumerable.Empty<SplashScreenPriorityTarget>())
+            {
+                if (target == SplashScreenPriorityTarget.None || used.Contains(target))
+                {
+                    continue;
+                }
+
+                used.Add(target);
+
+                if (target == SplashScreenPriorityTarget.GameBackground)
+                {
+                    var gameBackground = GetPlayniteGameBackground(game);
+                    if (!string.IsNullOrWhiteSpace(gameBackground) && File.Exists(gameBackground))
+                    {
+                        return gameBackground;
+                    }
+
+                    continue;
+                }
+
+                var media = splashScreenService?.ResolvePriorityTarget(game, target);
+                if (!string.IsNullOrWhiteSpace(media?.FilePath) && File.Exists(media.FilePath))
+                {
+                    return media.FilePath;
+                }
+
+                if (target == SplashScreenPriorityTarget.GameCustom)
+                {
+                    var legacyCustom = GetStoredCustomSplashPath(game);
+                    if (!string.IsNullOrWhiteSpace(legacyCustom) && File.Exists(legacyCustom))
+                    {
+                        return legacyCustom;
+                    }
+                }
             }
 
             return null;
@@ -11776,6 +19232,8 @@ namespace AnikiHelper
             {
                 base.OnGameStarted(args);
 
+                try { steamFriendsService?.OnGameStarted(); } catch { }
+
                 DebugLogFocusState("After base.OnGameStarted");
 
                 eventSoundService.PlayGameStarted();
@@ -11835,18 +19293,34 @@ namespace AnikiHelper
                         }
 
                         var maximumWait = Settings?.GameLaunchSplashMaximumWaitMs ?? GameLaunchSplashMaxWaitAfterGameStartedMs;
+                        var autoDetectGameReady = Settings?.GameLaunchSplashAutoDetectReadyEnabled ?? true;
+                        var startedProcessId = args?.StartedProcessId;
 
                         DebugLog(
                             $"[AnikiHelper][Splash][CloseAfterGameStartedTask][Settings] " +
                             $"Game='{g?.Name ?? "NULL"}', " +
                             $"MinimumDuration={minimumDuration}, " +
                             $"HasCustomDuration={hasCustomDuration}, " +
+                            $"AutoDetectReady={autoDetectGameReady}, " +
+                            $"StartedProcessId={startedProcessId}, " +
                             $"MaximumWait={maximumWait}"
                         );
 
-                        await splashScreenRuntimeService.CloseAfterGameStartedAsync(minimumDuration, maximumWait);
+                        if (hasCustomDuration || !autoDetectGameReady)
+                        {
+                            await splashScreenRuntimeService.CloseAfterFixedDurationAsync(minimumDuration);
+                            DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][Result] Fixed duration close finished. Game='{g?.Name ?? "NULL"}'");
+                        }
+                        else
+                        {
+                            await splashScreenRuntimeService.CloseAfterGameStartedAsync(
+                                minimumDuration,
+                                maximumWait,
+                                () => IsGameLaunchSplashGameReady(g, startedProcessId),
+                                true);
 
-                        DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][Result] CloseAfterGameStartedAsync finished. Game='{g?.Name ?? "NULL"}'");
+                            DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][Result] Auto game ready close finished. Game='{g?.Name ?? "NULL"}'");
+                        }
 
                         DebugLog($"[AnikiHelper][UPS][KeepHeld] UniPlaySong pause kept while game is running. Game='{g?.Name ?? "NULL"}'");
                     }
@@ -11917,6 +19391,7 @@ namespace AnikiHelper
             try
             {
                 base.OnGameStopped(args);
+                try { steamFriendsService?.OnGameStopped(); } catch { }
                 DebugLogFocusState("After base.OnGameStopped");
 
                 var g = args?.Game;
@@ -12228,15 +19703,15 @@ namespace AnikiHelper
             catch (Exception ex) { logger.Error(ex, "[AnikiHelper] RecalcStats failed"); }
         }
 
-        private void RecalcSuggestedGameSafe()
+        private void RecalcHubLibraryRecommendedGamesSafe()
         {
             try
             {
-                RecalcSuggestedGame();
+                RecalcHubLibraryRecommendedGames();
             }
             catch (Exception ex)
             {
-                logger.Error(ex, "[AnikiHelper] RecalcSuggestedGame failed");
+                logger.Error(ex, "[AnikiHelper] RecalcHubLibraryRecommendedGames failed");
             }
         }
 
@@ -12799,8 +20274,8 @@ namespace AnikiHelper
                 }
             }
 
-            // Calcul du jeu suggéré à partir des stats + snapshot
-            RecalcSuggestedGameSafe();
+            // Recalcule les 4 cartes Hub "Recommended from your library"
+            RecalcHubLibraryRecommendedGamesSafe();
         }
 
         #region Menus
@@ -12944,6 +20419,19 @@ namespace AnikiHelper
                 Action = (_) =>
                 {
                     RefreshAchievementCacheForGame(game.Id, game.Name);
+                }
+            };
+
+            // ===== OVERLAY SETTINGS =====
+            yield return new GameMenuItem
+            {
+                MenuSection = "Aniki Helper|Overlay Settings",
+                Description = Settings != null && Settings.IsInGameOverlayNeverSuspendGame(game.Id)
+                    ? ResourceProvider.GetString("LOCAnikiHelperOverlayAllowSuspendThisGame")
+                    : ResourceProvider.GetString("LOCAnikiHelperOverlayNeverSuspendThisGame"),
+                Action = (_) =>
+                {
+                    Settings?.ToggleInGameOverlayNeverSuspendGame(game);
                 }
             };
 

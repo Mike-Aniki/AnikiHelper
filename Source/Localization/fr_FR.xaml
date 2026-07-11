@@ -1,4 +1,4 @@
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
@@ -25,6 +25,20 @@
     <sys:String x:Key="WelcomeHubStartup_Title">Écran d’accueil</sys:String>
     <sys:String x:Key="WelcomeHubStartup_Desc">Choisissez l’écran affiché au lancement de Playnite entre la bibliothèque et le Hub.</sys:String>
     <sys:String x:Key="WelcomeHubStartup_Enable">Ouvrir le Hub au démarrage</sys:String>
+
+    <sys:String x:Key="HubApps_Title">Applications du Hub</sys:String>
+    <sys:String x:Key="HubApps_Desc">Affiche jusqu’à 4 outils logiciels Playnite sélectionnés directement dans le Hub.</sys:String>
+    <sys:String x:Key="HubApps_Enable">Afficher la page Apps dans le Hub</sys:String>
+    <sys:String x:Key="HubApps_Slot1">Slot 1</sys:String>
+    <sys:String x:Key="HubApps_Slot2">Slot 2</sys:String>
+    <sys:String x:Key="HubApps_Slot3">Slot 3</sys:String>
+    <sys:String x:Key="HubApps_Slot4">Slot 4</sys:String>
+    <sys:String x:Key="HubApps_Help">Choisissez jusqu’à 4 apps depuis les outils logiciels de Playnite à afficher dans le Hub. Les apps doivent d’abord être ajoutées dans Playnite / Outils logiciels. Vous pouvez définir une image de fond personnalisée pour chaque app ; sinon, une image par défaut sera utilisée.</sys:String>
+    <sys:String x:Key="HubApps_SelectBackgroundDialog">Sélectionne une image de fond pour cette carte d’application du Hub.</sys:String>
+    <sys:String x:Key="BrowseImage">Image...</sys:String>
+    <sys:String x:Key="LOCHubAppsTitle">Apps</sys:String>
+    <sys:String x:Key="LOCHubAppsSubtitle">Tes Software Tools sélectionnés</sys:String>
+
     <sys:String x:Key="WelcomeHubStartup_Help">Si désactivé, Playnite s’ouvrira directement sur la bibliothèque.</sys:String>
 
     <!-- ========= LIBRARY STAT FEATURES ========= -->
@@ -158,11 +172,21 @@
     <sys:String x:Key="InGameOverlay_ControllerShortcut_Guide">Bouton Guide</sys:String>
     <sys:String x:Key="InGameOverlay_ControllerShortcut_Disabled">Désactivé</sys:String>
 
+    <sys:String x:Key="InGameOverlay_GameBehavior_Title">Comportement du jeu quand l’overlay est ouvert</sys:String>
+    <sys:String x:Key="InGameOverlay_GameBehavior_DoNothing">Par défaut : ne rien faire</sys:String>
+    <sys:String x:Key="InGameOverlay_GameBehavior_SuspendGame">Expérimental : suspendre le jeu quand l’overlay est ouvert</sys:String>
+    <sys:String x:Key="InGameOverlay_GameBehavior_Help">Choisis si Aniki Helper doit laisser le jeu tourner normalement ou figer temporairement le processus du jeu pendant que l’overlay est ouvert pour éviter les doubles inputs.</sys:String>
+    <sys:String x:Key="InGameOverlay_GameBehavior_Warning">Attention : déconseillé pour les jeux en ligne, multijoueur, protégés par anti-cheat ou lancés en administrateur.</sys:String>
+    <sys:String x:Key="InGameOverlay_NeverSuspendList_Title">Jeux à ne jamais suspendre</sys:String>
+    <sys:String x:Key="InGameOverlay_NeverSuspendList_Help">Les jeux ajoutés depuis clic droit → Aniki Helper → Overlay Settings → Never suspend this game apparaissent ici. Décoche un jeu pour le retirer de la liste.</sys:String>
+    <sys:String x:Key="InGameOverlay_NeverSuspendList_Clear">Vider la liste</sys:String>
+    <sys:String x:Key="LOCAnikiHelperOverlayNeverSuspendThisGame">Never suspend this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperOverlayAllowSuspendThisGame">Allow suspend for this game</sys:String>
+
     <sys:String x:Key="InGameOverlay_Limitations_Title">Limitation</sys:String>
     <sys:String x:Key="InGameOverlay_Limitations_Desc">Cet overlay est une fenêtre transparente affichée au-dessus du jeu. Il n’est pas injecté directement dans le jeu comme les overlays Steam ou Discord.</sys:String>
     <sys:String x:Key="InGameOverlay_Limitations_Help">Il fonctionne mieux avec les jeux en mode fenêtré sans bordure ou plein écran fenêtré. Certains jeux en plein écran exclusif, certains anti-cheats ou certains jeux lancés en administrateur peuvent empêcher l’overlay de s’afficher correctement.</sys:String>
-
-    <sys:String x:Key="LOCInGameOverlayFooterTitle">Aniki Overlay</sys:String>
+    <sys:String x:Key="LOCInGameOverlayFooterTitle">Aniki Control Center</sys:String>
     <sys:String x:Key="LOCInGameOverlayNoGameRunning">Aucun jeu lancé</sys:String>
     <sys:String x:Key="LOCInGameOverlayNoActiveGame">Aucun jeu actif détecté</sys:String>
     <sys:String x:Key="LOCInGameOverlayLessThanOneMinute">moins de 1 min</sys:String>
@@ -171,6 +195,29 @@
 
     <sys:String x:Key="LOCInGameOverlayCancel">Annuler</sys:String>
     <sys:String x:Key="LOCInGameOverlayConfirmQuit">Quitter le jeu</sys:String>
+
+    <sys:String x:Key="LOCInGameOverlayControlCenter">CONTROL CENTER</sys:String>
+    <sys:String x:Key="LOCInGameOverlayBackHint">B / Retour pour fermer</sys:String>
+    <sys:String x:Key="LOCInGameOverlayReturnToPlaynite">Retour à Playnite</sys:String>
+    <sys:String x:Key="LOCInGameOverlayReturnToGame">Retour au jeu</sys:String>
+    <sys:String x:Key="LOCInGameOverlayQuitGame">Quitter le jeu</sys:String>
+    <sys:String x:Key="LOCInGameOverlayGame">Jeu</sys:String>
+    <sys:String x:Key="LOCInGameOverlayLastCaptures">Dernières captures</sys:String>
+    <sys:String x:Key="LOCInGameOverlayMedia">Média</sys:String>
+    <sys:String x:Key="LOCInGameOverlayAchievements">Trophées</sys:String>
+    <sys:String x:Key="LOCInGameOverlayGameInfo">Infos du jeu</sys:String>
+    <sys:String x:Key="LOCInGameOverlaySource">Source</sys:String>
+    <sys:String x:Key="LOCInGameOverlayPlatform">Plateforme</sys:String>
+    <sys:String x:Key="LOCInGameOverlayPlaytime">Temps de jeu</sys:String>
+    <sys:String x:Key="LOCInGameOverlaySession">Session</sys:String>
+    <sys:String x:Key="LOCInGameOverlayMediaAvailable">Captures</sys:String>
+    <sys:String x:Key="LOCInGameOverlayMediaLatest">Dernière capture</sys:String>
+    <sys:String x:Key="LOCInGameOverlayAchievementsUnlocked">Débloqués</sys:String>
+    <sys:String x:Key="LOCInGameOverlayAchievementsProgress">Progression</sys:String>
+    <sys:String x:Key="LOCInGameOverlayAchievementsLatest">Dernier trophée</sys:String>
+    <sys:String x:Key="LOCInGameOverlayComingSoon">À venir</sys:String>
+    <sys:String x:Key="LOCInGameOverlayMediaCenterHint">Vue rapide des captures liées au jeu en cours.</sys:String>
+    <sys:String x:Key="LOCInGameOverlayMediaFutureHint">Ce panneau pourra plus tard accueillir les contrôles UPS / Spotify sans toucher à la logique de la fenêtre overlay.</sys:String>
 
     <!-- ========= SPLASH FEATURES ========= -->
     <sys:String x:Key="SplashScreen">Splash screen</sys:String>
@@ -197,12 +244,12 @@
     <sys:String x:Key="LOCAnikiHelperOpenCustomSplashFolderFailed">Impossible d’ouvrir le dossier des images du splash.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_Mode_Title">Mode de sélection du splash</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Mode_Automatic">Automatique</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_Automatic">Priorité jeu</sys:String>
     <sys:String x:Key="GameLaunchSplash_Mode_CustomPriority">Priorité personnalisée</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysSource">Toujours utiliser la source</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysPlatform">Toujours utiliser la plateforme</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysGlobal">Toujours utiliser le global</sys:String>
-    <sys:String x:Key="GameLaunchSplash_Mode_Help">Choisissez l’ordre utilisé pour afficher une image de lancement. En mode automatique : image personnalisée du jeu, fond Playnite, source, plateforme, puis splash global.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysSource">Priorité source</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysPlatform">Priorité plateforme</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_AlwaysGlobal">Global uniquement</sys:String>
+    <sys:String x:Key="GameLaunchSplash_Mode_Help">Choisis quelle source de splash est essayée en premier. Les modes priorité utilisent les autres sources en fallback ; Global uniquement utilise seulement le splash global.</sys:String>
     <sys:String x:Key="LOCAnikiHelperOpenGameSplashFolder">Ouvrir le dossier splash du jeu</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_LogoPosition_Title">Position du logo</sys:String>
@@ -222,8 +269,10 @@
     <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Ces réglages s’appliquent par défaut à tous les jeux. Si un timer personnalisé est défini pour un jeu précis, il sera utilisé en priorité.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Durée minimale d’affichage</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Définit le temps minimum pendant lequel le splash reste visible. Augmentez cette valeur si le splash disparaît trop vite.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Détecter automatiquement quand la fenêtre du jeu est prête</sys:String>
+    <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Quand cette option est activée, Aniki Helper garde le splash visible jusqu’à ce que la vraie fenêtre du jeu soit détectée. Les timers personnalisés par jeu restent prioritaires.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Sécurité de fermeture automatique</sys:String>
-    <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Définit le temps maximum pendant lequel Aniki Helper attend que le jeu prenne le focus. Si le jeu ne passe pas au premier plan, le splash se ferme automatiquement après ce délai.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Définit le temps maximum pendant lequel Aniki Helper attend la vraie fenêtre du jeu. Si aucune fenêtre de jeu n’est détectée, le splash se ferme automatiquement après ce délai.</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Réinitialiser</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Définir le timer minimum pour ce jeu</sys:String>
@@ -354,6 +403,74 @@
     <sys:String x:Key="SteamStore_Enable_Desc">Active les sections Steam Store dans le thème.</sys:String>
     <sys:String x:Key="SteamStore_Enable_Help">Lorsque cette option est désactivée, le bouton Store n’apparaît plus dans le thème.</sys:String>
 
+
+    <!-- Connexion Steam -->
+    <sys:String x:Key="SteamAccount_GroupTitle">Connexion au compte Steam</sys:String>
+    <sys:String x:Key="SteamAccount_GroupDesc">Liez Steam pour activer Ma liste de souhaits, For You et Steam Friends.</sys:String>
+    <sys:String x:Key="SteamAccount_ConnectButton">Se connecter à Steam</sys:String>
+    <sys:String x:Key="SteamAccount_ReconnectButton">Se reconnecter à Steam</sys:String>
+    <sys:String x:Key="SteamAccount_CheckButton">Vérifier la connexion</sys:String>
+    <sys:String x:Key="SteamAccount_DisconnectButton">Déconnecter</sys:String>
+    <sys:String x:Key="SteamAccount_StatusLabel">État de la connexion</sys:String>
+    <sys:String x:Key="SteamAccount_SteamIdLabel">SteamID :</sys:String>
+    <sys:String x:Key="SteamAccount_ConfiguredBadge">CONFIGURÉE</sys:String>
+    <sys:String x:Key="SteamAccount_MissingBadge">MANQUANTE</sys:String>
+    <sys:String x:Key="SteamAccount_OptionalBadge">OPTIONNEL</sys:String>
+    <sys:String x:Key="SteamAccount_ConnectedTitle">Connecté à Steam</sys:String>
+    <sys:String x:Key="SteamAccount_ConnectedDesc">Votre session Steam Store est active. Les sections personnalisées du Store sont disponibles.</sys:String>
+    <sys:String x:Key="SteamAccount_DisconnectedTitle">Non connecté à Steam</sys:String>
+    <sys:String x:Key="SteamAccount_DisconnectedDesc">Connectez-vous pour activer Ma liste de souhaits, For You et les autres sections personnalisées du Steam Store.</sys:String>
+    <sys:String x:Key="SteamAccount_ProfileLabel">Profil Steam / SteamID détecté</sys:String>
+    <sys:String x:Key="SteamAccount_ApiKeyTitle">Clé Steam Web API</sys:String>
+    <sys:String x:Key="SteamAccount_ApiKeyDesc">Requise pour Steam Friends et utilisée pour améliorer les recommandations du Store grâce à vos jeux possédés et récemment joués. Le Store peut fonctionner sans elle, mais les données d’amis et certaines fonctions de personnalisation seront indisponibles.</sys:String>
+    <sys:String x:Key="SteamAccount_ManualSteamIdTitle">SteamID de secours avancé</sys:String>
+    <sys:String x:Key="SteamAccount_ManualSteamIdDesc">Optionnel. À utiliser uniquement si la détection automatique du SteamID échoue.</sys:String>
+    <sys:String x:Key="SteamAccount_PrivacyNotice">Steam Friends nécessite un profil Steam et une liste d’amis publics. Un profil privé peut ne renvoyer aucune donnée.</sys:String>
+    <sys:String x:Key="SteamFullscreen_AccountLabel">Compte Steam lié</sys:String>
+    <sys:String x:Key="SteamFullscreen_SteamIdLabel">SteamID détecté ou configuré</sys:String>
+    <sys:String x:Key="SteamFullscreen_ApiKeyLabel">Clé Steam Web API</sys:String>
+
+    <sys:String x:Key="SteamFullscreen_StatusReady">Configuré</sys:String>
+    <sys:String x:Key="SteamFullscreen_StatusMissing">Manquant</sys:String>
+
+    <sys:String x:Key="SteamFullscreen_ConfigurationReady">La configuration Steam est complète.</sys:String>
+    <sys:String x:Key="SteamFullscreen_ConfigurationMissing">La configuration Steam est incomplète. Passez en mode Bureau, puis ouvrez les paramètres d’Aniki Helper pour connecter votre compte Steam ou renseigner les informations manquantes.</sys:String>
+
+    <!-- Steam Friends -->
+    <sys:String x:Key="LOCSteamFriends_Title">Steam Friends</sys:String>
+    <sys:String x:Key="LOCSteamFriends_Subtitle">Affiche le statut de vos amis Steam dans le thème Aniki : amis en ligne, jeux en cours, profils et notifications intégrées au thème.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_Enable">Activer l’intégration Steam Friends</sys:String>
+    <sys:String x:Key="LOCSteamFriends_EnableHelp">Active ou désactive les données Steam Friends utilisées par le thème.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_Display">Affichage</sys:String>
+    <sys:String x:Key="LOCSteamFriends_OnlineInfo">Le thème peut afficher jusqu’à 15 amis en ligne en même temps. Les amis sont priorisés par statut : en jeu, puis en ligne, absent et occupé.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_ShowOffline">Afficher les amis hors ligne</sys:String>
+    <sys:String x:Key="LOCSteamFriends_OfflineInfo">Les amis hors ligne sont optionnels et limités à 40 en même temps pour garder une navigation fluide.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_Notifications">Notifications</sys:String>
+    <sys:String x:Key="LOCSteamFriends_NotifyOnGameStart">Notifier quand un ami lance un jeu</sys:String>
+    <sys:String x:Key="LOCSteamFriends_NotifyOnGameStartHelp">Affiche une notification dans le thème quand un ami Steam commence à jouer.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_NotifyOnConnect">Notifier quand un ami se connecte</sys:String>
+    <sys:String x:Key="LOCSteamFriends_NotifyOnConnectHelp">Affiche une notification dans le thème quand un ami Steam passe en ligne.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedDetails_Title">Détails du jeu</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Section">Jeux joués par les amis</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Refresh">Actualiser les jeux joués par les amis</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Help">Construit un cache local à partir de Steam pour afficher, dans la vue détails, les amis qui ont déjà joué au jeu. Le scan peut prendre du temps selon le nombre d’amis.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Preparing">Préparation de l’actualisation des jeux joués par les amis...</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Refreshing">Actualisation des jeux joués par les amis... {0}/{1}</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Done">Jeux joués par les amis actualisés : {0} amis scannés.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_DoneMarker">actualisés</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Error">Impossible d’actualiser les jeux joués par les amis.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_MissingConfig">Clé API Steam ou compte Steam manquant.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_NoFriends">Aucun ami Steam renvoyé par l’API Steam.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Empty">Cache des jeux joués par les amis non créé.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Stale">Cache des jeux joués par les amis ancien. Dernière actualisation : {0}.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_Loaded">Cache des jeux joués par les amis chargé. Dernière actualisation : {0}.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_CurrentPlaying_One">{0} joue en ce moment à ce jeu</sys:String>
+    <sys:String x:Key="LOCSteamFriends_CurrentPlaying_Two">{0} et {1} jouent en ce moment à ce jeu</sys:String>
+    <sys:String x:Key="LOCSteamFriends_CurrentPlaying_Many">{0}, {1} et {2} autres amis jouent en ce moment à ce jeu</sys:String>
+    <sys:String x:Key="LOCSteamFriends_AlreadyPlayed_One">{0} a déjà joué à ce jeu</sys:String>
+    <sys:String x:Key="LOCSteamFriends_AlreadyPlayed_Two">{0} et {1} ont déjà joué à ce jeu</sys:String>
+    <sys:String x:Key="LOCSteamFriends_AlreadyPlayed_Many">{0}, {1} et {2} autres amis ont déjà joué à ce jeu</sys:String>
+
     <!-- ========= News FEATURES ========= -->
     <sys:String x:Key="GroupAnikiFeatures">Actualités d'Aniki</sys:String>
 
@@ -416,4 +533,39 @@
     <sys:String x:Key="AnikiNews_CustomFeed_Exemple4">Cowcotland : https://feeds.feedburner.com/cowcotland</sys:String>
     <sys:String x:Key="AnikiNews_CustomFeed_Exemple5">Steam News : https://store.steampowered.com/feeds/news/collection/featured</sys:String>
 
+    <!-- Notifications globales Steam / liste de souhaits -->
+    <sys:String x:Key="LOCNotificationTitleDefault">Notification</sys:String>
+    <sys:String x:Key="LOCNotificationTitlePlayniteNews">Actualités Playnite</sys:String>
+    <sys:String x:Key="LOCNotificationTitleSteamUpdate">Mise à jour du jeu</sys:String>
+    <sys:String x:Key="LOCNotificationTitleGameEnded">Session de jeu terminée</sys:String>
+    <sys:String x:Key="LOCNotificationTitleSteamAuth">Compte Steam</sys:String>
+    <sys:String x:Key="LOCNotificationTitleWishlistDeal">Promo wishlist</sys:String>
+    <sys:String x:Key="LOCNotificationTitleWishlistReleased">Sortie wishlist</sys:String>
+    <sys:String x:Key="LOCSteamSessionExpiredToast">Session Steam expirée. Reconnectez-vous en mode Bureau.</sys:String>
+    <sys:String x:Key="LOCWishlistDealToast">{0} de votre wishlist est maintenant à {1}.</sys:String>
+    <sys:String x:Key="LOCWishlistReleasedToast">{0} de votre wishlist est maintenant disponible.</sys:String>
+
+    <!-- Control Center overlay v2 -->
+    <sys:String x:Key="LOCInGameOverlayPlaynite">Playnite</sys:String>
+    <sys:String x:Key="LOCInGameOverlayClose">Fermer</sys:String>
+    <sys:String x:Key="LOCInGameOverlayAudio">Audio Switcher</sys:String>
+    <sys:String x:Key="LOCInGameOverlayApps">Apps</sys:String>
+    <sys:String x:Key="LOCInGameOverlayUniPlaySong">UniPlaySong</sys:String>
+    <sys:String x:Key="LOCInGameOverlayMusic">Lecteur de musique</sys:String>
+    <sys:String x:Key="LOCInGameOverlayAudioCenterHint">Les contrôles audio rapides seront ici : sortie audio, volume principal puis volume par application plus tard.</sys:String>
+    <sys:String x:Key="LOCInGameOverlayAudioFutureHint">Cette première version change seulement la structure du Control Center. La source audio et le volume pourront être connectés après validation de l’interface.</sys:String>
+
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Title">Ordre de priorité personnalisé</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Help">Utilisé quand Priorité personnalisée est sélectionné. Une source déjà sélectionnée dans un slot disparaît des autres slots ; Aucun peut être utilisé plusieurs fois.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_1">Priorité 1</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_2">Priorité 2</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_3">Priorité 3</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_4">Priorité 4</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_5">Priorité 5</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_GameCustom">Custom du jeu</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_GameBackground">Fond du jeu</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_Platform">Plateforme</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_Source">Source</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_Global">Global</sys:String>
+    <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_None">Aucun</sys:String>
 </ResourceDictionary>

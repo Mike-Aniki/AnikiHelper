@@ -74,19 +74,21 @@ namespace AnikiHelper.Services.MediaGallery
                     return string.Empty;
                 }
 
-                // Vidéo : on utilise uniquement le thumbnail du provider s'il est valide.
-                // Sinon le thème affichera "video preview unavailable".
+                // Toujours utiliser en priorité la miniature fournie par le plugin source.
+                // Cela concerne Screenshots Visualizer et Screenshot Utilities.
+                if (IsValidProviderThumbnail(item.ThumbnailPath, item.FilePath))
+                {
+                    return item.ThumbnailPath;
+                }
+
+                // Pour les vidéos, Aniki ne génère pas lui-même de miniature.
+                // Si le provider n'en fournit pas, le thème affiche l'état indisponible.
                 if (item.IsVideo)
                 {
-                    if (IsValidProviderThumbnail(item.ThumbnailPath, item.FilePath))
-                    {
-                        return item.ThumbnailPath;
-                    }
-
                     return string.Empty;
                 }
 
-                // Image : si aucun thumbnail provider valide, Aniki génère son propre thumbnail.
+                // Pour les images sans miniature provider, Aniki conserve son fallback.
                 if (!IsSupportedImageFile(item.FilePath))
                 {
                     return item.FilePath;
@@ -96,14 +98,16 @@ namespace AnikiHelper.Services.MediaGallery
 
                 var thumbnailPath = GetThumbnailPath(item.FilePath);
 
-                if (File.Exists(thumbnailPath) && new FileInfo(thumbnailPath).Length > 0)
+                if (File.Exists(thumbnailPath)
+                    && new FileInfo(thumbnailPath).Length > 0)
                 {
                     return thumbnailPath;
                 }
 
                 CreateImageThumbnail(item.FilePath, thumbnailPath);
 
-                if (File.Exists(thumbnailPath) && new FileInfo(thumbnailPath).Length > 0)
+                if (File.Exists(thumbnailPath)
+                    && new FileInfo(thumbnailPath).Length > 0)
                 {
                     return thumbnailPath;
                 }

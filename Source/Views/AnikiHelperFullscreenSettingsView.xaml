@@ -1,4 +1,4 @@
-<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+﻿<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:pctrls="clr-namespace:Playnite.FullscreenApp.Controls;assembly=Playnite.FullscreenApp"
@@ -177,6 +177,259 @@
                 <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
             </StackPanel>
 
+            <TextBlock Text="{DynamicResource SteamAccount_GroupTitle}"
+                       Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}" />
+
+            <TextBlock Text="{DynamicResource SteamAccount_GroupDesc}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <!-- Steam configuration summary -->
+            <Border Margin="0,10,0,14"
+        Padding="16,14"
+        CornerRadius="10"
+        Background="{DynamicResource BackgroundMenu}"
+        BorderBrush="{DynamicResource SeparatorBrush}"
+        BorderThickness="1">
+
+                <StackPanel>
+
+                    <!-- Steam account -->
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                       Text="{DynamicResource SteamFullscreen_AccountLabel}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                       VerticalAlignment="Center"/>
+
+                        <Grid Grid.Column="1"
+                  VerticalAlignment="Center">
+
+                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusMissing}"
+                           FontFamily="{DynamicResource FontMain}"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextDetailBrush}">
+
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Visible"/>
+
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.SteamAccountConnected}"
+                                             Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusReady}"
+                           FontFamily="{DynamicResource FontMain}"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextHighlightBrush}">
+
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.SteamAccountConnected}"
+                                             Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                        </Grid>
+                    </Grid>
+
+                    <!-- Steam ID -->
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                       Text="{DynamicResource SteamFullscreen_SteamIdLabel}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                       VerticalAlignment="Center"/>
+
+                        <Grid Grid.Column="1"
+                  VerticalAlignment="Center">
+
+                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusMissing}"
+                           FontFamily="{DynamicResource FontMain}"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextDetailBrush}">
+
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Visible"/>
+
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamId}"
+                                             Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusReady}"
+                           FontFamily="{DynamicResource FontMain}"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextHighlightBrush}">
+
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamId}"
+                                             Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                        </Grid>
+                    </Grid>
+
+                    <!-- Steam API key -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                       Text="{DynamicResource SteamFullscreen_ApiKeyLabel}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                       VerticalAlignment="Center"/>
+
+                        <Grid Grid.Column="1"
+                  VerticalAlignment="Center">
+
+                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusMissing}"
+                           FontFamily="{DynamicResource FontMain}"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextDetailBrush}">
+
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Visible"/>
+
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
+                                             Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusReady}"
+                           FontFamily="{DynamicResource FontMain}"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextHighlightBrush}">
+
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
+                                             Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                        </Grid>
+                    </Grid>
+
+                    <!-- Complete configuration -->
+                    <TextBlock Text="{DynamicResource SteamFullscreen_ConfigurationReady}"
+                   FontFamily="{DynamicResource FontMain}"
+                   FontSize="13"
+                   Foreground="{DynamicResource TextHighlightBrush}"
+                   TextWrapping="Wrap"
+                   Margin="0,14,0,0">
+
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Settings.SteamAccountConnected}"
+                                           Value="True"/>
+                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamId}"
+                                           Value="True"/>
+                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
+                                           Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <!-- Incomplete configuration -->
+                    <TextBlock Text="{DynamicResource SteamFullscreen_ConfigurationMissing}"
+                   FontFamily="{DynamicResource FontMain}"
+                   FontSize="13"
+                   Foreground="{DynamicResource TextDetailBrush}"
+                   TextWrapping="Wrap"
+                   Margin="0,14,0,0">
+
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Visible"/>
+
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Settings.SteamAccountConnected}"
+                                           Value="True"/>
+                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamId}"
+                                           Value="True"/>
+                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
+                                           Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                </StackPanel>
+            </Border>
+
             <pctrls:CheckBoxEx Content="{DynamicResource SteamUpdates_Enable}"
                                IsChecked="{Binding Settings.SteamUpdatesScanEnabled}"
                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
@@ -266,6 +519,77 @@
             <TextBlock Text="{DynamicResource SteamStore_Country_Desc}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
+            <!-- STEAM FRIENDS-->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource LOCSteamFriends_Title}"
+                 Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                 HorizontalAlignment="Center"/>
+
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <TextBlock Text="{DynamicResource LOCSteamFriends_Subtitle}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource LOCSteamFriends_Enable}"
+                               IsChecked="{Binding Settings.SteamFriendsEnabled}"
+                               Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource LOCSteamFriends_EnableHelp}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource LOCSteamFriends_ShowOffline}"
+                               IsChecked="{Binding Settings.ShowOffline}"
+                               Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource LOCSteamFriends_OfflineInfo}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource LOCSteamFriends_NotifyOnGameStart}"
+                               IsChecked="{Binding Settings.NotifyOnGameStart}"
+                               Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource LOCSteamFriends_NotifyOnGameStartHelp}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:CheckBoxEx Content="{DynamicResource LOCSteamFriends_NotifyOnConnect}"
+                               IsChecked="{Binding Settings.NotifyOnConnect}"
+                               Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource LOCSteamFriends_NotifyOnConnectHelp}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,24,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                    <TextBlock Text="{DynamicResource LOCSteamFriends_PlayedCache_Section}"
+                               Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                               Margin="0"/>
+
+                    <TextBlock Text="{DynamicResource LOCSteamFriends_PlayedCache_Help}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap"/>
+
+                    <TextBlock Text="{Binding Settings.SteamFriendsPlayedGamesCacheStatus}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <pctrls:ButtonEx Grid.Column="1"
+                                 Content="{DynamicResource LOCSteamFriends_PlayedCache_Refresh}"
+                                 Command="{Binding Settings.RefreshFriendsPlayedGamesCacheCommand}"
+                                 Height="52"
+                                 MinWidth="320"
+                                 HorizontalAlignment="Stretch"
+                                 VerticalAlignment="Center"/>
+            </Grid>
+
             <!-- SPLASH SCREEN -->
             <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
                 <TextBlock Text="{DynamicResource GameLaunchSplash_Title}"
@@ -307,6 +631,42 @@
 
             <TextBlock Text="{DynamicResource GameLaunchSplash_Mode_Help}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_CustomPriority_Title}"
+                       Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                       Margin="10,18,0,4"/>
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_CustomPriority_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,12,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="{DynamicResource GameLaunchSplash_CustomPriority_1}" Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}" Margin="0,0,0,10"/>
+                <pctrls:ComboBoxEx Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Settings.GameLaunchSplashCustomPriority1Options}" DisplayMemberPath="Label" SelectedItem="{Binding Settings.GameLaunchSplashCustomPriority1SelectedOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="{DynamicResource GameLaunchSplash_CustomPriority_2}" Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}" Margin="0,0,0,10"/>
+                <pctrls:ComboBoxEx Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Settings.GameLaunchSplashCustomPriority2Options}" DisplayMemberPath="Label" SelectedItem="{Binding Settings.GameLaunchSplashCustomPriority2SelectedOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="{DynamicResource GameLaunchSplash_CustomPriority_3}" Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}" Margin="0,0,0,10"/>
+                <pctrls:ComboBoxEx Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Settings.GameLaunchSplashCustomPriority3Options}" DisplayMemberPath="Label" SelectedItem="{Binding Settings.GameLaunchSplashCustomPriority3SelectedOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="{DynamicResource GameLaunchSplash_CustomPriority_4}" Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}" Margin="0,0,0,10"/>
+                <pctrls:ComboBoxEx Grid.Row="3" Grid.Column="1" ItemsSource="{Binding Settings.GameLaunchSplashCustomPriority4Options}" DisplayMemberPath="Label" SelectedItem="{Binding Settings.GameLaunchSplashCustomPriority4SelectedOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="{DynamicResource GameLaunchSplash_CustomPriority_5}" Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}" Margin="0"/>
+                <pctrls:ComboBoxEx Grid.Row="4" Grid.Column="1" ItemsSource="{Binding Settings.GameLaunchSplashCustomPriority5Options}" DisplayMemberPath="Label" SelectedItem="{Binding Settings.GameLaunchSplashCustomPriority5SelectedOption, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}"/>
+            </Grid>
 
             <pctrls:CheckBoxEx Content="{DynamicResource GameLaunchSplash_ShowLogo}"
                                IsChecked="{Binding Settings.GameLaunchSplashShowLogo}"
@@ -452,6 +812,94 @@
             <TextBlock Text="{DynamicResource GameLaunchSplash_MinDuration_Help}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
+            <CheckBox Content="{DynamicResource GameLaunchSplash_AutoDetectReady_Enable}"
+                      IsChecked="{Binding Settings.GameLaunchSplashAutoDetectReadyEnabled, UpdateSourceTrigger=PropertyChanged}"
+                      Margin="10,16,0,6"/>
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_AutoDetectReady_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                       Margin="10,0,0,0"/>
+
+            <Grid Margin="10,20,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{DynamicResource GameLaunchSplash_MaxDuration_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                           Margin="0"/>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+
+                    <pctrls:ComboBoxEx Width="260"
+                                       SelectedValue="{Binding Settings.GameLaunchSplashMaximumWaitMs, UpdateSourceTrigger=PropertyChanged}"
+                                       SelectedValuePath="Tag"
+                                       Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+
+                        <ComboBoxItem Content="5 sec">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>5000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+
+                        <ComboBoxItem Content="6 sec">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>6000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+
+                        <ComboBoxItem Content="10 sec">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>10000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+
+                        <ComboBoxItem Content="15 sec (Default)">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>15000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+
+                        <ComboBoxItem Content="20 sec">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>20000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+
+                        <ComboBoxItem Content="30 sec">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>30000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+
+                        <ComboBoxItem Content="45 sec">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>45000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+
+                        <ComboBoxItem Content="1 min">
+                            <ComboBoxItem.Tag>
+                                <sys:Int32>60000</sys:Int32>
+                            </ComboBoxItem.Tag>
+                        </ComboBoxItem>
+                    </pctrls:ComboBoxEx>
+
+                    <TextBlock Text="{Binding Settings.GameLaunchSplashMaximumWaitDisplay}"
+                               Margin="14,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="White"
+                               FontSize="18"/>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_MaxDuration_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
 
 
             <Grid Margin="10,20,0,14">
@@ -587,6 +1035,63 @@
 
             <TextBlock Text="{DynamicResource InGameOverlay_Hotkey_Help}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,20,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            Margin="0,0,20,0">
+                    <TextBlock Text="{DynamicResource InGameOverlay_GameBehavior_Title}"
+                               Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                               Margin="0"/>
+
+                    <TextBlock Text="{DynamicResource InGameOverlay_GameBehavior_Help}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <pctrls:ComboBoxEx Grid.Column="1"
+                                   SelectedValue="{Binding Settings.InGameOverlayGameBehavior, UpdateSourceTrigger=PropertyChanged}"
+                                   SelectedValuePath="Tag"
+                                   Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_GameBehavior_DoNothing}" Tag="DoNothing"/>
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_GameBehavior_SuspendGame}" Tag="SuspendGame"/>
+                </pctrls:ComboBoxEx>
+            </Grid>
+
+            <TextBlock Text="{DynamicResource InGameOverlay_GameBehavior_Warning}"
+                       Foreground="DarkOrange"
+                       FontWeight="SemiBold"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <TextBlock Text="{DynamicResource InGameOverlay_NeverSuspendList_Title}"
+                       Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                       Margin="10,20,0,6"/>
+
+            <TextBlock Text="{DynamicResource InGameOverlay_NeverSuspendList_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <ItemsControl ItemsSource="{Binding Settings.InGameOverlayNeverSuspendGameItems}"
+                          Margin="10,10,0,8">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <pctrls:CheckBoxEx Content="{Binding Name}"
+                                           IsChecked="{Binding IsNeverSuspendEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                           Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <pctrls:ButtonEx Content="{DynamicResource InGameOverlay_NeverSuspendList_Clear}"
+                             Command="{Binding Settings.ClearInGameOverlayNeverSuspendGamesCommand}"
+                             Height="52"
+                             MinWidth="320"
+                             HorizontalAlignment="Left"
+                             Margin="10,4,0,14"/>
 
 
             <!-- DYNAMIC COLORS -->

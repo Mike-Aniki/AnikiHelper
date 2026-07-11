@@ -12,9 +12,41 @@ namespace AnikiHelper.Services.SplashScreen
     {
         private static readonly ILogger logger = LogManager.GetLogger();
 
+        private static void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private static void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
         private const int ForegroundCheckIntervalMs = 200;
         private const int PostFocusLossDelayMs = 1000;
         private const int FocusLossStabilityMs = 400;
+        private const int GameReadyStableCheckCount = 3;
+        private const int GameReadyStableCheckDelayMs = 500;
         private const int HardSafetyExtraMs = 2000;
 
         private GameLaunchSplashWindow currentSplashWindow;
@@ -126,18 +158,47 @@ namespace AnikiHelper.Services.SplashScreen
             }
         }
 
+        public async Task CloseAfterFixedDurationAsync(int durationMs)
+        {
+            try
+            {
+                CancelLaunchFailureSafety();
+
+                var remainingMinimumDelay = GetRemainingMinimumDelay(durationMs);
+                if (remainingMinimumDelay > 0)
+                {
+                    await Task.Delay(remainingMinimumDelay);
+                }
+
+                Close();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Splash fixed duration close failed.");
+                Close();
+            }
+        }
+
         public async Task CloseAfterGameStartedAsync(int minimumDurationMs, int maximumWaitMs)
+        {
+            await CloseAfterGameStartedAsync(minimumDurationMs, maximumWaitMs, null, false);
+        }
+
+        public async Task CloseAfterGameStartedAsync(int minimumDurationMs, int maximumWaitMs, Func<bool> isGameReady, bool autoDetectGameReady)
         {
             try
             {
                 CancelLaunchFailureSafety();
 
                 var remainingMinimumDelay = GetRemainingMinimumDelay(minimumDurationMs);
-                var hardSafetyDelay = remainingMinimumDelay + HardSafetyExtraMs;
+                var normalizedMaximumWait = Math.Max(0, maximumWaitMs);
+                var hardSafetyDelay = remainingMinimumDelay + normalizedMaximumWait + HardSafetyExtraMs;
 
-                var normalCloseTask = CloseAfterMinimumAndFocusLossAsync(remainingMinimumDelay, maximumWaitMs);
+                var normalCloseTask = autoDetectGameReady && isGameReady != null
+                    ? CloseAfterMinimumAndGameReadyAsync(remainingMinimumDelay, normalizedMaximumWait, isGameReady)
+                    : CloseAfterMinimumAndFocusLossAsync(remainingMinimumDelay, normalizedMaximumWait);
+
                 var hardSafetyTask = Task.Delay(hardSafetyDelay);
-
                 var completedTask = await Task.WhenAny(normalCloseTask, hardSafetyTask);
 
                 if (completedTask == hardSafetyTask)
@@ -154,6 +215,62 @@ namespace AnikiHelper.Services.SplashScreen
             {
                 logger.Warn(ex, "[AnikiHelper] Splash runtime close failed.");
                 Close();
+            }
+        }
+
+        private async Task CloseAfterMinimumAndGameReadyAsync(int remainingMinimumDelay, int maximumWaitMs, Func<bool> isGameReady)
+        {
+            if (remainingMinimumDelay > 0)
+            {
+                await Task.Delay(remainingMinimumDelay);
+            }
+
+            var waitedAfterMinimum = 0;
+
+            while (waitedAfterMinimum <= maximumWaitMs)
+            {
+                if (IsGameReadySafe(isGameReady))
+                {
+                    var isStable = true;
+
+                    for (var stableCheckIndex = 0; stableCheckIndex < GameReadyStableCheckCount; stableCheckIndex++)
+                    {
+                        await Task.Delay(GameReadyStableCheckDelayMs);
+
+                        if (!IsGameReadySafe(isGameReady))
+                        {
+                            isStable = false;
+                            break;
+                        }
+                    }
+
+                    if (isStable)
+                    {
+                        Close();
+                        return;
+                    }
+
+                    DebugLog("[AnikiHelper] Game ready detection was not stable yet. Keeping splash open.");
+                }
+
+                await Task.Delay(ForegroundCheckIntervalMs);
+                waitedAfterMinimum += ForegroundCheckIntervalMs;
+            }
+
+            DebugLog($"[AnikiHelper] Game ready detection timeout reached after {maximumWaitMs} ms. Closing splash.");
+            Close();
+        }
+
+        private bool IsGameReadySafe(Func<bool> isGameReady)
+        {
+            try
+            {
+                return isGameReady?.Invoke() == true;
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex, "[AnikiHelper] Game ready detection callback failed.");
+                return false;
             }
         }
 
@@ -179,7 +296,7 @@ namespace AnikiHelper.Services.SplashScreen
                         return;
                     }
 
-                    logger.Info("[AnikiHelper] Playnite regained foreground during stability check. Keeping splash open.");
+                    DebugLog("[AnikiHelper] Playnite regained foreground during stability check. Keeping splash open.");
                 }
 
                 await Task.Delay(ForegroundCheckIntervalMs);

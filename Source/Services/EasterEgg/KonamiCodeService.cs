@@ -256,6 +256,14 @@ namespace AnikiHelper.Services.EasterEgg
             }
         }
 
+        public void CancelCurrentSequence()
+        {
+            sequenceIndex = 0;
+            lastInputUtc = DateTime.MinValue;
+            lastToken = KonamiToken.None;
+            lastTokenUtc = DateTime.MinValue;
+        }
+
         private void ResetProgress()
         {
             sequenceIndex = 0;

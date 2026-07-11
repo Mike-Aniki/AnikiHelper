@@ -216,7 +216,28 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
         public bool NeedRestart { get; set; }
 
+        public string DependsOn { get; set; }
+
+        public object DependsOnValue { get; set; } = true;
+
+        public bool AutoDisableWhenDependencyMissing { get; set; } = true;
+
         public AnikiThemeSlider Slider { get; set; }
+
+        private bool isEnabled = true;
+
+        [DontSerialize]
+        public bool IsEnabled
+        {
+            get => isEnabled;
+            set => SetValue(ref isEnabled, value);
+        }
+
+        public void SetIsEnabledSilently(bool value)
+        {
+            isEnabled = value;
+            OnPropertyChanged(nameof(IsEnabled));
+        }
 
         [DontSerialize]
         public string LocalizedName { get; set; }

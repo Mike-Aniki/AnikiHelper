@@ -41,11 +41,14 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                 return;
             }
 
+            var changedKeys = new List<string>();
+
             foreach (var item in values)
             {
-                if (!ContainsKey(item.Key) || !Equals(this[item.Key], item.Value))
+                if (!ContainsKey(item.Key) || !Equals(base[item.Key], item.Value))
                 {
-                    this[item.Key] = item.Value;
+                    base[item.Key] = item.Value;
+                    changedKeys.Add(item.Key);
                 }
             }
 
@@ -55,10 +58,22 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
             foreach (var key in toRemove)
             {
-                Remove(key);
-                OnPropertyChanged(key);
-                OnPropertyChanged("Item[]");
+                base.Remove(key);
+                changedKeys.Add(key);
             }
+
+            if (changedKeys.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var key in changedKeys.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                OnPropertyChanged(key);
+            }
+
+            // WPF indexer bindings listen to Item[]. Raising it once avoids dozens of expensive refreshes at startup.
+            OnPropertyChanged("Item[]");
         }
 
         protected void OnPropertyChanged(string propertyName)

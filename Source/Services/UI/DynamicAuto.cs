@@ -639,7 +639,10 @@ namespace AnikiHelper
                     }
                 }
 
-                log.Info("[DynColor] Color cache purged (json + ram). It will rebuild automatically.");
+                if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    log.Debug("[DynColor] Color cache purged (json + ram). It will rebuild automatically.");
+                }
             }
             catch (Exception ex)
             {

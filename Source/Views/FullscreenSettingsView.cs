@@ -1,4 +1,4 @@
-﻿using Playnite.SDK;
+using Playnite.SDK;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,6 +25,36 @@ namespace AnikiHelperFullscreen.Views
     public static class FullscreenSettingsView
     {
         private static readonly ILogger logger = LogManager.GetLogger();
+
+        private static void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private static void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
 
         private static List<UIElement> originalSettingsMenuChildren;
 
@@ -73,7 +103,7 @@ namespace AnikiHelperFullscreen.Views
         private static void Load(DependencyObject parent)
         {
             var swTotal = Stopwatch.StartNew();
-            logger.Info("[AnikiHelper][SettingsPerf] Load started.");
+            DebugLog("[AnikiHelper][SettingsPerf] Load started.");
 
             EnsureEnglishFallbackResources();
             EnsureDefaultStyleResources();
@@ -1030,6 +1060,16 @@ namespace AnikiHelperFullscreen.Views
             TryAddFallback("InGameOverlay_ControllerShortcut_BackY", "Back + Y");
             TryAddFallback("InGameOverlay_ControllerShortcut_Guide", "Guide button");
             TryAddFallback("InGameOverlay_ControllerShortcut_Disabled", "Disabled");
+            TryAddFallback("InGameOverlay_GameBehavior_Title", "Game behavior while overlay is open");
+            TryAddFallback("InGameOverlay_GameBehavior_DoNothing", "Default: Do nothing");
+            TryAddFallback("InGameOverlay_GameBehavior_SuspendGame", "Experimental: Suspend game while overlay is open");
+            TryAddFallback("InGameOverlay_GameBehavior_Help", "Choose whether Aniki Helper should leave the game running normally or temporarily freeze the game process while the overlay is open to avoid double inputs.");
+            TryAddFallback("InGameOverlay_GameBehavior_Warning", "Warning: not recommended for online games, multiplayer games, anti-cheat protected games, or games launched as administrator.");
+            TryAddFallback("InGameOverlay_NeverSuspendList_Title", "Never suspend games");
+            TryAddFallback("InGameOverlay_NeverSuspendList_Help", "Games added from right-click → Aniki Helper → Overlay Settings → Never suspend this game appear here. Uncheck a game to remove it from the never suspend list.");
+            TryAddFallback("InGameOverlay_NeverSuspendList_Clear", "Clear never suspend list");
+            TryAddFallback("LOCAnikiHelperOverlayNeverSuspendThisGame", "Never suspend this game");
+            TryAddFallback("LOCAnikiHelperOverlayAllowSuspendThisGame", "Allow suspend for this game");
 
             TryAddFallback("LOCInGameOverlayCurrentGame", "Current game");
             TryAddFallback("LOCInGameOverlayQuickActions", "QUICK ACTIONS");
@@ -1057,11 +1097,11 @@ namespace AnikiHelperFullscreen.Views
             TryAddFallback("GameLaunchSplash_Help", "Shows a launch splash screen when starting a game.");
 
             TryAddFallback("GameLaunchSplash_Mode_Title", "Splash selection mode");
-            TryAddFallback("GameLaunchSplash_Mode_Automatic", "Automatic");
+            TryAddFallback("GameLaunchSplash_Mode_Automatic", "Game priority");
             TryAddFallback("GameLaunchSplash_Mode_CustomPriority", "Custom priority");
-            TryAddFallback("GameLaunchSplash_Mode_AlwaysSource", "Always use source");
-            TryAddFallback("GameLaunchSplash_Mode_AlwaysPlatform", "Always use platform");
-            TryAddFallback("GameLaunchSplash_Mode_AlwaysGlobal", "Always use global");
+            TryAddFallback("GameLaunchSplash_Mode_AlwaysSource", "Source priority");
+            TryAddFallback("GameLaunchSplash_Mode_AlwaysPlatform", "Platform priority");
+            TryAddFallback("GameLaunchSplash_Mode_AlwaysGlobal", "Global only");
             TryAddFallback("GameLaunchSplash_Mode_Help", "Choose which splash screen should be used when launching a game.");
 
             TryAddFallback("GameLaunchSplash_ShowLogo", "Show game logo on splash screen");
@@ -1079,8 +1119,10 @@ namespace AnikiHelperFullscreen.Views
 
             TryAddFallback("GameLaunchSplash_MinDuration_Title", "Minimum display duration");
             TryAddFallback("GameLaunchSplash_MinDuration_Help", "Defines how long the splash screen stays visible at minimum.");
+            TryAddFallback("GameLaunchSplash_AutoDetectReady_Enable", "Auto-detect when the game window is ready");
+            TryAddFallback("GameLaunchSplash_AutoDetectReady_Help", "Keeps the splash visible until the real game window is detected. Per-game custom timers still have priority.");
             TryAddFallback("GameLaunchSplash_MaxDuration_Title", "Auto-close safety timer");
-            TryAddFallback("GameLaunchSplash_MaxDuration_Help", "Defines the maximum time Aniki Helper waits before closing the splash screen automatically.");
+            TryAddFallback("GameLaunchSplash_MaxDuration_Help", "Defines the maximum time Aniki Helper waits for the real game window before closing automatically.");
 
             TryAddFallback("GameLaunchSplash_VideoEndBehavior_Title", "When a splash video ends early");
             TryAddFallback("GameLaunchSplash_VideoEndBehavior_Help", "Choose what is shown if the video is shorter than the splash timer.");
@@ -1107,6 +1149,35 @@ namespace AnikiHelperFullscreen.Views
             TryAddFallback("SteamStore_Language_Desc", "Language used for Steam Store data.");
             TryAddFallback("SteamStore_Country_Title", "Store country / currency");
             TryAddFallback("SteamStore_Country_Desc", "Country and currency used for Steam Store prices.");
+
+            TryAddFallback("SteamAccount_GroupTitle", "Steam account connection");
+            TryAddFallback("SteamAccount_GroupDesc", "Connect Aniki Helper to Steam once so the plugin can detect your SteamID and use your connected Store session.");
+            TryAddFallback("SteamAccount_ConnectButton", "Connect to Steam");
+            TryAddFallback("SteamAccount_PrivacyNotice", "For Steam Friends, your Steam profile and friends list must be public.");
+            TryAddFallback("LOCSteamFriends_Title", "Steam Friends");
+            TryAddFallback("LOCSteamFriends_Subtitle", "Shows your Steam friends status inside the Aniki theme.");
+            TryAddFallback("LOCSteamFriends_Enable", "Enable Steam Friends integration");
+            TryAddFallback("LOCSteamFriends_EnableHelp", "Turns the Steam Friends data used by the theme on or off.");
+            TryAddFallback("LOCSteamFriends_ShowOffline", "Show offline friends");
+            TryAddFallback("LOCSteamFriends_OfflineInfo", "Offline friends are optional and limited to keep navigation smooth.");
+            TryAddFallback("LOCSteamFriends_NotifyOnGameStart", "Notify when a friend starts a game");
+            TryAddFallback("LOCSteamFriends_NotifyOnGameStartHelp", "Shows an in-theme notification when a Steam friend starts playing.");
+            TryAddFallback("LOCSteamFriends_NotifyOnConnect", "Notify when a friend comes online");
+            TryAddFallback("LOCSteamFriends_NotifyOnConnectHelp", "Shows an in-theme notification when a Steam friend comes online.");
+            TryAddFallback("SteamFullscreen_AccountLabel", "Steam account linked");
+            TryAddFallback("SteamFullscreen_SteamIdLabel", "SteamID detected or configured");
+            TryAddFallback("SteamFullscreen_ApiKeyLabel", "Steam Web API key");
+
+            TryAddFallback("SteamFullscreen_StatusReady", "Configured");
+            TryAddFallback("SteamFullscreen_StatusMissing", "Missing");
+
+            TryAddFallback(
+                "SteamFullscreen_ConfigurationReady",
+                "Steam configuration is complete.");
+
+            TryAddFallback(
+                "SteamFullscreen_ConfigurationMissing",
+                "Steam configuration is incomplete. Switch to Desktop Mode, then open the Aniki Helper settings to connect your Steam account or enter the missing information.");
 
             TryAddFallback("GroupAnikiFeatures", "Aniki news");
             TryAddFallback("NewsScan_Enable", "Enable news");

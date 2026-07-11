@@ -1,7 +1,6 @@
-﻿using Playnite.SDK.Models;
+using Playnite.SDK.Models;
 using System;
 using System.IO;
-using System.Linq;
 
 namespace AnikiHelper.Services.SplashScreen
 {
@@ -57,30 +56,20 @@ namespace AnikiHelper.Services.SplashScreen
 
             switch (mode)
             {
-                case SplashScreenSelectionMode.CustomPriority:
-                    return ResolveCustomPriority(game);
-
                 case SplashScreenSelectionMode.AlwaysSource:
-                    return ResolveAlwaysSource(game);
+                    return ResolveTarget(game, SplashScreenPriorityTarget.Source);
 
                 case SplashScreenSelectionMode.AlwaysPlatform:
-                    return ResolveAlwaysPlatform(game);
+                    return ResolveTarget(game, SplashScreenPriorityTarget.Platform);
 
                 case SplashScreenSelectionMode.AlwaysGlobal:
-                    return ResolveAlwaysGlobal();
+                    return ResolveTarget(game, SplashScreenPriorityTarget.Global);
 
+                case SplashScreenSelectionMode.CustomPriority:
                 case SplashScreenSelectionMode.Automatic:
                 default:
-                    return ResolveAutomatic(game);
+                    return ResolveTarget(game, SplashScreenPriorityTarget.GameCustom);
             }
-        }
-
-        private SplashScreenMediaItem ResolveAutomatic(Game game)
-        {
-            var gameFolder = folderService.GetGameFolder(game);
-
-            return FindMainMedia(gameFolder, SplashScreenScope.Game)
-                ?? FindRandomMedia(gameFolder, SplashScreenScope.Game);
         }
 
         public SplashScreenMediaItem ResolveSharedFallback(Game game)
@@ -90,58 +79,64 @@ namespace AnikiHelper.Services.SplashScreen
                 return null;
             }
 
-            var sourceFolder = folderService.GetSourceFolder(game);
-            var platformFolder = folderService.GetPlatformFolder(game);
-            var globalFolder = folderService.GlobalFolder;
-
-            return FindMainMedia(sourceFolder, SplashScreenScope.Source)
-                ?? FindRandomMedia(sourceFolder, SplashScreenScope.Source)
-                ?? FindMainMedia(platformFolder, SplashScreenScope.Platform)
-                ?? FindRandomMedia(platformFolder, SplashScreenScope.Platform)
-                ?? FindMainMedia(globalFolder, SplashScreenScope.Global)
-                ?? FindRandomMedia(globalFolder, SplashScreenScope.Global);
+            return ResolveTarget(game, SplashScreenPriorityTarget.Source)
+                ?? ResolveTarget(game, SplashScreenPriorityTarget.Platform)
+                ?? ResolveTarget(game, SplashScreenPriorityTarget.Global);
         }
 
-        private SplashScreenMediaItem ResolveCustomPriority(Game game)
+        public SplashScreenMediaItem ResolveTarget(Game game, SplashScreenPriorityTarget target)
+        {
+            if (game == null && target != SplashScreenPriorityTarget.Global)
+            {
+                return null;
+            }
+
+            switch (target)
+            {
+                case SplashScreenPriorityTarget.GameCustom:
+                    return ResolveGameCustom(game);
+
+                case SplashScreenPriorityTarget.Source:
+                    return ResolveSourceOnly(game);
+
+                case SplashScreenPriorityTarget.Platform:
+                    return ResolvePlatformOnly(game);
+
+                case SplashScreenPriorityTarget.Global:
+                    return ResolveGlobalOnly();
+
+                case SplashScreenPriorityTarget.GameBackground:
+                case SplashScreenPriorityTarget.None:
+                default:
+                    return null;
+            }
+        }
+
+        private SplashScreenMediaItem ResolveGameCustom(Game game)
         {
             var gameFolder = folderService.GetGameFolder(game);
-            var sourceFolder = folderService.GetSourceFolder(game);
-            var platformFolder = folderService.GetPlatformFolder(game);
-            var globalFolder = folderService.GlobalFolder;
 
             return FindMainMedia(gameFolder, SplashScreenScope.Game)
-                ?? FindRandomMedia(gameFolder, SplashScreenScope.Game)
-                ?? FindMainMedia(sourceFolder, SplashScreenScope.Source)
-                ?? FindRandomMedia(sourceFolder, SplashScreenScope.Source)
-                ?? FindMainMedia(platformFolder, SplashScreenScope.Platform)
-                ?? FindRandomMedia(platformFolder, SplashScreenScope.Platform)
-                ?? FindMainMedia(globalFolder, SplashScreenScope.Global)
-                ?? FindRandomMedia(globalFolder, SplashScreenScope.Global);
+                ?? FindRandomMedia(gameFolder, SplashScreenScope.Game);
         }
 
-        private SplashScreenMediaItem ResolveAlwaysSource(Game game)
+        private SplashScreenMediaItem ResolveSourceOnly(Game game)
         {
             var sourceFolder = folderService.GetSourceFolder(game);
-            var globalFolder = folderService.GlobalFolder;
 
             return FindMainMedia(sourceFolder, SplashScreenScope.Source)
-                ?? FindRandomMedia(sourceFolder, SplashScreenScope.Source)
-                ?? FindMainMedia(globalFolder, SplashScreenScope.Global)
-                ?? FindRandomMedia(globalFolder, SplashScreenScope.Global);
+                ?? FindRandomMedia(sourceFolder, SplashScreenScope.Source);
         }
 
-        private SplashScreenMediaItem ResolveAlwaysPlatform(Game game)
+        private SplashScreenMediaItem ResolvePlatformOnly(Game game)
         {
             var platformFolder = folderService.GetPlatformFolder(game);
-            var globalFolder = folderService.GlobalFolder;
 
             return FindMainMedia(platformFolder, SplashScreenScope.Platform)
-                ?? FindRandomMedia(platformFolder, SplashScreenScope.Platform)
-                ?? FindMainMedia(globalFolder, SplashScreenScope.Global)
-                ?? FindRandomMedia(globalFolder, SplashScreenScope.Global);
+                ?? FindRandomMedia(platformFolder, SplashScreenScope.Platform);
         }
 
-        private SplashScreenMediaItem ResolveAlwaysGlobal()
+        private SplashScreenMediaItem ResolveGlobalOnly()
         {
             var globalFolder = folderService.GlobalFolder;
 
@@ -167,7 +162,5 @@ namespace AnikiHelper.Services.SplashScreen
                 IsVideo = SplashScreenMediaScanner.IsVideoFile(selectedFile)
             };
         }
-
-        
     }
 }

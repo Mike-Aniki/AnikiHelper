@@ -9,6 +9,10 @@ namespace AnikiHelper.Services
 
         public int AppId { get; set; }
 
+        public string Name { get; set; }
+
+        public string AppType { get; set; }
+
         public string ShortDescription { get; set; }
 
         public string ReleaseDateDisplay { get; set; }

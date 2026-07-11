@@ -1,4 +1,4 @@
-﻿using Playnite.SDK.Models;
+using Playnite.SDK.Models;
 
 namespace AnikiHelper.Services.SplashScreen
 {
@@ -23,6 +23,11 @@ namespace AnikiHelper.Services.SplashScreen
         public SplashScreenMediaItem ResolveSplash(Game game, SplashScreenSelectionMode mode)
         {
             return Resolver.Resolve(game, mode);
+        }
+
+        public SplashScreenMediaItem ResolvePriorityTarget(Game game, SplashScreenPriorityTarget target)
+        {
+            return Resolver.ResolveTarget(game, target);
         }
     }
 }

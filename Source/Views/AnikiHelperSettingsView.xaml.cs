@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Reflection;
 using System.Windows;
@@ -17,6 +17,35 @@ namespace AnikiHelper
             InitializeComponent();
 
             LoadLocaleFromCurrentUICulture();
+
+            Loaded += AnikiHelperSettingsView_Loaded;
+        }
+
+        private void AnikiHelperSettingsView_Loaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var vm = DataContext as AnikiHelperSettingsViewModel;
+                    vm?.Settings?.LoadOverlayApps();
+                }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            }
+            catch
+            {
+            }
+        }
+
+        private void HubAppsToolComboBox_DropDownOpened(object sender, EventArgs e)
+        {
+            try
+            {
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                vm?.Settings?.LoadOverlayApps();
+            }
+            catch
+            {
+            }
         }
 
         private void LoadLocaleFromCurrentUICulture()
@@ -381,6 +410,109 @@ namespace AnikiHelper
 
                 return null;
             }
+        }
+
+        private string SelectImageFile(string title, string currentPath)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = title,
+                Filter = "Image files (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp|All files (*.*)|*.*",
+                CheckFileExists = true
+            };
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(currentPath))
+                {
+                    var folder = Path.GetDirectoryName(currentPath.Replace("/", "\\"));
+                    if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+                    {
+                        dialog.InitialDirectory = folder;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return dialog.ShowDialog() == true
+                ? dialog.FileName.Replace("\\", "/")
+                : null;
+        }
+
+        private void BrowseHubAppBackground(int slot)
+        {
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+
+            if (vm == null)
+            {
+                return;
+            }
+
+            var title = FindResource("HubApps_SelectBackgroundDialog") as string ?? "Select a background image for this Hub app card.";
+            string currentPath;
+
+            switch (slot)
+            {
+                case 1:
+                    currentPath = vm.Settings.HubAppSlot1BackgroundPath;
+                    break;
+                case 2:
+                    currentPath = vm.Settings.HubAppSlot2BackgroundPath;
+                    break;
+                case 3:
+                    currentPath = vm.Settings.HubAppSlot3BackgroundPath;
+                    break;
+                case 4:
+                    currentPath = vm.Settings.HubAppSlot4BackgroundPath;
+                    break;
+                default:
+                    return;
+            }
+
+            var selectedPath = SelectImageFile(title, currentPath);
+
+            if (string.IsNullOrWhiteSpace(selectedPath))
+            {
+                return;
+            }
+
+            switch (slot)
+            {
+                case 1:
+                    vm.Settings.HubAppSlot1BackgroundPath = selectedPath;
+                    break;
+                case 2:
+                    vm.Settings.HubAppSlot2BackgroundPath = selectedPath;
+                    break;
+                case 3:
+                    vm.Settings.HubAppSlot3BackgroundPath = selectedPath;
+                    break;
+                case 4:
+                    vm.Settings.HubAppSlot4BackgroundPath = selectedPath;
+                    break;
+            }
+        }
+
+        private void BrowseHubAppSlot1Background_Click(object sender, RoutedEventArgs e)
+        {
+            BrowseHubAppBackground(1);
+        }
+
+        private void BrowseHubAppSlot2Background_Click(object sender, RoutedEventArgs e)
+        {
+            BrowseHubAppBackground(2);
+        }
+
+        private void BrowseHubAppSlot3Background_Click(object sender, RoutedEventArgs e)
+        {
+            BrowseHubAppBackground(3);
+        }
+
+        private void BrowseHubAppSlot4Background_Click(object sender, RoutedEventArgs e)
+        {
+            BrowseHubAppBackground(4);
         }
 
         private void BrowseFilterIconsFolder_Click(object sender, RoutedEventArgs e)

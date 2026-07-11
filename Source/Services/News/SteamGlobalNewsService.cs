@@ -48,6 +48,36 @@ namespace AnikiHelper
         private readonly AnikiHelperSettings settings;
         private readonly ILogger logger = LogManager.GetLogger();
 
+        private void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
 
         // Global news cache
         private const int DisplayMaxItems = 20;  // Nombre de news visibles dans le thème ( Number of news items visible in the theme)
@@ -472,7 +502,7 @@ namespace AnikiHelper
                 }
             }
 
-            logger.Info($"[SteamGlobalNewsService] Refreshing news source {sourceKey}.");
+            DebugLog($"[SteamGlobalNewsService] Refreshing news source {sourceKey}.");
 
             var fresh = await LoadFeedAsync(normalizedFeedUrl, imagesFolder).ConfigureAwait(false)
                        ?? new List<SteamGlobalNewsItem>();

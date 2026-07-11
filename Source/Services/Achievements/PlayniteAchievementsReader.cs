@@ -1,4 +1,5 @@
-﻿using Playnite.SDK;
+﻿using AnikiHelper;
+using Playnite.SDK;
 using Playnite.SDK.Models;
 using SqlNado;
 using System;
@@ -27,7 +28,7 @@ namespace AnikiHelper.Services.Achievements
             {
                 if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                 {
-                    logger?.Info("[AnikiHelper][Achievements][LoadSummary][STOP] Game is null or empty.");
+                    logger?.Debug("[AnikiHelper][Achievements][LoadSummary][STOP] Game is null or empty.");
                 }
 
                 return null;
@@ -39,7 +40,7 @@ namespace AnikiHelper.Services.Achievements
 
                 if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                 {
-                    logger?.Info(
+                    logger?.Debug(
                         "[AnikiHelper][Achievements][LoadSummary][START] " +
                         "Game='" + game.Name + "' Id=" + game.Id +
                         " | DB path='" + (dbPath ?? "null") + "'"
@@ -50,7 +51,7 @@ namespace AnikiHelper.Services.Achievements
                 {
                     if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info(
+                        logger?.Debug(
                             "[AnikiHelper][Achievements][LoadSummary][STOP] DB missing. " +
                             "Game='" + game.Name + "'"
                         );
@@ -83,7 +84,7 @@ namespace AnikiHelper.Services.Achievements
                     {
                         if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                         {
-                            logger?.Info(
+                            logger?.Debug(
                                 "[AnikiHelper][Achievements][LoadSummary][STOP] No progress found. " +
                                 "Game='" + game.Name + "'"
                             );
@@ -115,7 +116,7 @@ namespace AnikiHelper.Services.Achievements
 
                     if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info(
+                        logger?.Debug(
                             "[AnikiHelper][Achievements][LoadSummary][RESULT] " +
                             "Game='" + game.Name + "'" +
                             " | Unlocked=" + progress.AchievementsUnlocked +
@@ -155,14 +156,14 @@ namespace AnikiHelper.Services.Achievements
 
                 if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                 {
-                    logger?.Info("[AnikiHelper][Achievements][LoadMemories][START] DB path='" + (dbPath ?? "null") + "' MaxItems=" + maxItems);
+                    logger?.Debug("[AnikiHelper][Achievements][LoadMemories][START] DB path='" + (dbPath ?? "null") + "' MaxItems=" + maxItems);
                 }
 
                 if (string.IsNullOrWhiteSpace(dbPath) || !File.Exists(dbPath))
                 {
                     if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info("[AnikiHelper][Achievements][LoadMemories][STOP] DB missing.");
+                        logger?.Debug("[AnikiHelper][Achievements][LoadMemories][STOP] DB missing.");
                     }
 
                     return result;
@@ -203,7 +204,7 @@ namespace AnikiHelper.Services.Achievements
 
                     if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info("[AnikiHelper][Achievements][LoadMemories][Rows] Rows loaded=" + (rows?.Count ?? 0));
+                        logger?.Debug("[AnikiHelper][Achievements][LoadMemories][Rows] Rows loaded=" + (rows?.Count ?? 0));
                     }
 
                     foreach (var row in rows)
@@ -230,7 +231,7 @@ namespace AnikiHelper.Services.Achievements
                         if (string.IsNullOrWhiteSpace(resolvedIconPath) &&
                             AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                         {
-                            logger?.Info(
+                            logger?.Debug(
                                 "[AnikiHelper][Achievements][MissingIcon] " +
                                 "GameId=" + gameId +
                                 " | Title='" + (row.Title ?? "") + "'" +
@@ -260,7 +261,7 @@ namespace AnikiHelper.Services.Achievements
 
             if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
             {
-                logger?.Info("[AnikiHelper][Achievements][LoadMemories][RESULT] Items returned=" + result.Count);
+                logger?.Debug("[AnikiHelper][Achievements][LoadMemories][RESULT] Items returned=" + result.Count);
             }
 
             return result;
@@ -274,7 +275,7 @@ namespace AnikiHelper.Services.Achievements
 
                 if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                 {
-                    logger?.Info("[AnikiHelper][Achievements][LoadRarestAllTime][START] DB path='" + (dbPath ?? "null") + "'");
+                    logger?.Debug("[AnikiHelper][Achievements][LoadRarestAllTime][START] DB path='" + (dbPath ?? "null") + "'");
                 }
 
                 if (string.IsNullOrWhiteSpace(dbPath) || !File.Exists(dbPath))
@@ -338,7 +339,7 @@ namespace AnikiHelper.Services.Achievements
                     if (string.IsNullOrWhiteSpace(resolvedIconPath) &&
                         AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info(
+                        logger?.Debug(
                             "[AnikiHelper][Achievements][RarestMissingIcon] " +
                             "GameId=" + gameId +
                             " | Title='" + (row.Title ?? "") + "'" +
@@ -361,7 +362,7 @@ namespace AnikiHelper.Services.Achievements
 
                     if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info(
+                        logger?.Debug(
                             "[AnikiHelper][Achievements][LoadRarestAllTime][RESULT] " +
                             "Game='" + item.GameName + "'" +
                             " | Title='" + item.Title + "'" +
@@ -390,7 +391,7 @@ namespace AnikiHelper.Services.Achievements
 
                 if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                 {
-                    logger?.Info(
+                    logger?.Debug(
                         "[AnikiHelper][Achievements][LoadMemoriesForGame][START] " +
                         "GameId=" + gameId +
                         " | DB path='" + (dbPath ?? "null") + "'"
@@ -401,7 +402,7 @@ namespace AnikiHelper.Services.Achievements
                 {
                     if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info("[AnikiHelper][Achievements][LoadMemoriesForGame][STOP] DB missing. GameId=" + gameId);
+                        logger?.Debug("[AnikiHelper][Achievements][LoadMemoriesForGame][STOP] DB missing. GameId=" + gameId);
                     }
 
                     return result;
@@ -437,7 +438,7 @@ namespace AnikiHelper.Services.Achievements
 
                     if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                     {
-                        logger?.Info("[AnikiHelper][Achievements][LoadMemoriesForGame][Rows] GameId=" + gameId + " Rows loaded=" + (rows?.Count ?? 0));
+                        logger?.Debug("[AnikiHelper][Achievements][LoadMemoriesForGame][Rows] GameId=" + gameId + " Rows loaded=" + (rows?.Count ?? 0));
                     }
 
                     var game = playniteApi.Database.Games.Get(gameId);
@@ -460,7 +461,7 @@ namespace AnikiHelper.Services.Achievements
                         if (string.IsNullOrWhiteSpace(resolvedIconPath) &&
                             AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
                         {
-                            logger?.Info(
+                            logger?.Debug(
                                 "[AnikiHelper][Achievements][GameMissingIcon] " +
                                 "GameId=" + gameId +
                                 " | Title='" + (row.Title ?? "") + "'" +
@@ -490,7 +491,108 @@ namespace AnikiHelper.Services.Achievements
 
             if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
             {
-                logger?.Info("[AnikiHelper][Achievements][LoadMemoriesForGame][RESULT] GameId=" + gameId + " Items returned=" + result.Count);
+                logger?.Debug("[AnikiHelper][Achievements][LoadMemoriesForGame][RESULT] GameId=" + gameId + " Items returned=" + result.Count);
+            }
+
+            return result;
+        }
+
+        public List<AnikiOverlayAchievementItem> LoadAchievementsForGame(Guid gameId)
+        {
+            var result = new List<AnikiOverlayAchievementItem>();
+
+            if (gameId == Guid.Empty)
+            {
+                return result;
+            }
+
+            try
+            {
+                var dbPath = FindDatabasePath();
+
+                if (string.IsNullOrWhiteSpace(dbPath) || !File.Exists(dbPath))
+                {
+                    if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                    {
+                        logger?.Debug("[AnikiHelper][Achievements][LoadAchievementsForGame][STOP] DB missing. GameId=" + gameId);
+                    }
+
+                    return result;
+                }
+
+                using (var db = new SQLiteDatabase(
+                    dbPath,
+                    SQLiteOpenOptions.SQLITE_OPEN_READONLY |
+                    SQLiteOpenOptions.SQLITE_OPEN_FULLMUTEX))
+                {
+                    var iconSelectColumns = BuildAchievementIconSelectSql(db);
+
+                    var rows = db.Load<OverlayAchievementRow>(
+                        $@"SELECT
+                            ad.DisplayName AS Title,
+                            ad.Description AS Description,
+                            {iconSelectColumns},
+                            ad.GlobalPercentUnlocked AS Percent,
+                            ad.Rarity AS Rarity,
+                            ad.Points AS Points,
+                            ad.TrophyType AS TrophyType,
+                            ad.Hidden AS Hidden,
+                            ad.IsCapstone AS IsCapstone,
+                            ua.Unlocked AS Unlocked,
+                            ua.UnlockTimeUtc AS UnlockTimeUtc,
+                            ua.ProgressNum AS ProgressNum,
+                            COALESCE(ua.ProgressDenom, ad.ProgressMax) AS ProgressDenom
+                          FROM UserGameProgress ugp
+                          INNER JOIN Users u
+                            ON u.Id = ugp.UserId
+                          INNER JOIN Games g
+                            ON g.Id = ugp.GameId
+                          INNER JOIN UserAchievements ua
+                            ON ua.UserGameProgressId = ugp.Id
+                          INNER JOIN AchievementDefinitions ad
+                            ON ad.Id = ua.AchievementDefinitionId
+                          WHERE u.IsCurrentUser = 1
+                            AND g.PlayniteGameId = ?
+                          ORDER BY ad.Id ASC;",
+                        gameId.ToString()).ToList();
+
+                    foreach (var row in rows)
+                    {
+                        if (row == null)
+                        {
+                            continue;
+                        }
+
+                        var unlocked = row.Unlocked != 0;
+                        var iconPath = ResolveAchievementIconPathForState(dbPath, row, unlocked);
+
+                        result.Add(new AnikiOverlayAchievementItem
+                        {
+                            Title = row.Title ?? string.Empty,
+                            Description = row.Description ?? string.Empty,
+                            IconPath = iconPath ?? string.Empty,
+                            Unlocked = unlocked,
+                            Hidden = row.Hidden != 0,
+                            Rarity = row.Rarity ?? string.Empty,
+                            Percent = row.Percent,
+                            UnlockDate = ParseDate(row.UnlockTimeUtc),
+                            Points = row.Points,
+                            ProgressNum = row.ProgressNum,
+                            ProgressDenom = row.ProgressDenom,
+                            TrophyType = row.TrophyType ?? string.Empty,
+                            IsCapstone = row.IsCapstone != 0
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load PlayniteAchievements list for overlay.");
+            }
+
+            if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+            {
+                logger?.Debug("[AnikiHelper][Achievements][LoadAchievementsForGame][RESULT] GameId=" + gameId + " Items returned=" + result.Count);
             }
 
             return result;
@@ -521,15 +623,9 @@ namespace AnikiHelper.Services.Achievements
             item.GameName = GetGameNameFromPlaynite(item.GameId);
             item.GameBackgroundPath = GetGameBackgroundPath(item.GameId);
 
-            if (AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
-            {
-                logger?.Info(
-                    "[AnikiHelper][Achievements][MemoryDisplayRefresh] " +
-                    "Game='" + item.GameName + "'" +
-                    " | cacheBg='" + (oldBg ?? "") + "'" +
-                    " | playniteBg='" + (item.GameBackgroundPath ?? "") + "'"
-                );
-            }
+            // This refresh can run several times during fullscreen startup because
+            // multiple achievement widgets bind the same memory items. Keep it silent
+            // so debug logs stay lightweight and startup logs remain readable.
         }
 
         private string GetGameBackgroundPath(Guid gameId)
@@ -702,6 +798,39 @@ namespace AnikiHelper.Services.Achievements
             return string.Empty;
         }
 
+        private string ResolveAchievementIconPathForState(string dbPath, AchievementIconCandidateRow row, bool unlocked)
+        {
+            if (row == null)
+            {
+                return string.Empty;
+            }
+
+            string[] preferred;
+            string[] fallback;
+
+            if (unlocked)
+            {
+                preferred = new[] { row.UnlockedIconPath, row.IconPath, row.Icon, row.ImagePath, row.UnlockedIconUrl, row.IconUrl, row.ImageUrl };
+                fallback = new[] { row.LockedIconPath, row.LockedIconUrl, row.LockedImagePath, row.LockedImageUrl };
+            }
+            else
+            {
+                preferred = new[] { row.LockedIconPath, row.LockedIconUrl, row.LockedImagePath, row.LockedImageUrl };
+                fallback = new[] { row.UnlockedIconPath, row.IconPath, row.Icon, row.ImagePath, row.UnlockedIconUrl, row.IconUrl, row.ImageUrl };
+            }
+
+            foreach (var candidate in preferred.Concat(fallback))
+            {
+                var resolved = ResolveIconPath(dbPath, candidate);
+                if (!string.IsNullOrWhiteSpace(resolved))
+                {
+                    return resolved;
+                }
+            }
+
+            return string.Empty;
+        }
+
         private string BuildRawIconDebugString(AchievementIconCandidateRow row)
         {
             if (row == null)
@@ -845,6 +974,22 @@ namespace AnikiHelper.Services.Achievements
             public double? Percent { get; set; }
             public string Rarity { get; set; }
             public string UnlockTimeUtc { get; set; }
+        }
+
+        private sealed class OverlayAchievementRow : AchievementIconCandidateRow
+        {
+            public string Title { get; set; }
+            public string Description { get; set; }
+            public double? Percent { get; set; }
+            public string Rarity { get; set; }
+            public int? Points { get; set; }
+            public string TrophyType { get; set; }
+            public int Hidden { get; set; }
+            public int IsCapstone { get; set; }
+            public int Unlocked { get; set; }
+            public string UnlockTimeUtc { get; set; }
+            public int? ProgressNum { get; set; }
+            public int? ProgressDenom { get; set; }
         }
 
         private sealed class AchievementDefinitionColumnInfo

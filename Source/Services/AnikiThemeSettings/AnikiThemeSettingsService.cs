@@ -19,6 +19,36 @@ namespace AnikiHelper.Services.AnikiThemeSettings
         private readonly AnikiHelperSettings settings;
         private readonly ILogger logger;
 
+        private void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
         private readonly List<ResourceDictionary> loadedDictionaries = new List<ResourceDictionary>();
 
         private readonly Dictionary<string, ResourceDictionary> resourceCache =
@@ -98,7 +128,10 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 LoadThemeSettingsStorage();
 
-                if (SanitizeThemeSettingsStorage())
+                var storageChanged = SanitizeThemeSettingsStorage();
+                storageChanged = ApplyOptionDependenciesToStorage() || storageChanged;
+
+                if (storageChanged)
                 {
                     SaveThemeSettingsFile();
                 }
@@ -178,6 +211,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                 settings.AnikiThemeSettingsValues[key] = finalValue;
 
                 ApplyExclusiveMainViewInfoOptions(key, finalValue);
+                ApplyOptionDependenciesToStorage();
 
                 SaveSettings();
 
@@ -211,6 +245,85 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             }
         }
 
+        private bool ApplyOptionDependenciesToStorage()
+        {
+            var changed = false;
+
+            if (currentFile?.Variables == null || settings?.AnikiThemeSettingsValues == null)
+            {
+                return false;
+            }
+
+            foreach (var pair in currentFile.Variables)
+            {
+                var key = pair.Key;
+                var variable = pair.Value;
+
+                if (string.IsNullOrWhiteSpace(key) || variable == null)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(variable.DependsOn))
+                {
+                    variable.SetIsEnabledSilently(true);
+                    continue;
+                }
+
+                var dependencySatisfied = IsThemeOptionDependencySatisfied(variable);
+                variable.SetIsEnabledSilently(dependencySatisfied);
+
+                if (!dependencySatisfied && variable.AutoDisableWhenDependencyMissing && IsBooleanThemeOptionEnabled(key))
+                {
+                    settings.AnikiThemeSettingsValues[key] = false.ToString();
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
+        private bool IsThemeOptionDependencySatisfied(AnikiThemeVariable variable)
+        {
+            if (variable == null || string.IsNullOrWhiteSpace(variable.DependsOn))
+            {
+                return true;
+            }
+
+            var expectedValue = variable.DependsOnValue == null
+                ? true
+                : ToBool(variable.DependsOnValue);
+
+            return IsBooleanThemeOptionEnabled(variable.DependsOn) == expectedValue;
+        }
+
+        private bool IsBooleanThemeOptionEnabled(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                return false;
+            }
+
+            if (settings?.AnikiThemeSettingsValues != null &&
+                settings.AnikiThemeSettingsValues.TryGetValue(key, out var storedValue))
+            {
+                return ToBool(storedValue);
+            }
+
+            if (currentFile?.Variables != null &&
+                currentFile.Variables.TryGetValue(key, out var variable))
+            {
+                return ToBool(variable?.EffectiveValue);
+            }
+
+            if (settings?.Options != null && settings.Options.TryGetValue(key, out var optionValue))
+            {
+                return ToBool(optionValue);
+            }
+
+            return false;
+        }
+
         public void ToggleOptionValue(string key)
         {
             try
@@ -231,7 +344,13 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                     bool.TryParse(storedValue, out currentValue);
                 }
 
-                settings.AnikiThemeSettingsValues[key] = (!currentValue).ToString();
+                var finalValue = (!currentValue).ToString();
+
+                settings.AnikiThemeSettingsValues[key] = finalValue;
+
+                ApplyExclusiveMainViewInfoOptions(key, finalValue);
+                ApplyOptionDependenciesToStorage();
+
                 SaveSettings();
 
                 Apply();
@@ -494,7 +613,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                         if (settings?.EnableDebugLogs == true)
                         {
-                            logger?.Info($"[AnikiHelper] Loaded ThemeSettings.json: {themeSettingsFilePath}");
+                            DebugLog($"[AnikiHelper] Loaded ThemeSettings.json: {themeSettingsFilePath}");
                         }
                         return;
                     }
@@ -523,7 +642,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 if (settings?.EnableDebugLogs == true)
                 {
-                    logger?.Info("[AnikiHelper] ThemeSettings.json does not exist yet. It will be created from current YAML defaults.");
+                    DebugLog("[AnikiHelper] ThemeSettings.json does not exist yet. It will be created from current YAML defaults.");
                 }
             }
             catch (Exception ex)
@@ -559,7 +678,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                 settings.AnikiThemeSettingsValues = legacyValues;
                 settings.AnikiThemeSettingsSelectedPresets = legacyPresets;
 
-                logger?.Info("[AnikiHelper] Migrated Aniki Theme Settings values from old config.json to ThemeSettings.json.");
+                DebugLog("[AnikiHelper] Migrated Aniki Theme Settings values from old config.json to ThemeSettings.json.");
             }
             catch (Exception ex)
             {
@@ -605,7 +724,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                         settings.AnikiThemeSettingsValues.Remove(oldKey);
                         changed = true;
 
-                        logger?.Info($"[AnikiHelper] Removed obsolete Aniki theme option: {oldKey}");
+                        DebugLog($"[AnikiHelper] Removed obsolete Aniki theme option: {oldKey}");
                     }
                 }
 
@@ -633,7 +752,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                             settings.AnikiThemeSettingsValues[key] = defaultValue;
                             changed = true;
 
-                            logger?.Info($"[AnikiHelper] Added missing Aniki theme option with default: {key} = {defaultValue}");
+                            DebugLog($"[AnikiHelper] Added missing Aniki theme option with default: {key} = {defaultValue}");
                             continue;
                         }
 
@@ -667,7 +786,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                         settings.AnikiThemeSettingsSelectedPresets.Remove(oldGroupId);
                         changed = true;
 
-                        logger?.Info($"[AnikiHelper] Removed obsolete Aniki preset group selection: {oldGroupId}");
+                        DebugLog($"[AnikiHelper] Removed obsolete Aniki preset group selection: {oldGroupId}");
                     }
                 }
 
@@ -695,7 +814,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                             settings.AnikiThemeSettingsSelectedPresets[groupId] = defaultPresetKey;
                             changed = true;
 
-                            logger?.Info($"[AnikiHelper] Added missing Aniki preset selection with default: {groupId} = {defaultPresetKey}");
+                            DebugLog($"[AnikiHelper] Added missing Aniki preset selection with default: {groupId} = {defaultPresetKey}");
                             continue;
                         }
 
@@ -1803,18 +1922,22 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                     return;
                 }
 
-                var files = GetAllPresetResourceFiles()
-                    .Where(File.Exists)
-                    .Where(CanPreloadResourceFile)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                // Important: do not enumerate/read every preset XAML during LoadAndApply().
+                // An async void method runs synchronously until its first await, so the old code
+                // was scanning and reading all preset files before Playnite could finish rendering.
+                await Task.Delay(3000);
+
+                var files = await Task.Run(() =>
+                    GetAllPresetResourceFiles()
+                        .Where(File.Exists)
+                        .Where(CanPreloadResourceFile)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList());
 
                 if (files.Count == 0)
                 {
                     return;
                 }
-
-                await Task.Delay(1500);
 
                 foreach (var file in files)
                 {

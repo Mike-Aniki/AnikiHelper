@@ -25,6 +25,7 @@ namespace AnikiHelper.Services
 
         public List<string> Genres { get; set; } = new List<string>();
         public List<string> Categories { get; set; } = new List<string>();
+        public List<string> Tags { get; set; } = new List<string>();
         public List<string> Developers { get; set; } = new List<string>();
         public List<string> Publishers { get; set; } = new List<string>();
 

@@ -50,6 +50,18 @@ namespace AnikiHelper.Services.Controller
             }
         });
 
+        public RelayCommand OpenInGameOverlayCommand => new RelayCommand(() =>
+        {
+            try
+            {
+                global::AnikiHelper.AnikiHelper.Instance?.OpenInGameOverlayFromThemeButton();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to execute OpenInGameOverlayCommand.");
+            }
+        });
+
         public RelayCommand<object> Toggle => new RelayCommand<object>(parameter =>
         {
             try

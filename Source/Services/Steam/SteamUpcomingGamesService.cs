@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace AnikiHelper.Services
@@ -14,6 +15,36 @@ namespace AnikiHelper.Services
     public class SteamUpcomingGamesService
     {
         private readonly ILogger logger;
+
+        private void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
         private readonly SteamStoreService steamStoreService;
         private readonly string steamStoreCacheFolder;
         private readonly string imageCacheFolder;
@@ -63,11 +94,9 @@ namespace AnikiHelper.Services
 
         public async Task<List<SteamUpcomingGameItem>> RefreshAsync(string language, string region)
         {
-            logger.Info("[Upcoming] RefreshAsync START");
+            DebugLog("[Upcoming] RefreshAsync START");
 
             var targetCachePath = GetSearchCachePath("popularcomingsoon", language, region);
-
-            var url = "https://store.steampowered.com/search/?filter=popularcomingsoon&os=win&count=100";
 
             using (var client = new HttpClient())
             {
@@ -83,33 +112,211 @@ namespace AnikiHelper.Services
 
                 client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
 
-                var html = await client.GetStringAsync(url);
+                const int pageSize = 100;
+                const int maxWishlistedPages = 4;
+                const int maxComingSoonPages = 8;
+                const int targetCount = 24;
 
-                var games = ParseGames(html)
-                    .Where(x => x.PriceFinal > 0)
-                    .OrderBy(x => GetReleaseSortDate(x.ReleaseDate))
-                    .ThenBy(x => x.SteamRank)
-                    .Take(20)
+                var parsedByAppId = new Dictionary<int, SteamUpcomingGameItem>();
+
+                // Use Steam "Most Wishlisted" as the main quality signal.
+                // It contains the big unreleased games even when Steam does not expose a price yet.
+                await ScanUpcomingSearchPagesAsync(
+                    client,
+                    "popularwishlist",
+                    "Most Wishlisted primary",
+                    pageSize,
+                    maxWishlistedPages,
+                    parsedByAppId,
+                    language,
+                    region,
+                    "Steam Most Wishlisted",
+                    0
+                );
+
+                // Fill with Popular Coming Soon after the wishlist results.
+                await ScanUpcomingSearchPagesAsync(
+                    client,
+                    "popularcomingsoon",
+                    "Popular Coming Soon fallback",
+                    pageSize,
+                    maxComingSoonPages,
+                    parsedByAppId,
+                    language,
+                    region,
+                    "Steam Popular Coming Soon",
+                    100000
+                );
+
+                var allParsedGames = parsedByAppId.Values
+                    .Where(IsGoodUpcomingCandidate)
                     .ToList();
 
-                foreach (var game in games)
+                var games = allParsedGames
+                    .OrderByDescending(GetUpcomingSelectionScore)
+                    .ThenBy(x => x.SteamRank <= 0 ? int.MaxValue : x.SteamRank)
+                    .Take(targetCount)
+                    .ToList();
+
+                var paidOrPreorderCount = allParsedGames.Count(x => x.PriceFinal > 0 || x.IsPreorder);
+                DebugLog($"[Upcoming] Candidate pool | total={allParsedGames.Count} | paid/preorder={paidOrPreorderCount} | selected={games.Count}");
+
+                if (games.Count == 0)
                 {
-                    await EnrichUpcomingGameAsync(game, language, region);
+                    var cached = LoadCacheFromPath(targetCachePath, "Upcoming");
+                    if (cached.Count > 0)
+                    {
+                        logger.Warn($"[Upcoming] Refresh returned 0 games. Keeping previous cache with {cached.Count} games instead of overwriting it.");
+                        return cached;
+                    }
+
+                    logger.Warn("[Upcoming] Refresh returned 0 games and no previous cache is available. Empty cache will not be written.");
+                    return games;
                 }
 
-                foreach (var game in games.Take(5))
+                await EnrichGamesInParallelAsync(games, language, region, "Steam Popular Coming Soon", 4);
+
+                var displayRank = 1;
+                foreach (var game in games.Take(24))
                 {
-                    logger.Info(
-                        $"[Upcoming TEST] {game.Name} | Capsule={game.CapsuleImageLocalPath}"
+                    DebugLog(
+                        $"[Upcoming] Selected | #{displayRank} | {game.Name} | AppId={game.AppId} | Source={game.Source} | Rank={game.SteamRank} | Score={GetUpcomingSelectionScore(game)} | Price={game.PriceFinal} | Release={game.ReleaseDateDisplay ?? game.ReleaseDate} | Header={(string.IsNullOrWhiteSpace(game.HeaderImageLocalPath) ? "missing" : "ok")}"
                     );
+                    displayRank++;
                 }
 
                 File.WriteAllText(targetCachePath, JsonConvert.SerializeObject(games, Formatting.Indented));
 
-                logger.Info($"[Upcoming] Cache saved: {games.Count} games -> {targetCachePath}");
+                DebugLog($"[Upcoming] Cache saved: {games.Count} games -> {targetCachePath}");
 
                 return games;
             }
+        }
+
+        private async Task ScanUpcomingSearchPagesAsync(
+            HttpClient client,
+            string filter,
+            string label,
+            int pageSize,
+            int maxPages,
+            Dictionary<int, SteamUpcomingGameItem> parsedByAppId,
+            string language,
+            string region,
+            string sourceName,
+            int sourceRankOffset)
+        {
+            for (var page = 0; page < maxPages; page++)
+            {
+                var start = page * pageSize;
+                var url = BuildSteamSearchUrl(filter, language, region, start, pageSize);
+
+                var html = await client.GetStringAsync(url);
+
+                var pageItems = ParseGames(html)
+                    .Where(x => x != null && x.AppId > 0 && !string.IsNullOrWhiteSpace(x.Name))
+                    .ToList();
+
+                foreach (var item in pageItems)
+                {
+                    item.SteamRank = sourceRankOffset + start + Math.Max(1, item.SteamRank);
+                    item.Source = sourceName;
+
+                    if (parsedByAppId.TryGetValue(item.AppId, out var existing))
+                    {
+                        if (item.SteamRank > 0 && (existing.SteamRank <= 0 || item.SteamRank < existing.SteamRank))
+                        {
+                            parsedByAppId[item.AppId] = item;
+                        }
+
+                        continue;
+                    }
+
+                    parsedByAppId[item.AppId] = item;
+                }
+
+                var paidCandidateCount = parsedByAppId.Values.Count(x => x.PriceFinal > 0 || x.IsPreorder);
+
+                DebugLog($"[Upcoming] Scan {label} page {page + 1}/{maxPages} | parsed={pageItems.Count} | unique={parsedByAppId.Count} | paid/preorder={paidCandidateCount}");
+
+                if (pageItems.Count == 0)
+                {
+                    break;
+                }
+            }
+        }
+
+        private string BuildSteamSearchUrl(string filter, string language, string region, int start, int count)
+        {
+            var safeFilter = Uri.EscapeDataString(string.IsNullOrWhiteSpace(filter) ? "popularcomingsoon" : filter.Trim());
+            var safeLanguage = Uri.EscapeDataString(string.IsNullOrWhiteSpace(language) ? "english" : language.Trim());
+            var safeRegion = Uri.EscapeDataString(string.IsNullOrWhiteSpace(region) ? "US" : region.Trim().ToUpperInvariant());
+
+            // Do not force os=win here. Steam often hides unreleased big games from the Windows filter
+            // until the store page is finalized, while they still appear on the official wishlist page.
+            return $"https://store.steampowered.com/search/?filter={safeFilter}&count={count}&start={start}&l={safeLanguage}&cc={safeRegion}";
+        }
+
+        private long GetUpcomingSelectionScore(SteamUpcomingGameItem item)
+        {
+            if (item == null)
+            {
+                return long.MinValue;
+            }
+
+            var rank = item.SteamRank > 0 ? item.SteamRank : 999999;
+            long score = Math.Max(0, 300000 - rank) * 1000L;
+
+            // Price/preorder is now only a quality bonus. It must not hide big unreleased games.
+            if (item.PriceFinal > 0)
+            {
+                score += 350000L;
+            }
+
+            if (item.IsPreorder)
+            {
+                score += 250000L;
+            }
+
+            var release = ((item.ReleaseDateDisplay ?? item.ReleaseDate) ?? string.Empty).Trim().ToLowerInvariant();
+            if (LooksLikeExactReleaseDate(release))
+            {
+                score += 180000L;
+            }
+            else if (LooksLikeYearOnlyReleaseDate(release))
+            {
+                score += 45000L;
+            }
+            else if (LooksLikeUnknownReleaseDate(release))
+            {
+                score -= 90000L;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.HeaderImageLocalPath) || !string.IsNullOrWhiteSpace(item.CapsuleImageLocalPath))
+            {
+                score += 50000L;
+            }
+
+            return score;
+        }
+
+        private bool IsGoodUpcomingCandidate(SteamUpcomingGameItem item)
+        {
+            if (item == null || item.AppId <= 0 || string.IsNullOrWhiteSpace(item.Name))
+            {
+                return false;
+            }
+
+            if (ShouldSkip(item.Name, item.Name))
+            {
+                return false;
+            }
+
+            if (TitleLooksLikeStoreHardware(item.Name))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         public async Task<List<SteamUpcomingGameItem>> RefreshWishlistedAsync(string language, string region)
@@ -119,7 +326,7 @@ namespace AnikiHelper.Services
             return await RefreshSearchListAsync(
                 "Wishlisted",
                 "Steam Most Wishlisted",
-                "https://store.steampowered.com/search/?filter=popularwishlist&os=win&count=100",
+                "https://store.steampowered.com/search/?filter=popularwishlist&count=100",
                 targetCachePath,
                 language,
                 region,
@@ -144,9 +351,232 @@ namespace AnikiHelper.Services
             );
         }
 
+
+        public async Task<List<SteamUpcomingGameItem>> RefreshRecommendedAsync(IEnumerable<string> searchTerms, string profileKey, string language, string region, Action<int> reportProgress = null)
+        {
+            var filterKey = BuildRecommendedCacheFilterKey(profileKey);
+            var targetCachePath = GetSearchCachePath(filterKey, language, region);
+
+            var terms = (searchTerms ?? Enumerable.Empty<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Where(x => x.Length >= 3)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(9)
+                .ToList();
+
+            if (terms.Count == 0)
+            {
+                return new List<SteamUpcomingGameItem>();
+            }
+
+            reportProgress?.Invoke(15);
+            DebugLog($"[Recommended] RefreshRecommendedAsync START | terms={string.Join(", ", terms)} | profile={profileKey}");
+
+            var combined = new List<SteamUpcomingGameItem>();
+            var seenAppIds = new HashSet<int>();
+
+            using (var client = new HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(10);
+
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+                );
+
+                client.DefaultRequestHeaders.Accept.ParseAdd(
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                );
+
+                client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+
+                var termIndex = 0;
+
+                foreach (var term in terms)
+                {
+                    try
+                    {
+                        termIndex++;
+                        var url = BuildRecommendedSearchUrl(term, language, region);
+                        var html = await client.GetStringAsync(url);
+
+                        var parsed = ParseGames(html)
+                            .Where(x => x != null && x.AppId > 0)
+                            .OrderBy(x => x.SteamRank)
+                            .Take(8)
+                            .ToList();
+
+                        DebugLog($"[Recommended] Search term #{termIndex}/{terms.Count} '{term}' -> parsed={parsed.Count}");
+
+                        foreach (var game in parsed)
+                        {
+                            if (game == null || game.AppId <= 0)
+                            {
+                                continue;
+                            }
+
+                            if (game.Tags == null)
+                            {
+                                game.Tags = new List<string>();
+                            }
+
+                            if (!game.Tags.Any(x => string.Equals(x, term, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                game.Tags.Add(term);
+                            }
+
+                            if (!seenAppIds.Add(game.AppId))
+                            {
+                                var existing = combined.FirstOrDefault(x => x != null && x.AppId == game.AppId);
+                                if (existing != null)
+                                {
+                                    if (existing.Tags == null)
+                                    {
+                                        existing.Tags = new List<string>();
+                                    }
+
+                                    if (!existing.Tags.Any(x => string.Equals(x, term, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        existing.Tags.Add(term);
+                                    }
+                                }
+
+                                continue;
+                            }
+
+                            game.Source = "Steam Recommended For You";
+                            combined.Add(game);
+                        }
+
+                        var searchProgress = 15 + (int)Math.Round((termIndex / (double)Math.Max(1, terms.Count)) * 35);
+                        reportProgress?.Invoke(Math.Min(50, searchProgress));
+
+                        if (combined.Count >= 40)
+                        {
+                            break;
+                        }
+                    }
+                    catch (Exception exTerm)
+                    {
+                        logger.Warn(exTerm, $"[Recommended] Search term failed: {term}");
+                    }
+                }
+            }
+
+            var games = combined
+                .Where(x => x != null && x.AppId > 0 && !string.IsNullOrWhiteSpace(x.Name))
+                .GroupBy(x => x.AppId)
+                .Select(x => x.First())
+                .OrderBy(x => x.SteamRank <= 0 ? int.MaxValue : x.SteamRank)
+                .Take(24)
+                .ToList();
+
+            reportProgress?.Invoke(55);
+
+            if (games.Count > 0)
+            {
+                var semaphore = new SemaphoreSlim(4);
+                var enrichedCount = 0;
+
+                var enrichTasks = games.Select(async game =>
+                {
+                    await semaphore.WaitAsync();
+                    try
+                    {
+                        game.Source = "Steam Recommended For You";
+                        await EnrichUpcomingGameAsync(game, language, region);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+
+                        var done = Interlocked.Increment(ref enrichedCount);
+                        var enrichProgress = 55 + (int)Math.Round((done / (double)Math.Max(1, games.Count)) * 35);
+                        reportProgress?.Invoke(Math.Min(90, enrichProgress));
+                    }
+                }).ToList();
+
+                await Task.WhenAll(enrichTasks);
+            }
+
+            foreach (var game in games)
+            {
+                game.Source = "Steam Recommended For You";
+            }
+
+            File.WriteAllText(targetCachePath, JsonConvert.SerializeObject(games, Formatting.Indented));
+
+            reportProgress?.Invoke(95);
+            DebugLog($"[Recommended] Cache saved: {games.Count} games -> {targetCachePath}");
+
+            return games;
+        }
+
+        public bool IsRecommendedCacheMissingOrExpired(string profileKey, string language, string region, TimeSpan maxAge)
+        {
+            var filterKey = BuildRecommendedCacheFilterKey(profileKey);
+            var targetCachePath = GetSearchCachePath(filterKey, language, region);
+
+            if (!File.Exists(targetCachePath))
+            {
+                return true;
+            }
+
+            if (CacheHasMissingLocalImages(filterKey, language, region))
+            {
+                return true;
+            }
+
+            var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(targetCachePath);
+            return age > maxAge;
+        }
+
+        public List<SteamUpcomingGameItem> LoadRecommendedFromCacheOnly(string profileKey, string language, string region)
+        {
+            try
+            {
+                var filterKey = BuildRecommendedCacheFilterKey(profileKey);
+                var targetCachePath = GetSearchCachePath(filterKey, language, region);
+
+                if (!File.Exists(targetCachePath))
+                {
+                    return new List<SteamUpcomingGameItem>();
+                }
+
+                var json = File.ReadAllText(targetCachePath);
+
+                return JsonConvert.DeserializeObject<List<SteamUpcomingGameItem>>(json)
+                    ?? new List<SteamUpcomingGameItem>();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Recommended] Failed to load cache.");
+                return new List<SteamUpcomingGameItem>();
+            }
+        }
+
+        private string BuildRecommendedCacheFilterKey(string profileKey)
+        {
+            if (string.IsNullOrWhiteSpace(profileKey))
+            {
+                profileKey = "default";
+            }
+
+            return "recommended_" + SanitizeCachePart(profileKey);
+        }
+
+        private string BuildRecommendedSearchUrl(string searchTerm, string language, string region)
+        {
+            var term = Uri.EscapeDataString(searchTerm ?? string.Empty);
+            var safeLanguage = Uri.EscapeDataString(string.IsNullOrWhiteSpace(language) ? "english" : language.Trim());
+            var safeRegion = Uri.EscapeDataString(string.IsNullOrWhiteSpace(region) ? "US" : region.Trim().ToUpperInvariant());
+
+            return $"https://store.steampowered.com/search/?term={term}&os=win&count=100&l={safeLanguage}&cc={safeRegion}";
+        }
+
         private async Task<List<SteamUpcomingGameItem>> RefreshSearchListAsync(string logName, string sourceName, string url, string targetCachePath, string language, string region, bool sortByReleaseDate, bool requirePaidPrice)
         {
-            logger.Info($"[{logName}] RefreshSearchListAsync START");
+            DebugLog($"[{logName}] RefreshSearchListAsync START");
 
             using (var client = new HttpClient())
             {
@@ -162,9 +592,42 @@ namespace AnikiHelper.Services
 
                 client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
 
-                var html = await client.GetStringAsync(url);
+                const int pageSize = 100;
+                const int maxPages = 3;
+                const int targetCount = 24;
 
-                IEnumerable<SteamUpcomingGameItem> query = ParseGames(html);
+                var parsedByAppId = new Dictionary<int, SteamUpcomingGameItem>();
+
+                for (var page = 0; page < maxPages; page++)
+                {
+                    var start = page * pageSize;
+                    var pageUrl = BuildPagedSteamSearchUrl(url, start, pageSize);
+                    var html = await client.GetStringAsync(pageUrl);
+
+                    var pageItems = ParseGames(html)
+                        .Where(x => x != null && x.AppId > 0 && !string.IsNullOrWhiteSpace(x.Name))
+                        .ToList();
+
+                    foreach (var item in pageItems)
+                    {
+                        if (parsedByAppId.ContainsKey(item.AppId))
+                        {
+                            continue;
+                        }
+
+                        item.SteamRank = start + Math.Max(1, item.SteamRank);
+                        parsedByAppId[item.AppId] = item;
+                    }
+
+                    DebugLog($"[{logName}] Scan page {page + 1}/{maxPages} | parsed={pageItems.Count} | unique={parsedByAppId.Count}");
+
+                    if (pageItems.Count == 0 || parsedByAppId.Count >= 60)
+                    {
+                        break;
+                    }
+                }
+
+                IEnumerable<SteamUpcomingGameItem> query = parsedByAppId.Values;
 
                 if (requirePaidPrice)
                 {
@@ -174,7 +637,8 @@ namespace AnikiHelper.Services
                 if (sortByReleaseDate)
                 {
                     query = query
-                        .OrderBy(x => GetReleaseSortDate(x.ReleaseDate))
+                        .OrderByDescending(x => x.SteamRank > 0 && x.SteamRank <= 50)
+                        .ThenBy(x => GetReleaseSortDate(x.ReleaseDate))
                         .ThenBy(x => x.SteamRank);
                 }
                 else
@@ -183,20 +647,77 @@ namespace AnikiHelper.Services
                 }
 
                 var games = query
-                    .Take(20)
+                    .Take(targetCount)
                     .ToList();
 
-                foreach (var game in games)
+                DebugLog($"[{logName}] Selected {games.Count}/{parsedByAppId.Count} scanned games for cache.");
+
+                if (games.Count == 0)
                 {
-                    game.Source = sourceName;
-                    await EnrichUpcomingGameAsync(game, language, region);
+                    var cached = LoadCacheFromPath(targetCachePath, logName);
+                    if (cached.Count > 0)
+                    {
+                        logger.Warn($"[{logName}] Refresh returned 0 games. Keeping previous cache with {cached.Count} games instead of overwriting it.");
+                        return cached;
+                    }
+
+                    logger.Warn($"[{logName}] Refresh returned 0 games and no previous cache is available. Empty cache will not be written.");
+                    return games;
                 }
+
+                await EnrichGamesInParallelAsync(games, language, region, sourceName, 4);
 
                 File.WriteAllText(targetCachePath, JsonConvert.SerializeObject(games, Formatting.Indented));
 
-                logger.Info($"[{logName}] Cache saved: {games.Count} games -> {targetCachePath}");
+                DebugLog($"[{logName}] Cache saved: {games.Count} games -> {targetCachePath}");
 
                 return games;
+            }
+        }
+
+        private static string BuildPagedSteamSearchUrl(string baseUrl, int start, int count)
+        {
+            var result = string.IsNullOrWhiteSpace(baseUrl) ? "https://store.steampowered.com/search/?os=win" : baseUrl;
+
+            result = Regex.Replace(result, @"([?&])start=\d+", "$1start=" + start, RegexOptions.IgnoreCase);
+            if (!Regex.IsMatch(result, @"[?&]start=", RegexOptions.IgnoreCase))
+            {
+                result += (result.Contains("?") ? "&" : "?") + "start=" + start;
+            }
+
+            result = Regex.Replace(result, @"([?&])count=\d+", "$1count=" + count, RegexOptions.IgnoreCase);
+            if (!Regex.IsMatch(result, @"[?&]count=", RegexOptions.IgnoreCase))
+            {
+                result += (result.Contains("?") ? "&" : "?") + "count=" + count;
+            }
+
+            return result;
+        }
+
+        private List<SteamUpcomingGameItem> LoadCacheFromPath(string cachePath, string logName)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
+                {
+                    return new List<SteamUpcomingGameItem>();
+                }
+
+                var json = File.ReadAllText(cachePath);
+                var cached = JsonConvert.DeserializeObject<List<SteamUpcomingGameItem>>(json)
+                    ?? new List<SteamUpcomingGameItem>();
+
+                cached = cached
+                    .Where(x => x != null && x.AppId > 0 && !string.IsNullOrWhiteSpace(x.Name))
+                    .ToList();
+
+                DebugLog($"[{logName}] Previous cache loaded: {cached.Count} games -> {cachePath}");
+                return cached;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, $"[{logName}] Failed to load previous cache from {cachePath}.");
+                return new List<SteamUpcomingGameItem>();
             }
         }
 
@@ -254,6 +775,27 @@ namespace AnikiHelper.Services
             return age > maxAge;
         }
 
+        private int GetMinimumCacheCount(string filterKey)
+        {
+            if (string.IsNullOrWhiteSpace(filterKey))
+            {
+                return 0;
+            }
+
+            if (filterKey.IndexOf("popularcomingsoon", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 18;
+            }
+
+            if (filterKey.IndexOf("popularwishlist", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                filterKey.IndexOf("popularnew", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 18;
+            }
+
+            return 0;
+        }
+
         private bool CacheHasMissingLocalImages(string filterKey, string language, string region)
         {
             try
@@ -270,20 +812,25 @@ namespace AnikiHelper.Services
                 var items = JsonConvert.DeserializeObject<List<SteamUpcomingGameItem>>(json)
                     ?? new List<SteamUpcomingGameItem>();
 
+                var minimumCount = GetMinimumCacheCount(filterKey);
+                if (minimumCount > 0 && items.Count(x => x != null && x.AppId > 0) < minimumCount)
+                {
+                    DebugLog($"[SteamStoreCache] Cache '{filterKey}' has only {items.Count(x => x != null && x.AppId > 0)} items, refresh required.");
+                    return true;
+                }
+
                 foreach (var item in items.Where(x => x != null).Take(20))
                 {
-                    // Pour Upcoming / Wishlisted / New Releases, le header est l'image principale.
-                    if (!string.IsNullOrWhiteSpace(item.HeaderImage))
-                    {
-                        if (string.IsNullOrWhiteSpace(item.HeaderImageLocalPath))
-                        {
-                            return true;
-                        }
+                    // A cache is valid as long as the card has at least one local image.
+                    // Do not force a refresh just because the header is missing: the capsule
+                    // may already be valid and refreshing again can overwrite a good cache
+                    // during navigation.
+                    var hasHeader = !string.IsNullOrWhiteSpace(item.HeaderImageLocalPath) && File.Exists(item.HeaderImageLocalPath);
+                    var hasCapsule = !string.IsNullOrWhiteSpace(item.CapsuleImageLocalPath) && File.Exists(item.CapsuleImageLocalPath);
 
-                        if (!File.Exists(item.HeaderImageLocalPath))
-                        {
-                            return true;
-                        }
+                    if (!hasHeader && !hasCapsule)
+                    {
+                        return true;
                     }
 
                     if (!string.IsNullOrWhiteSpace(item.BackgroundImageLocalPath) &&
@@ -424,6 +971,37 @@ namespace AnikiHelper.Services
             return DateTime.MaxValue;
         }
 
+        private async Task EnrichGamesInParallelAsync(List<SteamUpcomingGameItem> games, string language, string region, string sourceName, int maxDegreeOfParallelism)
+        {
+            if (games == null || games.Count == 0)
+            {
+                return;
+            }
+
+            var degree = Math.Max(1, Math.Min(6, maxDegreeOfParallelism));
+            var semaphore = new SemaphoreSlim(degree);
+            var tasks = games.Select(async game =>
+            {
+                if (game == null)
+                {
+                    return;
+                }
+
+                await semaphore.WaitAsync();
+                try
+                {
+                    game.Source = sourceName;
+                    await EnrichUpcomingGameAsync(game, language, region);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }).ToList();
+
+            await Task.WhenAll(tasks);
+        }
+
         private async Task<string> DownloadUpcomingImageAsync(string imageUrl, int appId, string suffix)
         {
             try
@@ -442,46 +1020,23 @@ namespace AnikiHelper.Services
 
                 var safeSuffix = string.IsNullOrWhiteSpace(suffix) ? "image" : suffix;
                 var localPath = Path.Combine(imageCacheFolder, $"upcoming_{appId}_{safeSuffix}.jpg");
-
-                // Marqueur texte pour savoir quelle URL a créé ce fichier.
-                // On évite .url parce que Windows l'affiche comme un raccourci internet.
                 var sourceMarkerPath = localPath + ".source.txt";
-
-                // Ancien marqueur .url à supprimer si présent.
                 var oldUrlMarkerPath = localPath + ".url";
 
-                if (File.Exists(localPath) &&
-                    new FileInfo(localPath).Length > 1024 &&
-                    File.Exists(sourceMarkerPath))
+                var existingIsUsable = File.Exists(localPath) && new FileInfo(localPath).Length > 1024;
+                if (existingIsUsable && File.Exists(sourceMarkerPath))
                 {
-                    var cachedUrl = File.ReadAllText(sourceMarkerPath);
-
-                    if (string.Equals(cachedUrl, imageUrl, StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        return localPath;
+                        var cachedUrl = File.ReadAllText(sourceMarkerPath);
+                        if (string.Equals(cachedUrl, imageUrl, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return localPath;
+                        }
                     }
-                }
-
-                // Cache ancien, mauvais, ou sans marqueur : on le remplace proprement.
-                try
-                {
-                    if (File.Exists(localPath))
+                    catch
                     {
-                        File.Delete(localPath);
                     }
-
-                    if (File.Exists(sourceMarkerPath))
-                    {
-                        File.Delete(sourceMarkerPath);
-                    }
-
-                    if (File.Exists(oldUrlMarkerPath))
-                    {
-                        File.Delete(oldUrlMarkerPath);
-                    }
-                }
-                catch
-                {
                 }
 
                 using (var client = new HttpClient())
@@ -493,24 +1048,59 @@ namespace AnikiHelper.Services
                     {
                         if (!response.IsSuccessStatusCode)
                         {
-                            return string.Empty;
+                            return existingIsUsable ? localPath : string.Empty;
                         }
 
                         var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
 
                         if (!contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
                         {
-                            return string.Empty;
+                            return existingIsUsable ? localPath : string.Empty;
                         }
 
                         var bytes = await response.Content.ReadAsByteArrayAsync();
 
                         if (bytes == null || bytes.Length <= 1024)
                         {
-                            return string.Empty;
+                            return existingIsUsable ? localPath : string.Empty;
                         }
 
-                        File.WriteAllBytes(localPath, bytes);
+                        var tmpPath = localPath + ".tmp";
+                        try
+                        {
+                            if (File.Exists(tmpPath))
+                            {
+                                File.Delete(tmpPath);
+                            }
+                        }
+                        catch
+                        {
+                        }
+
+                        File.WriteAllBytes(tmpPath, bytes);
+
+                        try
+                        {
+                            if (File.Exists(localPath))
+                            {
+                                File.Delete(localPath);
+                            }
+
+                            if (File.Exists(sourceMarkerPath))
+                            {
+                                File.Delete(sourceMarkerPath);
+                            }
+
+                            if (File.Exists(oldUrlMarkerPath))
+                            {
+                                File.Delete(oldUrlMarkerPath);
+                            }
+                        }
+                        catch
+                        {
+                        }
+
+                        File.Move(tmpPath, localPath);
                         File.WriteAllText(sourceMarkerPath, imageUrl);
                     }
                 }
@@ -519,7 +1109,16 @@ namespace AnikiHelper.Services
             }
             catch
             {
-                return string.Empty;
+                try
+                {
+                    var safeSuffix = string.IsNullOrWhiteSpace(suffix) ? "image" : suffix;
+                    var localPath = Path.Combine(imageCacheFolder, $"upcoming_{appId}_{safeSuffix}.jpg");
+                    return File.Exists(localPath) && new FileInfo(localPath).Length > 1024 ? localPath : string.Empty;
+                }
+                catch
+                {
+                    return string.Empty;
+                }
             }
         }
 
@@ -649,7 +1248,9 @@ namespace AnikiHelper.Services
                     DiscountDisplay = game.DiscountDisplay
                 };
 
-                await steamStoreService.EnrichStoreItemDetailsAsync(storeItem, language, region);
+                // Store lists stay light: appdetails gives us metadata and remote media URLs,
+                // but background/screenshots are downloaded only when the details view opens.
+                await steamStoreService.EnrichStoreItemDetailsAsync(storeItem, language, region, downloadMedia: false);
 
                 var isComingSoon = storeItem.ComingSoon || game.ComingSoon;
                 var useHeaderCard =
@@ -658,24 +1259,7 @@ namespace AnikiHelper.Services
                     string.Equals(game.Source, "Steam Popular New Releases", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(game.Source, "Steam Most Wishlisted", StringComparison.OrdinalIgnoreCase);
 
-                // Upcoming / Wishlisted à venir : on utilise surtout les headers.
-                // New Releases : on télécharge la vraie capsule 616x353 pour les cartes normales.
-                var capsuleUrl = FirstValidSteamAppImageUrl(
-                    game.AppId,
-                    game.CapsuleImageUrl,
-                    storeItem.CapsuleImageUrl,
-                    fallbackCapsuleUrl,
-                    fallbackHeaderUrl
-                );
-
-                var capsuleLocalPath = await DownloadFirstUpcomingImageAsync(
-                     game.AppId,
-                     "capsule_616x353",
-                     fallbackCapsuleUrl,
-                     storeItem.CapsuleImageUrl,
-                     game.CapsuleImageUrl
-                 );
-
+                // Store cards are now header-first. Capsule is downloaded only as fallback.
                 var headerUrl = FirstValidSteamAppImageUrl(
                      game.AppId,
                      storeItem.HeaderImageUrl,
@@ -686,22 +1270,31 @@ namespace AnikiHelper.Services
                 var headerLocalPath = await DownloadFirstUpcomingImageAsync(
                     game.AppId,
                     "header",
+                    headerUrl,
                     storeItem.HeaderImageUrl,
                     game.HeaderImage,
                     fallbackHeaderUrl
                 );
 
-                var backgroundUrl = FirstValidSteamAppImageUrl(
+                var capsuleUrl = FirstValidSteamAppImageUrl(
                     game.AppId,
-                    storeItem.BackgroundImageUrl,
-                    game.BackgroundImageUrl,
-                    fallbackBackgroundUrl,
-                    storeItem.Screenshot1Url
+                    storeItem.CapsuleImageUrl,
+                    game.CapsuleImageUrl,
+                    fallbackCapsuleUrl,
+                    headerUrl
                 );
 
-                var backgroundLocalPath = await DownloadFirstUpcomingImageAsync(
+                var capsuleLocalPath = await DownloadFirstUpcomingImageAsync(
+                     game.AppId,
+                     "capsule_616x353",
+                     capsuleUrl,
+                     storeItem.CapsuleImageUrl,
+                     game.CapsuleImageUrl,
+                     fallbackCapsuleUrl
+                 );
+
+                var backgroundUrl = FirstValidSteamAppImageUrl(
                     game.AppId,
-                    "background",
                     storeItem.BackgroundImageUrl,
                     game.BackgroundImageUrl,
                     fallbackBackgroundUrl,
@@ -709,6 +1302,11 @@ namespace AnikiHelper.Services
                     headerUrl,
                     capsuleUrl
                 );
+
+                // Do not download the real background here. The list/card can safely use
+                // the already downloaded header/capsule fallback. The real background and
+                // screenshots are downloaded lazily by OpenSteamStoreDetails.
+                var backgroundLocalPath = FirstNonEmpty(headerLocalPath, capsuleLocalPath);
 
                 game.HeaderImage = headerUrl;
                 game.HeaderImageLocalPath = headerLocalPath;
@@ -866,22 +1464,30 @@ namespace AnikiHelper.Services
                 .Select(x => x.First())
                 .ToList();
 
-            logger.Info($"[Upcoming] Parsed {uniqueResults.Count} valid items.");
+            DebugLog($"[Upcoming] Parsed {uniqueResults.Count} valid items.");
 
             return uniqueResults;
         }
 
         private bool ShouldSkip(string title, string block)
         {
-            var text = (title + " " + block).ToLowerInvariant();
+            var name = (title ?? string.Empty).ToLowerInvariant();
+            var row = (block ?? string.Empty).ToLowerInvariant();
+            var text = (name + " " + row).ToLowerInvariant();
 
-            return text.Contains("free to play")
-                || text.Contains(">free<")
-                || text.Contains("discount_final_price free")
-                || text.Contains("demo")
-                || text.Contains("prologue")
-                || text.Contains("soundtrack")
-                || text.Contains("adult only")
+            // Important:
+            // Do NOT apply every exclusion keyword to the full Steam row HTML.
+            // Some words like "bundle" can appear in Steam markup/classes and make every paid game look invalid.
+            // Content-type exclusions are title-based; adult/free flags can still use the row HTML.
+            if (TitleLooksLikeNonGameContent(name))
+            {
+                return true;
+            }
+
+            return row.Contains("free to play")
+                || row.Contains(">free<")
+                || row.Contains("discount_final_price free")
+                || text.Contains(" adult only")
                 || text.Contains("sexual content")
                 || text.Contains("nudity")
                 || text.Contains("hentai")
@@ -903,6 +1509,113 @@ namespace AnikiHelper.Services
                 || text.Contains("tentacle")
                 || text.Contains("succubus")
                 || text.Contains("18+");
+        }
+
+        private bool TitleLooksLikeNonGameContent(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return true;
+            }
+
+            return HasTitleToken(name, "demo")
+                || HasTitleToken(name, "prologue")
+                || name.Contains("soundtrack")
+                || name.Contains("ost")
+                || name.Contains(" artbook")
+                || name.Contains("art book")
+                || name.Contains("wallpaper")
+                || name.Contains("supporter pack")
+                || name.Contains("upgrade pack")
+                || name.Contains("story pack")
+                || name.Contains("season pass")
+                || name.EndsWith(" bundle")
+                || name.Contains(" bundle:")
+                || name.Contains(" bundle -")
+                || name.Contains(" dlc")
+                || name.EndsWith(" dlc");
+        }
+
+        private bool HasTitleToken(string value, string token)
+        {
+            if (string.IsNullOrWhiteSpace(value) || string.IsNullOrWhiteSpace(token))
+            {
+                return false;
+            }
+
+            return Regex.IsMatch(
+                value,
+                $@"(^|[^a-z0-9]){Regex.Escape(token)}($|[^a-z0-9])",
+                RegexOptions.IgnoreCase
+            );
+        }
+
+
+        private bool LooksLikeExactReleaseDate(string release)
+        {
+            if (string.IsNullOrWhiteSpace(release))
+            {
+                return false;
+            }
+
+            var value = release.Trim().ToLowerInvariant();
+
+            if (LooksLikeUnknownReleaseDate(value) || LooksLikeYearOnlyReleaseDate(value))
+            {
+                return false;
+            }
+
+            // Examples: "9 juil. 2026", "25 sept. 2026", "feb 23, 2027", "2026-09-25".
+            return Regex.IsMatch(value, @"\b\d{1,2}\b.*\b\d{4}\b")
+                || Regex.IsMatch(value, @"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b")
+                || Regex.IsMatch(value, @"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|janv|févr|fevr|mars|avr|mai|juin|juil|août|aout|déc|dec)\b.*\b\d{1,2}\b.*\b\d{4}\b");
+        }
+
+        private bool LooksLikeYearOnlyReleaseDate(string release)
+        {
+            if (string.IsNullOrWhiteSpace(release))
+            {
+                return false;
+            }
+
+            var value = release.Trim().ToLowerInvariant();
+            return Regex.IsMatch(value, @"^\d{4}$")
+                || Regex.IsMatch(value, @"^(q[1-4]|1er trimestre|2e trimestre|3e trimestre|4e trimestre|premier trimestre|deuxième trimestre|deuxieme trimestre|troisième trimestre|troisieme trimestre|quatrième trimestre|quatrieme trimestre)\s+\d{4}$");
+        }
+
+        private bool LooksLikeUnknownReleaseDate(string release)
+        {
+            if (string.IsNullOrWhiteSpace(release))
+            {
+                return true;
+            }
+
+            var value = release.Trim().ToLowerInvariant();
+            return value.Contains("à déterminer")
+                || value.Contains("a determiner")
+                || value.Contains("to be announced")
+                || value.Contains("tba")
+                || value.Contains("coming soon")
+                || value.Contains("prochainement")
+                || value.Contains("bientôt")
+                || value.Contains("bientot");
+        }
+
+        private bool TitleLooksLikeStoreHardware(string title)
+        {
+            var name = (title ?? string.Empty).Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return true;
+            }
+
+            return name.Contains("steam deck")
+                || name.Contains("steam frame")
+                || name.Contains("steam machine")
+                || name.Contains("valve index")
+                || name.Contains("vr headset")
+                || name.Contains("controller bundle")
+                || name.Contains("hardware");
         }
 
         private string Clean(string value)

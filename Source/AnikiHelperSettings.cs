@@ -1,11 +1,13 @@
-using AnikiHelper.Services;
+﻿using AnikiHelper.Services;
 using AnikiHelper.Services.Achievements;
 using AnikiHelper.Services.AnikiThemeSettings;
 using AnikiHelper.Services.MediaGallery;
 using AnikiHelper.Services.SplashScreen;
+using AnikiHelper.Services.SteamFriends;
 using Playnite.SDK;
 using Playnite.SDK.Data;
 using Playnite.SDK.Events;
+using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
@@ -23,6 +25,8 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using System.Reflection;
+using AnikiHelper.Services.DuplicateHider;
+using System.Windows.Media;
 
 
 namespace AnikiHelper
@@ -55,6 +59,189 @@ namespace AnikiHelper
     {
         public string Name { get; set; }
         public string Value { get; set; }
+    }
+
+    // Overlay Apps / Software Tools item exposed to the theme.
+    public class AnikiOverlayAppItem
+    {
+        public string Name { get; set; } = string.Empty;
+        public string IconPath { get; set; } = string.Empty;
+        public string BackgroundImagePath { get; set; } = string.Empty;
+        public string Path { get; set; } = string.Empty;
+        public string Arguments { get; set; } = string.Empty;
+        public string WorkingDir { get; set; } = string.Empty;
+        public bool IsScript { get; set; }
+
+        [DontSerialize]
+        public AppSoftware SourceApp { get; set; }
+
+        public string TypeText => IsScript ? "SCRIPT" : "APP";
+
+        public string Details
+        {
+            get
+            {
+                if (IsScript)
+                {
+                    return "PowerShell script";
+                }
+
+                if (!string.IsNullOrWhiteSpace(Path))
+                {
+                    return string.IsNullOrWhiteSpace(Arguments) ? Path : $"{Path} {Arguments}";
+                }
+
+                return string.Empty;
+            }
+        }
+    }
+
+    public class AnikiOverlayAchievementItem
+    {
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string IconPath { get; set; } = string.Empty;
+        public bool Unlocked { get; set; }
+        public bool Hidden { get; set; }
+        public string Rarity { get; set; } = string.Empty;
+        public double? Percent { get; set; }
+        public DateTime? UnlockDate { get; set; }
+        public int? Points { get; set; }
+        public int? ProgressNum { get; set; }
+        public int? ProgressDenom { get; set; }
+        public string TrophyType { get; set; } = string.Empty;
+        public bool IsCapstone { get; set; }
+
+        public string StatusText => Unlocked ? "UNLOCKED" : "LOCKED";
+
+        public string RarityText
+        {
+            get
+            {
+                if (Percent.HasValue)
+                {
+                    return Percent.Value.ToString("0.##") + "%";
+                }
+
+                return string.IsNullOrWhiteSpace(Rarity) ? string.Empty : Rarity.ToUpperInvariant();
+            }
+        }
+
+        public string RaritySentence
+        {
+            get
+            {
+                if (Percent.HasValue)
+                {
+                    return Percent.Value.ToString("0.##") + "% des joueurs ont débloqué ce succès.";
+                }
+
+                return string.IsNullOrWhiteSpace(Rarity) ? string.Empty : Rarity;
+            }
+        }
+
+        public string UnlockDateRightText
+        {
+            get
+            {
+                if (!Unlocked)
+                {
+                    return string.Empty;
+                }
+
+                if (!UnlockDate.HasValue)
+                {
+                    return "Unlocked";
+                }
+
+                return UnlockDate.Value.ToString("dd/MM/yyyy");
+            }
+        }
+
+        public string UnlockDateText
+        {
+            get
+            {
+                if (!Unlocked)
+                {
+                    return "Locked";
+                }
+
+                if (!UnlockDate.HasValue)
+                {
+                    return "Unlocked";
+                }
+
+                return "Unlocked " + UnlockDate.Value.ToString("dd/MM/yyyy");
+            }
+        }
+
+        public bool HasProgress => ProgressNum.HasValue && ProgressDenom.HasValue && ProgressDenom.Value > 0;
+
+        public string ProgressText
+        {
+            get
+            {
+                if (!HasProgress)
+                {
+                    return string.Empty;
+                }
+
+                return ProgressNum.Value + " / " + ProgressDenom.Value;
+            }
+        }
+
+        public string MetaText
+        {
+            get
+            {
+                var parts = new List<string>();
+
+                if (!string.IsNullOrWhiteSpace(RarityText))
+                {
+                    parts.Add(RarityText);
+                }
+
+                if (Points.HasValue && Points.Value > 0)
+                {
+                    parts.Add(Points.Value + " pts");
+                }
+
+                if (!string.IsNullOrWhiteSpace(TrophyType))
+                {
+                    parts.Add(TrophyType.ToUpperInvariant());
+                }
+
+                if (IsCapstone)
+                {
+                    parts.Add("CAPSTONE");
+                }
+
+                return string.Join("  •  ", parts);
+            }
+        }
+    }
+
+    public class SplashScreenPriorityOption
+    {
+        public SplashScreenPriorityTarget Value { get; set; }
+        public string Label { get; set; }
+
+        public override string ToString()
+        {
+            return string.IsNullOrWhiteSpace(Label) ? Value.ToString() : Label;
+        }
+    }
+
+    public class HubLibraryRecommendedGameItem
+    {
+        public Guid GameId { get; set; } = Guid.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string CoverPath { get; set; } = string.Empty;
+        public string BackgroundPath { get; set; } = string.Empty;
+        public string SourceName { get; set; } = string.Empty;
+        public string ReasonKey { get; set; } = string.Empty;
+        public string BannerText { get; set; } = string.Empty;
     }
 
     public class RecentAchievementItem
@@ -124,6 +311,13 @@ namespace AnikiHelper
 
     public class SteamRecentUpdateItem : ObservableObject
     {
+        private string steamAppId;
+        public string SteamAppId
+        {
+            get => steamAppId;
+            set => SetValue(ref steamAppId, value);
+        }
+
         private string gameName;
         public string GameName
         {
@@ -150,6 +344,13 @@ namespace AnikiHelper
         {
             get => coverPath;
             set => SetValue(ref coverPath, value);
+        }
+
+        private string backgroundPath;
+        public string BackgroundPath
+        {
+            get => backgroundPath;
+            set => SetValue(ref backgroundPath, value);
         }
 
         private string iconPath;
@@ -375,7 +576,49 @@ namespace AnikiHelper
         }
     }
 
-    public class AnikiHelperSettings : ObservableObject, ISettings, System.ComponentModel.INotifyPropertyChanged
+
+    public class AnikiOverlayNeverSuspendGameItem : ObservableObject
+    {
+        [DontSerialize]
+        private AnikiHelperSettings owner;
+
+        public Guid GameId { get; set; }
+        public string Name { get; set; }
+
+        private bool isNeverSuspendEnabled = true;
+        public bool IsNeverSuspendEnabled
+        {
+            get => isNeverSuspendEnabled;
+            set
+            {
+                if (isNeverSuspendEnabled == value)
+                {
+                    return;
+                }
+
+                SetValue(ref isNeverSuspendEnabled, value);
+
+                if (!value)
+                {
+                    owner?.SetInGameOverlayNeverSuspend(GameId, false);
+                }
+            }
+        }
+
+        public AnikiOverlayNeverSuspendGameItem()
+        {
+        }
+
+        public AnikiOverlayNeverSuspendGameItem(AnikiHelperSettings owner, Guid gameId, string name)
+        {
+            this.owner = owner;
+            GameId = gameId;
+            Name = string.IsNullOrWhiteSpace(name) ? gameId.ToString() : name;
+            isNeverSuspendEnabled = true;
+        }
+    }
+
+    public partial class AnikiHelperSettings : ObservableObject, ISettings, System.ComponentModel.INotifyPropertyChanged
     {
         private readonly global::AnikiHelper.AnikiHelper plugin;
 
@@ -390,6 +633,18 @@ namespace AnikiHelper
 
         [DontSerialize]
         private ScreenshotMediaCacheService screenshotMediaCacheService;
+
+        [DontSerialize]
+        private readonly object overlayLastCapturesRefreshLock = new object();
+
+        [DontSerialize]
+        private bool overlayLastCapturesRefreshRunning;
+
+        [DontSerialize]
+        private Guid overlayLastCapturesGameId = Guid.Empty;
+
+        [DontSerialize]
+        private string overlayLastCapturesGameName = string.Empty;
 
         private AchievementMemoriesCacheService achievementMemoriesCacheService;
         private RarestAchievementCacheService rarestAchievementCacheService;
@@ -406,6 +661,9 @@ namespace AnikiHelper
 
         [DontSerialize]
         public RelayCommand RefreshSuccessStoryCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ClearInGameOverlayNeverSuspendGamesCommand { get; }
 
         [DontSerialize]
         public RelayCommand<SteamStoreItem> OpenSteamStoreDetailsCommand { get; }
@@ -505,6 +763,9 @@ namespace AnikiHelper
         public RelayCommand RefreshCurrentGameMediaCommand { get; }
 
         [DontSerialize]
+        public RelayCommand RefreshOverlayLastCapturesCommand { get; }
+
+        [DontSerialize]
         public RelayCommand OpenScreenshotsWindowCommand { get; }
 
         [DontSerialize]
@@ -529,6 +790,317 @@ namespace AnikiHelper
         public bool HasHubLatestMedia
         {
             get => HubLatestMediaItems != null && HubLatestMediaItems.Count > 0;
+        }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiOverlayAppItem> OverlayAppItems { get; set; }
+            = new ObservableCollection<AnikiOverlayAppItem>();
+
+        [DontSerialize]
+        public bool HasOverlayApps
+        {
+            get => OverlayAppItems != null && OverlayAppItems.Count > 0;
+        }
+
+        [DontSerialize]
+        public ObservableCollection<string> SoftwareToolNamesForSelection { get; set; }
+            = new ObservableCollection<string>();
+
+        [DontSerialize]
+        public ObservableCollection<AnikiOverlayAppItem> HubAppItems { get; set; }
+            = new ObservableCollection<AnikiOverlayAppItem>();
+
+        [DontSerialize]
+        public bool HasHubApps
+        {
+            get => HubAppItems != null && HubAppItems.Count > 0;
+        }
+
+        [DontSerialize]
+        public bool ShowHubAppsPage
+        {
+            get => HubAppsEnabled && (HasHubApps || HasSelectedHubAppSlot);
+        }
+
+        [DontSerialize]
+        private bool isHubAppsSoftwareToolsLoading;
+
+        [DontSerialize]
+        private bool HasSelectedHubAppSlot
+        {
+            get
+            {
+                return !string.IsNullOrWhiteSpace(HubAppSlot1ToolName)
+                    || !string.IsNullOrWhiteSpace(HubAppSlot2ToolName)
+                    || !string.IsNullOrWhiteSpace(HubAppSlot3ToolName)
+                    || !string.IsNullOrWhiteSpace(HubAppSlot4ToolName);
+            }
+        }
+
+        private void EnsureHubAppsSoftwareToolsLoaded()
+        {
+            if (!HubAppsEnabled || !HasSelectedHubAppSlot || isHubAppsSoftwareToolsLoading)
+            {
+                return;
+            }
+
+            var hasResolvedHubApps = HubAppItems != null && HubAppItems.Any(x =>
+                x != null && (x.SourceApp != null || !string.IsNullOrWhiteSpace(x.Path)));
+
+            if (HasHubApps && hasResolvedHubApps)
+            {
+                return;
+            }
+
+            try
+            {
+                isHubAppsSoftwareToolsLoading = true;
+                LoadOverlayApps();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to lazy-load Software Tools for Hub Apps.");
+            }
+            finally
+            {
+                isHubAppsSoftwareToolsLoading = false;
+            }
+        }
+
+        [DontSerialize]
+        private string hubAppsEmptyText = "Select apps in Aniki Helper settings first.";
+
+        [DontSerialize]
+        public string HubAppsEmptyText
+        {
+            get => hubAppsEmptyText;
+            set => SetValue(ref hubAppsEmptyText, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private string overlayAppsEmptyText = "No apps configured. Add Software Tools in Playnite first.";
+
+        [DontSerialize]
+        public string OverlayAppsEmptyText
+        {
+            get => overlayAppsEmptyText;
+            set => SetValue(ref overlayAppsEmptyText, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaItem> OverlayLastCaptureItems { get; set; }
+            = new ObservableCollection<AnikiMediaItem>();
+
+        [DontSerialize]
+        public bool HasOverlayLastCaptures
+        {
+            get => OverlayLastCaptureItems != null && OverlayLastCaptureItems.Count > 0;
+        }
+
+        [DontSerialize]
+        private string overlayLastCapturesTitle = "Last Captures";
+
+        [DontSerialize]
+        public string OverlayLastCapturesTitle
+        {
+            get => overlayLastCapturesTitle;
+            set => SetValue(ref overlayLastCapturesTitle, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private string overlayLastCapturesSubtitle = string.Empty;
+
+        [DontSerialize]
+        public string OverlayLastCapturesSubtitle
+        {
+            get => overlayLastCapturesSubtitle;
+            set => SetValue(ref overlayLastCapturesSubtitle, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private string overlayLastCapturesEmptyText = "No captures found.";
+
+        [DontSerialize]
+        public string OverlayLastCapturesEmptyText
+        {
+            get => overlayLastCapturesEmptyText;
+            set => SetValue(ref overlayLastCapturesEmptyText, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private bool isRefreshingOverlayLastCaptures;
+
+        [DontSerialize]
+        public bool IsRefreshingOverlayLastCaptures
+        {
+            get => isRefreshingOverlayLastCaptures;
+            private set
+            {
+                SetValue(ref isRefreshingOverlayLastCaptures, value);
+                OnPropertyChanged(nameof(OverlayLastCapturesRefreshButtonText));
+            }
+        }
+
+        [DontSerialize]
+        public string OverlayLastCapturesRefreshButtonText
+        {
+            get
+            {
+                return IsRefreshingOverlayLastCaptures
+                    ? Loc("LOCAnikiOverlayRefreshingCaptures", "Refreshing...")
+                    : Loc("LOCAnikiOverlayRefreshCaptures", "Refresh captures");
+            }
+        }
+
+        [DontSerialize]
+        public bool CanRefreshOverlayLastCaptures
+        {
+            get
+            {
+                if (overlayLastCapturesGameId == Guid.Empty)
+                {
+                    return false;
+                }
+
+                if (screenshotsVisualizerReader == null)
+                {
+                    screenshotsVisualizerReader = new ScreenshotsVisualizerReader(
+                        plugin.PlayniteApi,
+                        logger
+                    );
+                }
+
+                // Depending on the Playnite/plugin load state, the plugin instance may not
+                // always be exposed through Addons.Plugins. The data folder and an existing
+                // game JSON are valid fallbacks for this overlay integration.
+                return screenshotsVisualizerReader.IsPluginInstalled()
+                    || screenshotsVisualizerReader.IsAvailable()
+                    || screenshotsVisualizerReader.HasMediaForGame(overlayLastCapturesGameId);
+            }
+        }
+
+        [DontSerialize]
+        public Visibility OverlayLastCapturesRefreshButtonVisibility
+        {
+            get => CanRefreshOverlayLastCaptures
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        [DontSerialize]
+        public ObservableCollection<AnikiOverlayAchievementItem> OverlayAchievementItems { get; set; }
+            = new ObservableCollection<AnikiOverlayAchievementItem>();
+
+        [DontSerialize]
+        public bool HasOverlayAchievements
+        {
+            get => OverlayAchievementItems != null && OverlayAchievementItems.Count > 0;
+        }
+
+        [DontSerialize]
+        private string overlayAchievementsTitle = "Achievements";
+
+        [DontSerialize]
+        public string OverlayAchievementsTitle
+        {
+            get => overlayAchievementsTitle;
+            set => SetValue(ref overlayAchievementsTitle, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private string overlayAchievementsSubtitle = string.Empty;
+
+        [DontSerialize]
+        public string OverlayAchievementsSubtitle
+        {
+            get => overlayAchievementsSubtitle;
+            set => SetValue(ref overlayAchievementsSubtitle, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private string overlayAchievementsEmptyText = "No achievements found.";
+
+        [DontSerialize]
+        public string OverlayAchievementsEmptyText
+        {
+            get => overlayAchievementsEmptyText;
+            set => SetValue(ref overlayAchievementsEmptyText, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private string overlayAchievementsProgressText = string.Empty;
+
+        [DontSerialize]
+        public string OverlayAchievementsProgressText
+        {
+            get => overlayAchievementsProgressText;
+            set => SetValue(ref overlayAchievementsProgressText, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private int overlayAchievementsUnlockedCount;
+
+        [DontSerialize]
+        public int OverlayAchievementsUnlockedCount
+        {
+            get => overlayAchievementsUnlockedCount;
+            set => SetValue(ref overlayAchievementsUnlockedCount, value);
+        }
+
+        [DontSerialize]
+        private int overlayAchievementsTotalCount;
+
+        [DontSerialize]
+        public int OverlayAchievementsTotalCount
+        {
+            get => overlayAchievementsTotalCount;
+            set => SetValue(ref overlayAchievementsTotalCount, value);
+        }
+
+        [DontSerialize]
+        private string overlayAchievementsSortMode = "LastUnlocked";
+
+        [DontSerialize]
+        public string OverlayAchievementsSortMode
+        {
+            get => overlayAchievementsSortMode;
+            set
+            {
+                var normalized = string.Equals(value, "LockedFirst", StringComparison.OrdinalIgnoreCase)
+                    ? "LockedFirst"
+                    : "LastUnlocked";
+
+                if (string.Equals(overlayAchievementsSortMode, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                SetValue(ref overlayAchievementsSortMode, normalized);
+                ApplyOverlayAchievementsSort();
+                NotifyOverlayAchievementsSortChanged();
+            }
+        }
+
+        [DontSerialize]
+        public string OverlayAchievementsSortButtonText
+        {
+            get
+            {
+                return string.Equals(overlayAchievementsSortMode, "LockedFirst", StringComparison.OrdinalIgnoreCase)
+                    ? "Locked first"
+                    : "Last unlocked";
+            }
+        }
+
+        [DontSerialize]
+        public string OverlayAchievementsSortDescription
+        {
+            get
+            {
+                return string.Equals(overlayAchievementsSortMode, "LockedFirst", StringComparison.OrdinalIgnoreCase)
+                    ? "Locked achievements are shown first."
+                    : "Newest unlocked achievements are shown first.";
+            }
         }
 
         [DontSerialize]
@@ -599,7 +1171,16 @@ namespace AnikiHelper
         public RelayCommand<AnikiMediaGameItem> OpenScreenshotsForMediaGameCommand { get; }
 
         [DontSerialize]
+        public RelayCommand<AnikiOverlayAppItem> OpenOverlayAppCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ToggleOverlayAchievementsSortCommand { get; }
+
+        [DontSerialize]
         public RelayCommand<AnikiMediaItem> OpenScreenshotsForMediaItemCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<AnikiMediaItem> OpenOverlayCapturePreviewCommand { get; }
 
         [DontSerialize]
         private int currentGameMediaLoadedCount;
@@ -1129,7 +1710,31 @@ namespace AnikiHelper
         public AnikiWindowCommandProvider OpenWindow { get; }
 
         [DontSerialize]
+        public ObservableCollection<AnikiDuplicateHiderGameItem> DuplicateHiderGameVersions { get; }
+        = new ObservableCollection<AnikiDuplicateHiderGameItem>();
+
+        [DontSerialize]
+        private bool hasDuplicateHiderVersions;
+
+        [DontSerialize]
+        public bool HasDuplicateHiderVersions
+        {
+            get => hasDuplicateHiderVersions;
+            set => SetValue(ref hasDuplicateHiderVersions, value);
+        }
+
+        [DontSerialize]
+        public RelayCommand OpenDuplicateHiderVersionsWindowCommand { get; }
+
+        [DontSerialize]
         public AnikiWindowCommandProvider OpenChildWindow { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenInGameOverlayCommand { get; }
+
+        [DontSerialize]
+        public AnikiWindowCommandProvider OpenInGameOverlay { get; }
+
         public ICommand OpenSteamGameNewsWindowCommand { get; }
 
         [DontSerialize]
@@ -1185,6 +1790,9 @@ namespace AnikiHelper
         public AnikiWindowCommandProvider OpenHelpLink { get; }
 
         [DontSerialize]
+        public AnikiWindowCommandProvider MusicTransport { get; }
+
+        [DontSerialize]
         public RelayCommand NextNewsTabCommand { get; }
 
         [DontSerialize]
@@ -1213,7 +1821,7 @@ namespace AnikiHelper
             get => hubCurrentPage;
             set
             {
-                var newValue = Math.Max(1, Math.Min(6, value));
+                var newValue = Math.Max(1, Math.Min(HubMaxPage, value));
 
                 if (hubCurrentPage == newValue)
                 {
@@ -1225,13 +1833,11 @@ namespace AnikiHelper
 
                 SetValue(ref hubCurrentPage, newValue);
 
-                OnPropertyChanged(nameof(HubCurrentPageTag));
-                OnPropertyChanged(nameof(HubIsPage1));
-                OnPropertyChanged(nameof(HubIsPage2));
-                OnPropertyChanged(nameof(HubIsPage3));
-                OnPropertyChanged(nameof(HubIsPage4));
-                OnPropertyChanged(nameof(HubIsPage5));
-                OnPropertyChanged(nameof(HubIsPage6));
+                NotifyHubPageStateProperties();
+                if (newValue >= 2)
+                {
+                    RequestSteamStoreLoad();
+                }
             }
         }
 
@@ -1256,6 +1862,9 @@ namespace AnikiHelper
         }
 
         [DontSerialize]
+        public int HubMaxPage => ShowHubAppsPage ? 10 : 9;
+
+        [DontSerialize]
         public string HubCurrentPageTag => $"Page{HubCurrentPage}";
 
         [DontSerialize]
@@ -1276,8 +1885,69 @@ namespace AnikiHelper
         [DontSerialize]
         public bool HubIsPage6 => HubCurrentPage == 6;
 
+        [DontSerialize]
+        public bool HubIsPage7 => HubCurrentPage == 7;
+
+        [DontSerialize]
+        public bool HubIsPage8 => HubCurrentPage == 8;
+
+        [DontSerialize]
+        public bool HubIsPage9 => HubCurrentPage == 9;
+
+        [DontSerialize]
+        public bool HubIsPage10 => HubCurrentPage == 10;
+
+        [DontSerialize]
+        public bool HubIsAppsPage => ShowHubAppsPage && HubCurrentPage == 3;
+
+        [DontSerialize]
+        public bool HubIsLibraryRecommendedPage => HubCurrentPage == (ShowHubAppsPage ? 4 : 3);
+
+        [DontSerialize]
+        public bool HubIsFriendActivityPage => HubCurrentPage == (ShowHubAppsPage ? 5 : 4);
+
+        [DontSerialize]
+        public bool HubIsLatestCapturesPage => HubCurrentPage == (ShowHubAppsPage ? 6 : 5);
+
+        [DontSerialize]
+        public bool HubIsAchievementMemoriesPage => HubCurrentPage == (ShowHubAppsPage ? 7 : 6);
+
+        [DontSerialize]
+        public bool HubIsForYouStorePage => HubCurrentPage == (ShowHubAppsPage ? 8 : 7);
+
+        [DontSerialize]
+        public bool HubIsStorePage => HubCurrentPage == (ShowHubAppsPage ? 9 : 8);
+
+        [DontSerialize]
+        public bool HubIsUpcomingPage => HubCurrentPage == (ShowHubAppsPage ? 10 : 9);
+
+        private void NotifyHubPageStateProperties()
+        {
+            OnPropertyChanged(nameof(HubCurrentPageTag));
+            OnPropertyChanged(nameof(HubIsPage1));
+            OnPropertyChanged(nameof(HubIsPage2));
+            OnPropertyChanged(nameof(HubIsPage3));
+            OnPropertyChanged(nameof(HubIsPage4));
+            OnPropertyChanged(nameof(HubIsPage5));
+            OnPropertyChanged(nameof(HubIsPage6));
+            OnPropertyChanged(nameof(HubIsPage7));
+            OnPropertyChanged(nameof(HubIsPage8));
+            OnPropertyChanged(nameof(HubIsPage9));
+            OnPropertyChanged(nameof(HubIsPage10));
+            OnPropertyChanged(nameof(HubIsAppsPage));
+            OnPropertyChanged(nameof(HubIsLibraryRecommendedPage));
+            OnPropertyChanged(nameof(HubIsFriendActivityPage));
+            OnPropertyChanged(nameof(HubIsLatestCapturesPage));
+            OnPropertyChanged(nameof(HubIsAchievementMemoriesPage));
+            OnPropertyChanged(nameof(HubIsForYouStorePage));
+            OnPropertyChanged(nameof(HubIsStorePage));
+            OnPropertyChanged(nameof(HubIsUpcomingPage));
+        }
+
         public void SetHubPage(object page)
         {
+            EnsureHubAppsSoftwareToolsLoaded();
+
             if (page == null)
             {
                 return;
@@ -1300,11 +1970,13 @@ namespace AnikiHelper
 
         public void NextHubPage()
         {
+            EnsureHubAppsSoftwareToolsLoaded();
             HubCurrentPage++;
         }
 
         public void PreviousHubPage()
         {
+            EnsureHubAppsSoftwareToolsLoaded();
             HubCurrentPage--;
         }
 
@@ -1337,6 +2009,106 @@ namespace AnikiHelper
         {
             get => openWelcomeHubOnStartup;
             set => SetValue(ref openWelcomeHubOnStartup, value);
+        }
+
+        private bool hubAppsEnabled = false;
+        public bool HubAppsEnabled
+        {
+            get => hubAppsEnabled;
+            set
+            {
+                SetValue(ref hubAppsEnabled, value);
+                RefreshHubApps();
+                EnsureHubCurrentPageInRange();
+            }
+        }
+
+        private string hubAppSlot1ToolName = string.Empty;
+        public string HubAppSlot1ToolName
+        {
+            get => hubAppSlot1ToolName;
+            set
+            {
+                SetValue(ref hubAppSlot1ToolName, NormalizeSettingText(value));
+                RefreshHubApps();
+            }
+        }
+
+        private string hubAppSlot2ToolName = string.Empty;
+        public string HubAppSlot2ToolName
+        {
+            get => hubAppSlot2ToolName;
+            set
+            {
+                SetValue(ref hubAppSlot2ToolName, NormalizeSettingText(value));
+                RefreshHubApps();
+            }
+        }
+
+        private string hubAppSlot3ToolName = string.Empty;
+        public string HubAppSlot3ToolName
+        {
+            get => hubAppSlot3ToolName;
+            set
+            {
+                SetValue(ref hubAppSlot3ToolName, NormalizeSettingText(value));
+                RefreshHubApps();
+            }
+        }
+
+        private string hubAppSlot4ToolName = string.Empty;
+        public string HubAppSlot4ToolName
+        {
+            get => hubAppSlot4ToolName;
+            set
+            {
+                SetValue(ref hubAppSlot4ToolName, NormalizeSettingText(value));
+                RefreshHubApps();
+            }
+        }
+
+        private string hubAppSlot1BackgroundPath = string.Empty;
+        public string HubAppSlot1BackgroundPath
+        {
+            get => hubAppSlot1BackgroundPath;
+            set
+            {
+                SetValue(ref hubAppSlot1BackgroundPath, NormalizeExternalPath(value));
+                RefreshHubApps();
+            }
+        }
+
+        private string hubAppSlot2BackgroundPath = string.Empty;
+        public string HubAppSlot2BackgroundPath
+        {
+            get => hubAppSlot2BackgroundPath;
+            set
+            {
+                SetValue(ref hubAppSlot2BackgroundPath, NormalizeExternalPath(value));
+                RefreshHubApps();
+            }
+        }
+
+        private string hubAppSlot3BackgroundPath = string.Empty;
+        public string HubAppSlot3BackgroundPath
+        {
+            get => hubAppSlot3BackgroundPath;
+            set
+            {
+                SetValue(ref hubAppSlot3BackgroundPath, NormalizeExternalPath(value));
+                RefreshHubApps();
+            }
+        }
+
+        private string hubAppSlot4BackgroundPath = string.Empty;
+        public string HubAppSlot4BackgroundPath
+        {
+            get => hubAppSlot4BackgroundPath;
+            set
+            {
+                SetValue(ref hubAppSlot4BackgroundPath, NormalizeExternalPath(value));
+                RefreshHubApps();
+            }
         }
 
         private string customFilterIconsFolder = string.Empty;
@@ -1665,94 +2437,9 @@ namespace AnikiHelper
         private ulong totalPlaytimeMinutes;
         private ulong averagePlaytimeMinutes;
 
-        // Suggested game for the Welcome Hub
-
-        private string suggestedGameName;
-        public string SuggestedGameName
-        {
-            get => suggestedGameName;
-            set => SetValue(ref suggestedGameName, value);
-        }
-
-        private string suggestedGameCoverPath;
-        public string SuggestedGameCoverPath
-        {
-            get => suggestedGameCoverPath;
-            set => SetValue(ref suggestedGameCoverPath, value);
-        }
-
-        private string suggestedGameBackgroundPath;
-        public string SuggestedGameBackgroundPath
-        {
-            get => suggestedGameBackgroundPath;
-            set => SetValue(ref suggestedGameBackgroundPath, value);
-        }
-
-        private string suggestedGameBackgroundPathA;
-        public string SuggestedGameBackgroundPathA
-        {
-            get => suggestedGameBackgroundPathA;
-            set => SetValue(ref suggestedGameBackgroundPathA, value);
-        }
-
-        private string suggestedGameBackgroundPathB;
-        public string SuggestedGameBackgroundPathB
-        {
-            get => suggestedGameBackgroundPathB;
-            set => SetValue(ref suggestedGameBackgroundPathB, value);
-        }
-
-        private bool suggestedGameShowLayerB;
-        public bool SuggestedGameShowLayerB
-        {
-            get => suggestedGameShowLayerB;
-            set => SetValue(ref suggestedGameShowLayerB, value);
-        }
-
-        // Reference games for the suggestion
-        private string suggestedGameSourceName;
-        public string SuggestedGameSourceName
-        {
-            get => suggestedGameSourceName;
-            set => SetValue(ref suggestedGameSourceName, value);
-        }
-
-        // Reason for game suggestion
-
-        private string suggestedGameReasonKey;
-        public string SuggestedGameReasonKey
-        {
-            get => suggestedGameReasonKey;
-            set => SetValue(ref suggestedGameReasonKey, value);
-        }
-
-        private string suggestedGameBannerText;
-        public string SuggestedGameBannerText
-        {
-            get => suggestedGameBannerText;
-            set => SetValue(ref suggestedGameBannerText, value);
-        }
-
-
-
-        // Rotation info for suggested game (top 3 / once per day)
+        // Reference games for the Hub library recommendation section.
         public Guid RefGameLastId { get; set; } = Guid.Empty;
         public DateTime RefGameLastChangeDate { get; set; } = DateTime.MinValue;
-
-
-        private Guid suggestedGameLastId = Guid.Empty;
-        public Guid SuggestedGameLastId
-        {
-            get => suggestedGameLastId;
-            set => SetValue(ref suggestedGameLastId, value);
-        }
-
-        private DateTime suggestedGameLastChangeDate = DateTime.MinValue;
-        public DateTime SuggestedGameLastChangeDate
-        {
-            get => suggestedGameLastChangeDate;
-            set => SetValue(ref suggestedGameLastChangeDate, value);
-        }
 
 
         // MOST PLAYED GAME OF THE MONTH
@@ -2180,6 +2867,70 @@ namespace AnikiHelper
             set => SetValue(ref latestNewsShowLayerB, value);
         }
 
+        // Snapshot for Welcome Hub - From your library card
+        private string libraryNewsTitle;
+        public string LibraryNewsTitle
+        {
+            get => libraryNewsTitle;
+            set => SetValue(ref libraryNewsTitle, value);
+        }
+
+        private string libraryNewsGameName;
+        public string LibraryNewsGameName
+        {
+            get => libraryNewsGameName;
+            set => SetValue(ref libraryNewsGameName, value);
+        }
+
+        private string libraryNewsDateString;
+        public string LibraryNewsDateString
+        {
+            get => libraryNewsDateString;
+            set => SetValue(ref libraryNewsDateString, value);
+        }
+
+        private string libraryNewsSummary;
+        public string LibraryNewsSummary
+        {
+            get => libraryNewsSummary;
+            set => SetValue(ref libraryNewsSummary, value);
+        }
+
+        private string libraryNewsBadgeText;
+        public string LibraryNewsBadgeText
+        {
+            get => libraryNewsBadgeText;
+            set => SetValue(ref libraryNewsBadgeText, value);
+        }
+
+        private string libraryNewsImagePath;
+        public string LibraryNewsImagePath
+        {
+            get => libraryNewsImagePath;
+            set => SetValue(ref libraryNewsImagePath, value);
+        }
+
+        private string libraryNewsImagePathA;
+        public string LibraryNewsImagePathA
+        {
+            get => libraryNewsImagePathA;
+            set => SetValue(ref libraryNewsImagePathA, value);
+        }
+
+        private string libraryNewsImagePathB;
+        public string LibraryNewsImagePathB
+        {
+            get => libraryNewsImagePathB;
+            set => SetValue(ref libraryNewsImagePathB, value);
+        }
+
+        private bool libraryNewsShowLayerB;
+        public bool LibraryNewsShowLayerB
+        {
+            get => libraryNewsShowLayerB;
+            set => SetValue(ref libraryNewsShowLayerB, value);
+        }
+
 
 
         // Playnite News 
@@ -2227,8 +2978,648 @@ namespace AnikiHelper
         public bool SteamStoreEnabled
         {
             get => steamStoreEnabled;
-            set => SetValue(ref steamStoreEnabled, value);
+            set
+            {
+                SetValue(ref steamStoreEnabled, value);
+                NotifyHubForYouStorePageStateChanged();
+            }
         }
+
+
+
+        // Steam Friends integration (ported from Steam Friends Fullscreen, without Windows notifications)
+        private bool steamFriendsEnabled = true;
+        public bool SteamFriendsEnabled
+        {
+            get => steamFriendsEnabled;
+            set
+            {
+                SetValue(ref steamFriendsEnabled, value);
+                NotifySteamFriendsConfigurationPropertiesChanged();
+            }
+        }
+
+        private string steamApiKey = string.Empty;
+        public string SteamApiKey
+        {
+            get => steamApiKey;
+            set
+            {
+                SetValue(ref steamApiKey, value ?? string.Empty);
+                NotifySteamFriendsConfigurationPropertiesChanged();
+            }
+        }
+
+        private string steamId64 = string.Empty;
+        public string SteamId64
+        {
+            get => steamId64;
+            set
+            {
+                SetValue(ref steamId64, value ?? string.Empty);
+                NotifySteamFriendsConfigurationPropertiesChanged();
+            }
+        }
+
+
+        private string steamAccountSteamId64 = string.Empty;
+        public string SteamAccountSteamId64
+        {
+            get => steamAccountSteamId64;
+            set
+            {
+                SetValue(ref steamAccountSteamId64, value ?? string.Empty);
+                NotifySteamFriendsConfigurationPropertiesChanged();
+            }
+        }
+
+
+        [DontSerialize]
+        public bool SteamFriendsHasSteamApiKey => !string.IsNullOrWhiteSpace(SteamApiKey);
+
+        [DontSerialize]
+        public bool SteamFriendsHasSteamId =>
+            !string.IsNullOrWhiteSpace(SteamAccountSteamId64) ||
+            !string.IsNullOrWhiteSpace(SteamId64);
+
+        [DontSerialize]
+        public bool SteamFriendsHasRequiredConfig => SteamFriendsHasSteamApiKey && SteamFriendsHasSteamId;
+
+        [DontSerialize]
+        public bool SteamFriendsFeatureDisabled => SteamFriendsEnabled != true;
+
+        [DontSerialize]
+        public bool SteamFriendsMissingConfiguration => SteamFriendsEnabled == true && !SteamFriendsHasRequiredConfig;
+
+        [DontSerialize]
+        public bool SteamFriendsReady => SteamFriendsEnabled == true && SteamFriendsHasRequiredConfig;
+
+        [DontSerialize]
+        public Visibility SteamFriendsStatusVisibility => SteamFriendsEnabled ? Visibility.Visible : Visibility.Collapsed;
+
+        [DontSerialize]
+        public Visibility SteamFriendsSetupMessageVisibility => SteamFriendsMissingConfiguration ? Visibility.Visible : Visibility.Collapsed;
+
+        [DontSerialize]
+        public Visibility SteamFriendsRuntimeVisibility => SteamFriendsReady ? Visibility.Visible : Visibility.Collapsed;
+
+        [DontSerialize]
+        public Visibility SteamFriendsOpenSteamButtonVisibility => SteamFriendsReady && !IsSteamRunning
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        [DontSerialize]
+        public Visibility SteamFriendsChangeStatusVisibility => SteamFriendsReady && IsSteamRunning
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        [DontSerialize]
+        public string SteamFriendsConfigurationState
+        {
+            get
+            {
+                if (SteamFriendsEnabled != true)
+                {
+                    return "disabled";
+                }
+
+                return SteamFriendsHasRequiredConfig ? "ready" : "missingconfig";
+            }
+        }
+
+        [DontSerialize]
+        public string SteamFriendsSetupTitle
+        {
+            get
+            {
+                if (SteamFriendsEnabled != true)
+                {
+                    return "Steam Friends is disabled";
+                }
+
+                return SteamFriendsHasRequiredConfig
+                    ? "Steam Friends is ready"
+                    : "Steam Friends setup required";
+            }
+        }
+
+        [DontSerialize]
+        public string SteamFriendsSetupMessage
+        {
+            get
+            {
+                if (SteamFriendsEnabled != true)
+                {
+                    return "Steam Friends is disabled in Aniki Helper settings.";
+                }
+
+                if (!SteamFriendsHasSteamApiKey && !SteamFriendsHasSteamId)
+                {
+                    return "Steam Friends is enabled, but your Steam API key and SteamID64 / profile URL are missing.";
+                }
+
+                if (!SteamFriendsHasSteamApiKey)
+                {
+                    return "Steam Friends is enabled, but your Steam API key is missing.";
+                }
+
+                if (!SteamFriendsHasSteamId)
+                {
+                    return "Steam Friends is enabled, but no SteamID64 or Steam profile URL is configured.";
+                }
+
+                return string.Empty;
+            }
+        }
+
+        [DontSerialize]
+        public string SteamFriendsStatusButtonText
+        {
+            get
+            {
+                if (SteamFriendsEnabled != true)
+                {
+                    return "Steam Friends disabled";
+                }
+
+                if (!SteamFriendsHasRequiredConfig)
+                {
+                    return "Configure Steam Friends";
+                }
+
+                if (IsSteamLaunching)
+                {
+                    return string.IsNullOrWhiteSpace(SteamLaunchMessage) ? "Launching Steam..." : SteamLaunchMessage;
+                }
+
+                return IsSteamRunning ? SelfStateLoc : "Open Steam";
+            }
+        }
+
+        private void NotifySteamFriendsConfigurationPropertiesChanged()
+        {
+            OnPropertyChanged(nameof(SteamFriendsHasSteamApiKey));
+            OnPropertyChanged(nameof(SteamFriendsHasSteamId));
+            OnPropertyChanged(nameof(SteamFriendsHasRequiredConfig));
+            OnPropertyChanged(nameof(SteamFriendsFeatureDisabled));
+            OnPropertyChanged(nameof(SteamFriendsMissingConfiguration));
+            OnPropertyChanged(nameof(SteamFriendsReady));
+            OnPropertyChanged(nameof(SteamFriendsStatusVisibility));
+            OnPropertyChanged(nameof(SteamFriendsSetupMessageVisibility));
+            OnPropertyChanged(nameof(SteamFriendsRuntimeVisibility));
+            OnPropertyChanged(nameof(SteamFriendsOpenSteamButtonVisibility));
+            OnPropertyChanged(nameof(SteamFriendsChangeStatusVisibility));
+            OnPropertyChanged(nameof(SteamFriendsConfigurationState));
+            OnPropertyChanged(nameof(SteamFriendsSetupTitle));
+            OnPropertyChanged(nameof(SteamFriendsSetupMessage));
+            OnPropertyChanged(nameof(SteamFriendsStatusButtonText));
+        }
+
+        private string steamAccountProfileUrl = string.Empty;
+        public string SteamAccountProfileUrl
+        {
+            get => steamAccountProfileUrl;
+            set => SetValue(ref steamAccountProfileUrl, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private bool steamAccountConnected;
+        [DontSerialize]
+        public bool SteamAccountConnected
+        {
+            get => steamAccountConnected;
+            set => SetValue(ref steamAccountConnected, value);
+        }
+
+        [DontSerialize]
+        private bool steamAccountBusy;
+        [DontSerialize]
+        public bool SteamAccountBusy
+        {
+            get => steamAccountBusy;
+            set => SetValue(ref steamAccountBusy, value);
+        }
+
+        [DontSerialize]
+        private string steamAccountStatus = "Not connected";
+        [DontSerialize]
+        public string SteamAccountStatus
+        {
+            get => steamAccountStatus;
+            set => SetValue(ref steamAccountStatus, value ?? string.Empty);
+        }
+
+        private bool showOffline = false;
+        public bool ShowOffline
+        {
+            get => showOffline;
+            set => SetValue(ref showOffline, value);
+        }
+
+        private bool notifyOnGameStart = true;
+        public bool NotifyOnGameStart
+        {
+            get => notifyOnGameStart;
+            set => SetValue(ref notifyOnGameStart, value);
+        }
+
+        private bool notifyOnConnect = false;
+        public bool NotifyOnConnect
+        {
+            get => notifyOnConnect;
+            set => SetValue(ref notifyOnConnect, value);
+        }
+
+        // Steam Friends runtime state exposed to the theme
+        [DontSerialize]
+        public ObservableCollection<FriendPresenceDto> Friends { get; private set; } = new ObservableCollection<FriendPresenceDto>();
+
+        [DontSerialize]
+        public ObservableCollection<FriendActivityHubItem> FriendActivityHubItems { get; private set; } = new ObservableCollection<FriendActivityHubItem>();
+
+
+        [DontSerialize]
+        public ObservableCollection<SteamFriendPlayedGameDto> SteamFriendsWhoPlayedCurrentGame { get; private set; } = new ObservableCollection<SteamFriendPlayedGameDto>();
+
+        [DontSerialize]
+        public ObservableCollection<FriendPresenceDto> SteamFriendsPlayingCurrentGame { get; private set; } = new ObservableCollection<FriendPresenceDto>();
+
+        private bool steamFriendsWhoPlayedAvailable;
+        [DontSerialize]
+        public bool SteamFriendsWhoPlayedAvailable
+        {
+            get => steamFriendsWhoPlayedAvailable;
+            set => SetValue(ref steamFriendsWhoPlayedAvailable, value);
+        }
+
+        private bool steamFriendsWhoPlayedLoading;
+        [DontSerialize]
+        public bool SteamFriendsWhoPlayedLoading
+        {
+            get => steamFriendsWhoPlayedLoading;
+            set => SetValue(ref steamFriendsWhoPlayedLoading, value);
+        }
+
+        private int steamFriendsWhoPlayedCount;
+        [DontSerialize]
+        public int SteamFriendsWhoPlayedCount
+        {
+            get => steamFriendsWhoPlayedCount;
+            set => SetValue(ref steamFriendsWhoPlayedCount, value);
+        }
+
+        private string steamFriendsWhoPlayedSummary;
+        [DontSerialize]
+        public string SteamFriendsWhoPlayedSummary
+        {
+            get => steamFriendsWhoPlayedSummary;
+            set => SetValue(ref steamFriendsWhoPlayedSummary, value ?? string.Empty);
+        }
+
+        private string steamFriendsWhoPlayedError;
+        [DontSerialize]
+        public string SteamFriendsWhoPlayedError
+        {
+            get => steamFriendsWhoPlayedError;
+            set => SetValue(ref steamFriendsWhoPlayedError, value ?? string.Empty);
+        }
+
+        private bool steamFriendsPlayedGamesCacheRefreshing;
+        [DontSerialize]
+        public bool SteamFriendsPlayedGamesCacheRefreshing
+        {
+            get => steamFriendsPlayedGamesCacheRefreshing;
+            set => SetValue(ref steamFriendsPlayedGamesCacheRefreshing, value);
+        }
+
+        private bool steamFriendsPlayedGamesCacheStale = true;
+        [DontSerialize]
+        public bool SteamFriendsPlayedGamesCacheStale
+        {
+            get => steamFriendsPlayedGamesCacheStale;
+            set => SetValue(ref steamFriendsPlayedGamesCacheStale, value);
+        }
+
+        private string steamFriendsPlayedGamesCacheStatus;
+        [DontSerialize]
+        public string SteamFriendsPlayedGamesCacheStatus
+        {
+            get => steamFriendsPlayedGamesCacheStatus;
+            set => SetValue(ref steamFriendsPlayedGamesCacheStatus, value ?? string.Empty);
+        }
+
+        private bool steamFriendsPlayingCurrentGameAvailable;
+        [DontSerialize]
+        public bool SteamFriendsPlayingCurrentGameAvailable
+        {
+            get => steamFriendsPlayingCurrentGameAvailable;
+            set => SetValue(ref steamFriendsPlayingCurrentGameAvailable, value);
+        }
+
+        private int steamFriendsPlayingCurrentGameCount;
+        [DontSerialize]
+        public int SteamFriendsPlayingCurrentGameCount
+        {
+            get => steamFriendsPlayingCurrentGameCount;
+            set => SetValue(ref steamFriendsPlayingCurrentGameCount, value);
+        }
+
+        private string steamFriendsPlayingCurrentGameSummary;
+        [DontSerialize]
+        public string SteamFriendsPlayingCurrentGameSummary
+        {
+            get => steamFriendsPlayingCurrentGameSummary;
+            set => SetValue(ref steamFriendsPlayingCurrentGameSummary, value ?? string.Empty);
+        }
+
+        private bool showHubFriendActivityPage;
+        [DontSerialize]
+        public bool ShowHubFriendActivityPage
+        {
+            get => showHubFriendActivityPage;
+            set => SetValue(ref showHubFriendActivityPage, value);
+        }
+
+        public void EnsureFriendActivityHubRuntimeCollections()
+        {
+            if (FriendActivityHubItems == null)
+            {
+                FriendActivityHubItems = new ObservableCollection<FriendActivityHubItem>();
+            }
+        }
+
+        public void EnsureSteamFriendsRuntimeCollections()
+        {
+            if (Friends == null)
+            {
+                Friends = new ObservableCollection<FriendPresenceDto>();
+            }
+
+            if (SteamFriendsWhoPlayedCurrentGame == null)
+            {
+                SteamFriendsWhoPlayedCurrentGame = new ObservableCollection<SteamFriendPlayedGameDto>();
+            }
+
+            if (SteamFriendsPlayingCurrentGame == null)
+            {
+                SteamFriendsPlayingCurrentGame = new ObservableCollection<FriendPresenceDto>();
+            }
+
+            EnsureFriendActivityHubRuntimeCollections();
+        }
+
+        private bool toastIsVisible;
+        [DontSerialize]
+        public bool ToastIsVisible
+        {
+            get => toastIsVisible;
+            set => SetValue(ref toastIsVisible, value);
+        }
+
+        private bool toastFlip;
+        [DontSerialize]
+        public bool ToastFlip
+        {
+            get => toastFlip;
+            set => SetValue(ref toastFlip, value);
+        }
+
+        private string toastMessage;
+        [DontSerialize]
+        public string ToastMessage
+        {
+            get => toastMessage;
+            set => SetValue(ref toastMessage, value);
+        }
+
+        private string toastAvatar;
+        [DontSerialize]
+        public string ToastAvatar
+        {
+            get => toastAvatar;
+            set => SetValue(ref toastAvatar, value);
+        }
+
+        private long toastToken;
+        [DontSerialize]
+        public long ToastToken
+        {
+            get => toastToken;
+            set => SetValue(ref toastToken, value);
+        }
+
+        private int onlineCount;
+        [DontSerialize]
+        public int OnlineCount
+        {
+            get => onlineCount;
+            set => SetValue(ref onlineCount, value);
+        }
+
+        private int inGameCount;
+        [DontSerialize]
+        public int InGameCount
+        {
+            get => inGameCount;
+            set => SetValue(ref inGameCount, value);
+        }
+
+        private int offlineCount;
+        [DontSerialize]
+        public int OfflineCount
+        {
+            get => offlineCount;
+            set => SetValue(ref offlineCount, value);
+        }
+
+        private DateTime lastUpdateUtc = DateTime.MinValue;
+        [DontSerialize]
+        public DateTime LastUpdateUtc
+        {
+            get => lastUpdateUtc;
+            set => SetValue(ref lastUpdateUtc, value);
+        }
+
+        private string lastError;
+        [DontSerialize]
+        public string LastError
+        {
+            get => lastError;
+            set => SetValue(ref lastError, value);
+        }
+
+        [DontSerialize]
+        public bool IsStale
+        {
+            get
+            {
+                if (LastUpdateUtc == DateTime.MinValue)
+                {
+                    return true;
+                }
+
+                return (DateTime.UtcNow - LastUpdateUtc) > TimeSpan.FromSeconds(180);
+            }
+        }
+
+        private bool isSteamRunning;
+        [DontSerialize]
+        public bool IsSteamRunning
+        {
+            get => isSteamRunning;
+            set
+            {
+                SetValue(ref isSteamRunning, value);
+                NotifySteamFriendsConfigurationPropertiesChanged();
+            }
+        }
+
+        private bool isSteamLaunching;
+        [DontSerialize]
+        public bool IsSteamLaunching
+        {
+            get => isSteamLaunching;
+            set
+            {
+                SetValue(ref isSteamLaunching, value);
+                OnPropertyChanged(nameof(SteamFriendsStatusButtonText));
+            }
+        }
+
+        private string steamLaunchMessage;
+        [DontSerialize]
+        public string SteamLaunchMessage
+        {
+            get => steamLaunchMessage;
+            set
+            {
+                SetValue(ref steamLaunchMessage, value);
+                OnPropertyChanged(nameof(SteamFriendsStatusButtonText));
+            }
+        }
+
+        private string selfName;
+        [DontSerialize]
+        public string SelfName
+        {
+            get => selfName;
+            set => SetValue(ref selfName, value);
+        }
+
+        private string selfState = "offline";
+        [DontSerialize]
+        public string SelfState
+        {
+            get => selfState;
+            set => SetValue(ref selfState, value);
+        }
+
+        private string selfGame;
+        [DontSerialize]
+        public string SelfGame
+        {
+            get => selfGame;
+            set => SetValue(ref selfGame, value);
+        }
+
+        private string selfAvatar;
+        [DontSerialize]
+        public string SelfAvatar
+        {
+            get => selfAvatar;
+            set => SetValue(ref selfAvatar, value);
+        }
+
+        private string selfStateLoc = "Offline";
+
+        [DontSerialize]
+        public string SelfStateLoc
+        {
+            get => selfStateLoc;
+            set
+            {
+                SetValue(ref selfStateLoc, value);
+                OnPropertyChanged(nameof(SteamFriendsStatusButtonText));
+            }
+        }
+
+        private FriendProfileDto selectedFriendProfile;
+        [DontSerialize]
+        public FriendProfileDto SelectedFriendProfile
+        {
+            get => selectedFriendProfile;
+            set => SetValue(ref selectedFriendProfile, value);
+        }
+
+        private bool isFriendProfileLoading;
+        [DontSerialize]
+        public bool IsFriendProfileLoading
+        {
+            get => isFriendProfileLoading;
+            set => SetValue(ref isFriendProfileLoading, value);
+        }
+
+        private string selectedFriendSteamId;
+        [DontSerialize]
+        public string SelectedFriendSteamId
+        {
+            get => selectedFriendSteamId;
+            set => SetValue(ref selectedFriendSteamId, value);
+        }
+
+        private string friendProfileError;
+        [DontSerialize]
+        public string FriendProfileError
+        {
+            get => friendProfileError;
+            set => SetValue(ref friendProfileError, value);
+        }
+
+        private bool isFriendProfileOpen;
+        [DontSerialize]
+        public bool IsFriendProfileOpen
+        {
+            get => isFriendProfileOpen;
+            set => SetValue(ref isFriendProfileOpen, value);
+        }
+
+        private bool isFriendActionsMenuOpen;
+        [DontSerialize]
+        public bool IsFriendActionsMenuOpen
+        {
+            get => isFriendActionsMenuOpen;
+            set => SetValue(ref isFriendActionsMenuOpen, value);
+        }
+
+        private FriendPresenceDto selectedFriendForActions;
+        [DontSerialize]
+        public FriendPresenceDto SelectedFriendForActions
+        {
+            get => selectedFriendForActions;
+            set => SetValue(ref selectedFriendForActions, value);
+        }
+
+        [DontSerialize] public ICommand SetStatusOnlineCommand { get; set; }
+        [DontSerialize] public ICommand SetStatusAwayCommand { get; set; }
+        [DontSerialize] public ICommand SetStatusBusyCommand { get; set; }
+        [DontSerialize] public ICommand SetStatusInvisibleCommand { get; set; }
+        [DontSerialize] public ICommand SetStatusOfflineCommand { get; set; }
+        [DontSerialize] public ICommand OpenSteamCommand { get; set; }
+        [DontSerialize] public ICommand ConnectSteamAccountCommand { get; set; }
+        [DontSerialize] public ICommand CheckSteamAccountCommand { get; set; }
+        [DontSerialize] public ICommand DisconnectSteamAccountCommand { get; set; }
+        [DontSerialize] public ICommand OpenSelfStatusWindowCommand { get; set; }
+        [DontSerialize] public ICommand OpenFriendProfileCommand { get; set; }
+        [DontSerialize] public ICommand OpenFriendProfileWindowCommand { get; set; }
+        [DontSerialize] public ICommand RefreshSelectedFriendProfileCommand { get; set; }
+        [DontSerialize] public ICommand ClearFriendProfileCommand { get; set; }
+        [DontSerialize] public ICommand OpenFriendChatCommand { get; set; }
+        [DontSerialize] public ICommand OpenFriendActionsWindowCommand { get; set; }
+        [DontSerialize] public ICommand OpenFriendActionsMenuCommand { get; set; }
+        [DontSerialize] public ICommand CloseFriendActionsMenuCommand { get; set; }
+        [DontSerialize] public ICommand OpenSelectedFriendProfileCommand { get; set; }
+        [DontSerialize] public ICommand OpenSelectedFriendChatCommand { get; set; }
+        [DontSerialize] public ICommand RefreshFriendsPlayedGamesCacheCommand { get; set; }
 
         private bool steamStoreLoading;
         public bool SteamStoreLoading
@@ -2263,6 +3654,10 @@ namespace AnikiHelper
         private ObservableCollection<SteamStoreItem> steamStoreTopSellers = new ObservableCollection<SteamStoreItem>();
         private ObservableCollection<SteamStoreItem> steamStoreUpcoming = new ObservableCollection<SteamStoreItem>();
         private ObservableCollection<SteamStoreItem> steamStoreWishlisted = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreMyWishlist = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreRecommended = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<SteamStoreItem> steamStoreRecommendedHub = new ObservableCollection<SteamStoreItem>();
+        private ObservableCollection<HubLibraryRecommendedGameItem> hubLibraryRecommendedGames = new ObservableCollection<HubLibraryRecommendedGameItem>();
 
         private string steamStoreSelectedSection = "Deals";
         public string SteamStoreSelectedSection
@@ -2276,6 +3671,15 @@ namespace AnikiHelper
         {
             get => steamStoreSelectedSectionTitle;
             set => SetValue(ref steamStoreSelectedSectionTitle, value);
+        }
+
+        [DontSerialize]
+        private bool steamStoreSelectedSectionRequiresSteamAuth;
+        [DontSerialize]
+        public bool SteamStoreSelectedSectionRequiresSteamAuth
+        {
+            get => steamStoreSelectedSectionRequiresSteamAuth;
+            set => SetValue(ref steamStoreSelectedSectionRequiresSteamAuth, value);
         }
 
         private ObservableCollection<SteamStoreItem> steamStoreCurrentItems = new ObservableCollection<SteamStoreItem>();
@@ -2451,6 +3855,62 @@ namespace AnikiHelper
             set => SetValue(ref steamStoreWishlisted, value);
         }
 
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreMyWishlist
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreMyWishlist;
+            }
+            set => SetValue(ref steamStoreMyWishlist, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreRecommended
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreRecommended;
+            }
+            set => SetValue(ref steamStoreRecommended, value);
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SteamStoreItem> SteamStoreRecommendedHub
+        {
+            get
+            {
+                RequestSteamStoreLoad();
+                return steamStoreRecommendedHub;
+            }
+            set
+            {
+                SetValue(ref steamStoreRecommendedHub, value);
+                NotifyHubForYouStorePageStateChanged();
+            }
+        }
+
+        [DontSerialize]
+        public bool ShowHubForYouStorePage
+        {
+            get => SteamStoreEnabled && steamStoreRecommendedHub != null && steamStoreRecommendedHub.Count > 0;
+        }
+
+        public void NotifyHubForYouStorePageStateChanged()
+        {
+            OnPropertyChanged(nameof(SteamStoreRecommendedHub));
+            OnPropertyChanged(nameof(ShowHubForYouStorePage));
+        }
+
+        [DontSerialize]
+        public ObservableCollection<HubLibraryRecommendedGameItem> HubLibraryRecommendedGames
+        {
+            get => hubLibraryRecommendedGames;
+            set => SetValue(ref hubLibraryRecommendedGames, value);
+        }
+
 
 
         // Enable or disable scanning
@@ -2530,6 +3990,17 @@ namespace AnikiHelper
         {
             get => lastNotifications;
             set => SetValue(ref lastNotifications, value ?? new ObservableCollection<AnikiNotificationItem>());
+        }
+
+        [DontSerialize]
+        private ObservableCollection<AnikiOverlayNeverSuspendGameItem> inGameOverlayNeverSuspendGameItems
+            = new ObservableCollection<AnikiOverlayNeverSuspendGameItem>();
+
+        [DontSerialize]
+        public ObservableCollection<AnikiOverlayNeverSuspendGameItem> InGameOverlayNeverSuspendGameItems
+        {
+            get => inGameOverlayNeverSuspendGameItems;
+            private set => SetValue(ref inGameOverlayNeverSuspendGameItems, value ?? new ObservableCollection<AnikiOverlayNeverSuspendGameItem>());
         }
 
         // Watcher SuccessStory
@@ -2671,6 +4142,427 @@ namespace AnikiHelper
             set => SetValue(ref gameLaunchSplashSelectionMode, value);
         }
 
+        [DontSerialize]
+        private bool isRefreshingGameLaunchSplashCustomPriorityOptions;
+
+        private SplashScreenPriorityTarget gameLaunchSplashCustomPriority1 = SplashScreenPriorityTarget.GameCustom;
+        public SplashScreenPriorityTarget GameLaunchSplashCustomPriority1
+        {
+            get => gameLaunchSplashCustomPriority1;
+            set
+            {
+                if (gameLaunchSplashCustomPriority1 == value)
+                {
+                    return;
+                }
+
+                SetValue(ref gameLaunchSplashCustomPriority1, value);
+                RefreshGameLaunchSplashCustomPriorityOptions();
+            }
+        }
+
+        private SplashScreenPriorityTarget gameLaunchSplashCustomPriority2 = SplashScreenPriorityTarget.GameBackground;
+        public SplashScreenPriorityTarget GameLaunchSplashCustomPriority2
+        {
+            get => gameLaunchSplashCustomPriority2;
+            set
+            {
+                if (gameLaunchSplashCustomPriority2 == value)
+                {
+                    return;
+                }
+
+                SetValue(ref gameLaunchSplashCustomPriority2, value);
+                RefreshGameLaunchSplashCustomPriorityOptions();
+            }
+        }
+
+        private SplashScreenPriorityTarget gameLaunchSplashCustomPriority3 = SplashScreenPriorityTarget.Platform;
+        public SplashScreenPriorityTarget GameLaunchSplashCustomPriority3
+        {
+            get => gameLaunchSplashCustomPriority3;
+            set
+            {
+                if (gameLaunchSplashCustomPriority3 == value)
+                {
+                    return;
+                }
+
+                SetValue(ref gameLaunchSplashCustomPriority3, value);
+                RefreshGameLaunchSplashCustomPriorityOptions();
+            }
+        }
+
+        private SplashScreenPriorityTarget gameLaunchSplashCustomPriority4 = SplashScreenPriorityTarget.Source;
+        public SplashScreenPriorityTarget GameLaunchSplashCustomPriority4
+        {
+            get => gameLaunchSplashCustomPriority4;
+            set
+            {
+                if (gameLaunchSplashCustomPriority4 == value)
+                {
+                    return;
+                }
+
+                SetValue(ref gameLaunchSplashCustomPriority4, value);
+                RefreshGameLaunchSplashCustomPriorityOptions();
+            }
+        }
+
+        private SplashScreenPriorityTarget gameLaunchSplashCustomPriority5 = SplashScreenPriorityTarget.Global;
+        public SplashScreenPriorityTarget GameLaunchSplashCustomPriority5
+        {
+            get => gameLaunchSplashCustomPriority5;
+            set
+            {
+                if (gameLaunchSplashCustomPriority5 == value)
+                {
+                    return;
+                }
+
+                SetValue(ref gameLaunchSplashCustomPriority5, value);
+                RefreshGameLaunchSplashCustomPriorityOptions();
+            }
+        }
+
+        [DontSerialize]
+        public ObservableCollection<SplashScreenPriorityOption> GameLaunchSplashCustomPriority1Options { get; }
+            = new ObservableCollection<SplashScreenPriorityOption>();
+
+        [DontSerialize]
+        public ObservableCollection<SplashScreenPriorityOption> GameLaunchSplashCustomPriority2Options { get; }
+            = new ObservableCollection<SplashScreenPriorityOption>();
+
+        [DontSerialize]
+        public ObservableCollection<SplashScreenPriorityOption> GameLaunchSplashCustomPriority3Options { get; }
+            = new ObservableCollection<SplashScreenPriorityOption>();
+
+        [DontSerialize]
+        public ObservableCollection<SplashScreenPriorityOption> GameLaunchSplashCustomPriority4Options { get; }
+            = new ObservableCollection<SplashScreenPriorityOption>();
+
+        [DontSerialize]
+        public ObservableCollection<SplashScreenPriorityOption> GameLaunchSplashCustomPriority5Options { get; }
+            = new ObservableCollection<SplashScreenPriorityOption>();
+
+        [DontSerialize]
+        public SplashScreenPriorityOption GameLaunchSplashCustomPriority1SelectedOption
+        {
+            get => FindGameLaunchSplashPriorityOption(GameLaunchSplashCustomPriority1Options, GameLaunchSplashCustomPriority1);
+            set
+            {
+                if (value != null)
+                {
+                    GameLaunchSplashCustomPriority1 = value.Value;
+                }
+            }
+        }
+
+        [DontSerialize]
+        public SplashScreenPriorityOption GameLaunchSplashCustomPriority2SelectedOption
+        {
+            get => FindGameLaunchSplashPriorityOption(GameLaunchSplashCustomPriority2Options, GameLaunchSplashCustomPriority2);
+            set
+            {
+                if (value != null)
+                {
+                    GameLaunchSplashCustomPriority2 = value.Value;
+                }
+            }
+        }
+
+        [DontSerialize]
+        public SplashScreenPriorityOption GameLaunchSplashCustomPriority3SelectedOption
+        {
+            get => FindGameLaunchSplashPriorityOption(GameLaunchSplashCustomPriority3Options, GameLaunchSplashCustomPriority3);
+            set
+            {
+                if (value != null)
+                {
+                    GameLaunchSplashCustomPriority3 = value.Value;
+                }
+            }
+        }
+
+        [DontSerialize]
+        public SplashScreenPriorityOption GameLaunchSplashCustomPriority4SelectedOption
+        {
+            get => FindGameLaunchSplashPriorityOption(GameLaunchSplashCustomPriority4Options, GameLaunchSplashCustomPriority4);
+            set
+            {
+                if (value != null)
+                {
+                    GameLaunchSplashCustomPriority4 = value.Value;
+                }
+            }
+        }
+
+        [DontSerialize]
+        public SplashScreenPriorityOption GameLaunchSplashCustomPriority5SelectedOption
+        {
+            get => FindGameLaunchSplashPriorityOption(GameLaunchSplashCustomPriority5Options, GameLaunchSplashCustomPriority5);
+            set
+            {
+                if (value != null)
+                {
+                    GameLaunchSplashCustomPriority5 = value.Value;
+                }
+            }
+        }
+
+        public IReadOnlyList<SplashScreenPriorityTarget> GetGameLaunchSplashCustomPriorityOrder()
+        {
+            var order = new[]
+            {
+                GameLaunchSplashCustomPriority1,
+                GameLaunchSplashCustomPriority2,
+                GameLaunchSplashCustomPriority3,
+                GameLaunchSplashCustomPriority4,
+                GameLaunchSplashCustomPriority5
+            };
+
+            var result = new List<SplashScreenPriorityTarget>();
+            var used = new HashSet<SplashScreenPriorityTarget>();
+
+            foreach (var target in order)
+            {
+                if (target == SplashScreenPriorityTarget.None || used.Contains(target))
+                {
+                    continue;
+                }
+
+                used.Add(target);
+                result.Add(target);
+            }
+
+            return result;
+        }
+
+        private void RefreshGameLaunchSplashCustomPriorityOptions()
+        {
+            if (isRefreshingGameLaunchSplashCustomPriorityOptions)
+            {
+                return;
+            }
+
+            isRefreshingGameLaunchSplashCustomPriorityOptions = true;
+
+            try
+            {
+                EnsureUniqueGameLaunchSplashCustomPriorities();
+
+                var selections = new[]
+                {
+                    GameLaunchSplashCustomPriority1,
+                    GameLaunchSplashCustomPriority2,
+                    GameLaunchSplashCustomPriority3,
+                    GameLaunchSplashCustomPriority4,
+                    GameLaunchSplashCustomPriority5
+                };
+
+                RefreshGameLaunchSplashPriorityOptionsForSlot(GameLaunchSplashCustomPriority1Options, GameLaunchSplashCustomPriority1, selections);
+                RefreshGameLaunchSplashPriorityOptionsForSlot(GameLaunchSplashCustomPriority2Options, GameLaunchSplashCustomPriority2, selections);
+                RefreshGameLaunchSplashPriorityOptionsForSlot(GameLaunchSplashCustomPriority3Options, GameLaunchSplashCustomPriority3, selections);
+                RefreshGameLaunchSplashPriorityOptionsForSlot(GameLaunchSplashCustomPriority4Options, GameLaunchSplashCustomPriority4, selections);
+                RefreshGameLaunchSplashPriorityOptionsForSlot(GameLaunchSplashCustomPriority5Options, GameLaunchSplashCustomPriority5, selections);
+                NotifyGameLaunchSplashCustomPrioritySelectionsChanged();
+            }
+            finally
+            {
+                isRefreshingGameLaunchSplashCustomPriorityOptions = false;
+            }
+        }
+
+        private void EnsureUniqueGameLaunchSplashCustomPriorities()
+        {
+            var used = new HashSet<SplashScreenPriorityTarget>();
+            var values = new[]
+            {
+                gameLaunchSplashCustomPriority1,
+                gameLaunchSplashCustomPriority2,
+                gameLaunchSplashCustomPriority3,
+                gameLaunchSplashCustomPriority4,
+                gameLaunchSplashCustomPriority5
+            };
+
+            for (var i = 0; i < values.Length; i++)
+            {
+                var value = values[i];
+                if (value == SplashScreenPriorityTarget.None)
+                {
+                    continue;
+                }
+
+                if (used.Contains(value))
+                {
+                    SetGameLaunchSplashCustomPriorityBacking(i, SplashScreenPriorityTarget.None);
+                    continue;
+                }
+
+                used.Add(value);
+            }
+        }
+
+        private void SetGameLaunchSplashCustomPriorityBacking(int index, SplashScreenPriorityTarget value)
+        {
+            switch (index)
+            {
+                case 0:
+                    if (gameLaunchSplashCustomPriority1 != value)
+                    {
+                        gameLaunchSplashCustomPriority1 = value;
+                        OnPropertyChanged(nameof(GameLaunchSplashCustomPriority1));
+                    }
+                    break;
+
+                case 1:
+                    if (gameLaunchSplashCustomPriority2 != value)
+                    {
+                        gameLaunchSplashCustomPriority2 = value;
+                        OnPropertyChanged(nameof(GameLaunchSplashCustomPriority2));
+                    }
+                    break;
+
+                case 2:
+                    if (gameLaunchSplashCustomPriority3 != value)
+                    {
+                        gameLaunchSplashCustomPriority3 = value;
+                        OnPropertyChanged(nameof(GameLaunchSplashCustomPriority3));
+                    }
+                    break;
+
+                case 3:
+                    if (gameLaunchSplashCustomPriority4 != value)
+                    {
+                        gameLaunchSplashCustomPriority4 = value;
+                        OnPropertyChanged(nameof(GameLaunchSplashCustomPriority4));
+                    }
+                    break;
+
+                case 4:
+                    if (gameLaunchSplashCustomPriority5 != value)
+                    {
+                        gameLaunchSplashCustomPriority5 = value;
+                        OnPropertyChanged(nameof(GameLaunchSplashCustomPriority5));
+                    }
+                    break;
+            }
+        }
+
+        private SplashScreenPriorityOption FindGameLaunchSplashPriorityOption(
+            ObservableCollection<SplashScreenPriorityOption> options,
+            SplashScreenPriorityTarget value)
+        {
+            if (options == null)
+            {
+                return null;
+            }
+
+            return options.FirstOrDefault(x => x != null && x.Value == value);
+        }
+
+        private void NotifyGameLaunchSplashCustomPrioritySelectionsChanged()
+        {
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority1));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority2));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority3));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority4));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority5));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority1SelectedOption));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority2SelectedOption));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority3SelectedOption));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority4SelectedOption));
+            OnPropertyChanged(nameof(GameLaunchSplashCustomPriority5SelectedOption));
+        }
+
+        private void RefreshGameLaunchSplashPriorityOptionsForSlot(
+            ObservableCollection<SplashScreenPriorityOption> options,
+            SplashScreenPriorityTarget currentValue,
+            SplashScreenPriorityTarget[] allSelections)
+        {
+            if (options == null)
+            {
+                return;
+            }
+
+            var usedByOtherSlots = new HashSet<SplashScreenPriorityTarget>(
+                (allSelections ?? new SplashScreenPriorityTarget[0])
+                    .Where(x => x != SplashScreenPriorityTarget.None && x != currentValue));
+
+            var allowed = new[]
+            {
+                SplashScreenPriorityTarget.GameCustom,
+                SplashScreenPriorityTarget.GameBackground,
+                SplashScreenPriorityTarget.Platform,
+                SplashScreenPriorityTarget.Source,
+                SplashScreenPriorityTarget.Global,
+                SplashScreenPriorityTarget.None
+            }
+            .Where(x => x == SplashScreenPriorityTarget.None || x == currentValue || !usedByOtherSlots.Contains(x))
+            .ToList();
+
+            options.Clear();
+
+            foreach (var target in allowed)
+            {
+                options.Add(new SplashScreenPriorityOption
+                {
+                    Value = target,
+                    Label = GetGameLaunchSplashPriorityTargetLabel(target)
+                });
+            }
+        }
+
+        private string GetGameLaunchSplashPriorityTargetLabel(SplashScreenPriorityTarget target)
+        {
+            string key;
+            string fallback;
+
+            switch (target)
+            {
+                case SplashScreenPriorityTarget.GameCustom:
+                    key = "GameLaunchSplash_CustomPriority_Target_GameCustom";
+                    fallback = "Game custom";
+                    break;
+
+                case SplashScreenPriorityTarget.GameBackground:
+                    key = "GameLaunchSplash_CustomPriority_Target_GameBackground";
+                    fallback = "Game background";
+                    break;
+
+                case SplashScreenPriorityTarget.Platform:
+                    key = "GameLaunchSplash_CustomPriority_Target_Platform";
+                    fallback = "Platform";
+                    break;
+
+                case SplashScreenPriorityTarget.Source:
+                    key = "GameLaunchSplash_CustomPriority_Target_Source";
+                    fallback = "Source";
+                    break;
+
+                case SplashScreenPriorityTarget.Global:
+                    key = "GameLaunchSplash_CustomPriority_Target_Global";
+                    fallback = "Global";
+                    break;
+
+                case SplashScreenPriorityTarget.None:
+                default:
+                    key = "GameLaunchSplash_CustomPriority_Target_None";
+                    fallback = "None";
+                    break;
+            }
+
+            try
+            {
+                var label = ResourceProvider.GetString(key);
+                return string.IsNullOrWhiteSpace(label) ? fallback : label;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
         private int gameLaunchSplashMinimumDurationMs = 2400;
         public int GameLaunchSplashMinimumDurationMs
         {
@@ -2705,11 +4597,45 @@ namespace AnikiHelper
             }
         }
 
-        private int gameLaunchSplashMaximumWaitMs = 6000;
+        private bool gameLaunchSplashAutoDetectReadyEnabled = true;
+        public bool GameLaunchSplashAutoDetectReadyEnabled
+        {
+            get => gameLaunchSplashAutoDetectReadyEnabled;
+            set => SetValue(ref gameLaunchSplashAutoDetectReadyEnabled, value);
+        }
+
+        private int gameLaunchSplashMaximumWaitMs = 15000;
         public int GameLaunchSplashMaximumWaitMs
         {
             get => gameLaunchSplashMaximumWaitMs;
-            set => SetValue(ref gameLaunchSplashMaximumWaitMs, value);
+            set
+            {
+                SetValue(ref gameLaunchSplashMaximumWaitMs, Math.Max(1000, Math.Min(120000, value)));
+                OnPropertyChanged(nameof(GameLaunchSplashMaximumWaitSeconds));
+                OnPropertyChanged(nameof(GameLaunchSplashMaximumWaitDisplay));
+            }
+        }
+
+        public double GameLaunchSplashMaximumWaitSeconds
+        {
+            get => GameLaunchSplashMaximumWaitMs / 1000.0;
+            set => GameLaunchSplashMaximumWaitMs = (int)Math.Round(Math.Max(1, Math.Min(120, value)) * 1000);
+        }
+
+        public string GameLaunchSplashMaximumWaitDisplay
+        {
+            get
+            {
+                var seconds = GameLaunchSplashMaximumWaitSeconds;
+
+                if (seconds >= 60)
+                {
+                    var minutes = seconds / 60.0;
+                    return $"{minutes:0.##} min";
+                }
+
+                return $"{seconds:0.##} sec";
+            }
         }
 
         public Dictionary<Guid, string> CustomGameLaunchSplashImages { get; set; }
@@ -2745,6 +4671,28 @@ namespace AnikiHelper
             get => string.IsNullOrWhiteSpace(inGameOverlayControllerShortcut) ? "StartBack" : inGameOverlayControllerShortcut;
             set => SetValue(ref inGameOverlayControllerShortcut, string.IsNullOrWhiteSpace(value) ? "StartBack" : value);
         }
+
+        private string inGameOverlayGameBehavior = "DoNothing";
+        public string InGameOverlayGameBehavior
+        {
+            get
+            {
+                return string.Equals(inGameOverlayGameBehavior, "SuspendGame", StringComparison.OrdinalIgnoreCase)
+                    ? "SuspendGame"
+                    : "DoNothing";
+            }
+            set
+            {
+                var normalized = string.Equals(value, "SuspendGame", StringComparison.OrdinalIgnoreCase)
+                    ? "SuspendGame"
+                    : "DoNothing";
+
+                SetValue(ref inGameOverlayGameBehavior, normalized);
+            }
+        }
+
+        public Dictionary<Guid, string> InGameOverlayNeverSuspendGames { get; set; }
+            = new Dictionary<Guid, string>();
 
         private bool eventSoundsEnabled = true;
         public bool EventSoundsEnabled
@@ -3006,6 +4954,7 @@ namespace AnikiHelper
             HideAnikiThemePresetPreviewCommand = new RelayCommand(() => plugin?.HideAnikiThemePresetPreview());
             ReloadAnikiThemeSettingsCommand = new RelayCommand(() => plugin?.ReloadAnikiThemeSettings());
             SelectAnikiThemeSettingsCategoryCommand = new RelayCommand<string>(p => SelectAnikiThemeSettingsCategory(p));
+            ClearInGameOverlayNeverSuspendGamesCommand = new RelayCommand(ClearInGameOverlayNeverSuspendGames);
 
 
             LoadHubLatestMediaFromCache();
@@ -3031,10 +4980,30 @@ namespace AnikiHelper
                 PlaytimeUseDaysFormat = saved.PlaytimeUseDaysFormat;
 
                 OpenWelcomeHubOnStartup = saved.OpenWelcomeHubOnStartup;
+                HubAppsEnabled = saved.HubAppsEnabled;
+                HubAppSlot1ToolName = saved.HubAppSlot1ToolName ?? string.Empty;
+                HubAppSlot2ToolName = saved.HubAppSlot2ToolName ?? string.Empty;
+                HubAppSlot3ToolName = saved.HubAppSlot3ToolName ?? string.Empty;
+                HubAppSlot4ToolName = saved.HubAppSlot4ToolName ?? string.Empty;
+                HubAppSlot1BackgroundPath = saved.HubAppSlot1BackgroundPath ?? string.Empty;
+                HubAppSlot2BackgroundPath = saved.HubAppSlot2BackgroundPath ?? string.Empty;
+                HubAppSlot3BackgroundPath = saved.HubAppSlot3BackgroundPath ?? string.Empty;
+                HubAppSlot4BackgroundPath = saved.HubAppSlot4BackgroundPath ?? string.Empty;
 
                 SteamStoreLanguage = string.IsNullOrWhiteSpace(saved.SteamStoreLanguage) ? "english" : saved.SteamStoreLanguage;
                 SteamStoreRegion = string.IsNullOrWhiteSpace(saved.SteamStoreRegion) ? "US" : saved.SteamStoreRegion;
                 SteamStoreEnabled = saved.SteamStoreEnabled;
+
+                SteamFriendsEnabled = saved.SteamFriendsEnabled;
+                SteamApiKey = saved.SteamApiKey ?? string.Empty;
+                SteamId64 = saved.SteamId64 ?? string.Empty;
+                SteamAccountSteamId64 = saved.SteamAccountSteamId64 ?? string.Empty;
+                SteamAccountProfileUrl = saved.SteamAccountProfileUrl ?? string.Empty;
+                SteamAccountConnected = !string.IsNullOrWhiteSpace(SteamAccountSteamId64);
+                SteamAccountStatus = SteamAccountConnected ? "Steam account remembered. Click Check Steam account to verify session." : "Not connected";
+                ShowOffline = saved.ShowOffline;
+                NotifyOnGameStart = saved.NotifyOnGameStart;
+                NotifyOnConnect = saved.NotifyOnConnect;
 
                 CustomFilterIconsFolder = saved.CustomFilterIconsFolder ?? string.Empty;
                 CustomSourceIconsFolder = saved.CustomSourceIconsFolder ?? string.Empty;
@@ -3055,6 +5024,14 @@ namespace AnikiHelper
                     ? "StartBack"
                     : saved.InGameOverlayControllerShortcut;
 
+                InGameOverlayGameBehavior = string.IsNullOrWhiteSpace(saved.InGameOverlayGameBehavior)
+                    ? "DoNothing"
+                    : saved.InGameOverlayGameBehavior;
+
+                InGameOverlayNeverSuspendGames = saved.InGameOverlayNeverSuspendGames != null
+                    ? new Dictionary<Guid, string>(saved.InGameOverlayNeverSuspendGames)
+                    : new Dictionary<Guid, string>();
+
                 SteamPlayerCountEnabled = saved.SteamPlayerCountEnabled;
                 SteamUpdatesScanEnabled = saved.SteamUpdatesScanEnabled;
                 AskSteamUpdateCacheAtStartup = saved.AskSteamUpdateCacheAtStartup;
@@ -3067,7 +5044,13 @@ namespace AnikiHelper
                 GameLaunchSplashVideoVolume = saved.GameLaunchSplashVideoVolume;
                 GameLaunchSplashLogoPosition = saved.GameLaunchSplashLogoPosition;
                 GameLaunchSplashSelectionMode = saved.GameLaunchSplashSelectionMode;
+                GameLaunchSplashCustomPriority1 = saved.GameLaunchSplashCustomPriority1;
+                GameLaunchSplashCustomPriority2 = saved.GameLaunchSplashCustomPriority2;
+                GameLaunchSplashCustomPriority3 = saved.GameLaunchSplashCustomPriority3;
+                GameLaunchSplashCustomPriority4 = saved.GameLaunchSplashCustomPriority4;
+                GameLaunchSplashCustomPriority5 = saved.GameLaunchSplashCustomPriority5;
                 GameLaunchSplashMinimumDurationMs = saved.GameLaunchSplashMinimumDurationMs;
+                GameLaunchSplashAutoDetectReadyEnabled = saved.GameLaunchSplashAutoDetectReadyEnabled;
                 GameLaunchSplashMaximumWaitMs = saved.GameLaunchSplashMaximumWaitMs;
                 CustomGameLaunchSplashImages = saved.CustomGameLaunchSplashImages
                     ?? new Dictionary<Guid, string>();
@@ -3155,7 +5138,6 @@ namespace AnikiHelper
                 SessionGameId = saved.SessionGameId;
                 ThisMonthTopGameId = saved.ThisMonthTopGameId;
                 ThisYearTopGameId = saved.ThisYearTopGameId;
-                SuggestedGameLastId = saved.SuggestedGameLastId;
                 RecentPlayedBackgroundPath = saved.RecentPlayedBackgroundPath ?? string.Empty;
                 HubRecentAddedName = saved.HubRecentAddedName ?? string.Empty;
                 HubRecentAddedDate = saved.HubRecentAddedDate ?? string.Empty;
@@ -3170,6 +5152,8 @@ namespace AnikiHelper
                 IsWelcomeHubOpen = saved.IsWelcomeHubOpen;
             }
 
+            EnsureSteamFriendsRuntimeCollections();
+
             if (CustomGameLaunchSplashImages == null)
             {
                 CustomGameLaunchSplashImages = new Dictionary<Guid, string>();
@@ -3179,6 +5163,15 @@ namespace AnikiHelper
             {
                 CustomGameLaunchSplashMinimumDurations = new Dictionary<Guid, int>();
             }
+
+            if (InGameOverlayNeverSuspendGames == null)
+            {
+                InGameOverlayNeverSuspendGames = new Dictionary<Guid, string>();
+            }
+
+            RefreshGameLaunchSplashCustomPriorityOptions();
+            RefreshInGameOverlayNeverSuspendGameItems();
+            LoadOverlayApps();
 
             if (saved == null)
             {
@@ -3228,6 +5221,13 @@ namespace AnikiHelper
                 }
             );
 
+            RefreshOverlayLastCapturesCommand = new RelayCommand(
+                () =>
+                {
+                    _ = RefreshOverlayLastCapturesAsync();
+                }
+            );
+
             OpenScreenshotsWindowCommand = new RelayCommand(
                 () =>
                 {
@@ -3240,6 +5240,12 @@ namespace AnikiHelper
                 }
 
             );
+
+            OpenOverlayAppCommand = new RelayCommand<AnikiOverlayAppItem>(
+                appItem => OpenOverlayApp(appItem)
+            );
+
+            ToggleOverlayAchievementsSortCommand = new RelayCommand(ToggleOverlayAchievementsSort);
 
             OpenScreenshotsForMediaGameCommand = new RelayCommand<AnikiMediaGameItem>(
                 mediaGame =>
@@ -3262,6 +5268,18 @@ namespace AnikiHelper
                     }
 
                     _ = OpenScreenshotsWindowForGameAsync(mediaItem.GameId);
+                }
+            );
+
+            OpenOverlayCapturePreviewCommand = new RelayCommand<AnikiMediaItem>(
+                mediaItem =>
+                {
+                    if (mediaItem == null)
+                    {
+                        return;
+                    }
+
+                    plugin?.OpenOverlayCapturePreview(mediaItem);
                 }
             );
 
@@ -3313,11 +5331,31 @@ namespace AnikiHelper
                 styleKey => new RelayCommand(() => plugin?.OpenChildWindow(styleKey))
             );
 
+            OpenInGameOverlayCommand = new RelayCommand(() => plugin?.OpenInGameOverlayFromThemeButton());
+
+            OpenInGameOverlay = new AnikiWindowCommandProvider(
+                _ => new RelayCommand(() => plugin?.OpenInGameOverlayFromThemeButton())
+            );
+
             OpenHelpLink = new AnikiWindowCommandProvider(
                 linkKey => new RelayCommand(() => plugin?.OpenHelpLink(linkKey))
             );
 
+            MusicTransport = new AnikiWindowCommandProvider(
+                commandKey => new RelayCommand(() => plugin?.ExecuteMusicTransportCommand(commandKey))
+            );
+
             OpenSteamGameNewsWindowCommand = new RelayCommand(() => plugin?.OpenSteamGameNewsWindow());
+
+            OpenDuplicateHiderVersionsWindowCommand = new RelayCommand(
+                () =>
+                {
+                    if (PrepareDuplicateHiderVersionsWindow())
+                    {
+                        plugin?.OpenChildWindow("DuplicateHiderVersionsWindowStyle|FocusFirst");
+                    }
+                }
+            );
 
             HubNextPageCommand = new RelayCommand(() =>
             {
@@ -3416,6 +5454,11 @@ namespace AnikiHelper
                     plugin?.SetSteamStoreSection(section?.ToString());
                 }
             );
+
+
+            ConnectSteamAccountCommand = new RelayCommand(() => plugin?.ConnectSteamAccountFromSettings());
+            CheckSteamAccountCommand = new RelayCommand(() => plugin?.CheckSteamAccountFromSettings());
+            DisconnectSteamAccountCommand = new RelayCommand(() => plugin?.DisconnectSteamAccountFromSettings());
 
             CloseSteamStoreDetailsCommand = new RelayCommand(
                 () =>
@@ -3622,10 +5665,48 @@ namespace AnikiHelper
                 .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
                 .Where(x => File.Exists(x.FilePath))
                 .GroupBy(x => NormalizeMediaItemPath(x.FilePath), StringComparer.OrdinalIgnoreCase)
-                .Select(group => group
-                    .OrderByDescending(x => x.IsVideo && HasValidProviderThumbnail(x))
-                    .ThenByDescending(x => x.CaptureDate)
-                    .First())
+                .Select(group =>
+                {
+                    var candidates = group.ToList();
+
+                    var selected = candidates
+                        .OrderByDescending(x =>
+                            !string.IsNullOrWhiteSpace(x.DurationString))
+                        .ThenByDescending(x =>
+                            HasValidProviderThumbnail(x))
+                        .ThenByDescending(x =>
+                            x.CaptureDate)
+                        .First();
+
+                    // Récupère la meilleure miniature même si elle vient
+                    // de l'autre provider.
+                    if (!HasValidProviderThumbnail(selected))
+                    {
+                        var thumbnailSource = candidates
+                            .FirstOrDefault(x => HasValidProviderThumbnail(x));
+
+                        if (thumbnailSource != null)
+                        {
+                            selected.ThumbnailPath = thumbnailSource.ThumbnailPath;
+                        }
+                    }
+
+                    // Conserve la durée fournie par Visualizer même si
+                    // l'élément principal vient de Screenshot Utilities.
+                    if (string.IsNullOrWhiteSpace(selected.DurationString))
+                    {
+                        var durationSource = candidates
+                            .FirstOrDefault(x =>
+                                !string.IsNullOrWhiteSpace(x.DurationString));
+
+                        if (durationSource != null)
+                        {
+                            selected.DurationString = durationSource.DurationString;
+                        }
+                    }
+
+                    return selected;
+                })
                 .OrderByDescending(x => x.CaptureDate)
                 .ToList();
 
@@ -4078,56 +6159,86 @@ namespace AnikiHelper
                         await Task.Delay(delayMs);
                     }
 
-                    var items = LoadUnifiedMediaItemsForGame(gameId);
-
-                    if (mediaThumbnailService == null)
+                    if (screenshotsVisualizerReader == null)
                     {
-                        mediaThumbnailService = new AnikiMediaThumbnailService(plugin.GetPluginUserDataPath(), logger);
-                    }
-
-                    foreach (var item in items.Where(x => x != null && !x.IsVideo && !HasValidProviderThumbnail(x)))
-                    {
-                        try
-                        {
-                            if (!string.IsNullOrWhiteSpace(item.FilePath) && File.Exists(item.FilePath))
-                            {
-                                mediaThumbnailService.GetOrCreateThumbnail(item);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            logger?.Debug(ex, "[AnikiHelper] Failed to generate thumbnail during silent stopped-game refresh.");
-                        }
-                    }
-
-                    var itemsWithThumbnails = ApplyThumbnailsToMediaItems(items);
-
-                    if (screenshotMediaCacheService == null)
-                    {
-                        screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                        screenshotsVisualizerReader = new ScreenshotsVisualizerReader(
                             plugin.PlayniteApi,
-                            plugin.GetPluginUserDataPath(),
                             logger
                         );
                     }
 
-                    screenshotMediaCacheService.UpdateGameInCaches(gameId, itemsWithThumbnails);
+                    var minimumVisualizerRefreshDate = sessionEnd.HasValue
+                        ? sessionEnd.Value.AddSeconds(-2)
+                        : DateTime.MinValue;
 
-                    if (sessionStart.HasValue && sessionEnd.HasValue)
+                    var visualizerStampBeforeFirstPass =
+                        screenshotsVisualizerReader.GetGameDataRefreshStamp(gameId);
+
+                    var visualizerWasStillRefreshing =
+                        sessionEnd.HasValue
+                        && screenshotsVisualizerReader.IsAvailable()
+                        && (
+                            !visualizerStampBeforeFirstPass.HasValue
+                            || visualizerStampBeforeFirstPass.Value < minimumVisualizerRefreshDate
+                        );
+
+                    // Premier passage après le délai habituel.
+                    RefreshStoppedGameMediaCacheOnce(
+                        gameId,
+                        sessionStart,
+                        sessionEnd
+                    );
+
+                    if (visualizerWasStillRefreshing)
                     {
-                        screenshotMediaCacheService.UpdateMemoryFromSession(gameId, itemsWithThumbnails, sessionStart.Value, sessionEnd.Value);
+                        logger?.Debug(
+                            "[AnikiHelper] Screenshots Visualizer data is still stale after game stop. Waiting for its refresh."
+                        );
+
+                        var timeoutAt = DateTime.UtcNow.AddSeconds(45);
+                        var visualizerRefreshCompleted = false;
+
+                        while (DateTime.UtcNow < timeoutAt)
+                        {
+                            await Task.Delay(1000);
+
+                            var currentStamp =
+                                screenshotsVisualizerReader.GetGameDataRefreshStamp(gameId);
+
+                            if (currentStamp.HasValue
+                                && currentStamp.Value >= minimumVisualizerRefreshDate)
+                            {
+                                visualizerRefreshCompleted = true;
+                                break;
+                            }
+                        }
+
+                        if (visualizerRefreshCompleted)
+                        {
+                            logger?.Debug(
+                                "[AnikiHelper] Screenshots Visualizer refresh completed. Updating Aniki media cache again."
+                            );
+
+                            RefreshStoppedGameMediaCacheOnce(
+                                gameId,
+                                sessionStart,
+                                sessionEnd
+                            );
+                        }
+                        else
+                        {
+                            logger?.Debug(
+                                "[AnikiHelper] Timed out while waiting for Screenshots Visualizer refresh."
+                            );
+                        }
                     }
-
-                    Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
-                    {
-                        LoadHubLatestMediaFromCache();
-                        LoadHubMemoryFromCache();
-                        LoadMediaGalleryGamesFromCache();
-                    }), DispatcherPriority.Background);
                 }
                 catch (Exception ex)
                 {
-                    logger?.Warn(ex, "[AnikiHelper] Silent media refresh after game stopped failed.");
+                    logger?.Warn(
+                        ex,
+                        "[AnikiHelper] Silent media refresh after game stopped failed."
+                    );
                 }
                 finally
                 {
@@ -4137,6 +6248,77 @@ namespace AnikiHelper
                     }
                 }
             });
+        }
+
+        private void RefreshStoppedGameMediaCacheOnce(
+    Guid gameId,
+    DateTime? sessionStart,
+    DateTime? sessionEnd)
+        {
+            var items = LoadUnifiedMediaItemsForGame(gameId);
+
+            if (mediaThumbnailService == null)
+            {
+                mediaThumbnailService = new AnikiMediaThumbnailService(
+                    plugin.GetPluginUserDataPath(),
+                    logger
+                );
+            }
+
+            foreach (var item in items.Where(x =>
+                x != null
+                && !x.IsVideo
+                && !HasValidProviderThumbnail(x)))
+            {
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(item.FilePath)
+                        && File.Exists(item.FilePath))
+                    {
+                        mediaThumbnailService.GetOrCreateThumbnail(item);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger?.Debug(
+                        ex,
+                        "[AnikiHelper] Failed to generate thumbnail during silent stopped-game refresh."
+                    );
+                }
+            }
+
+            var itemsWithThumbnails = ApplyThumbnailsToMediaItems(items);
+
+            if (screenshotMediaCacheService == null)
+            {
+                screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                    plugin.PlayniteApi,
+                    plugin.GetPluginUserDataPath(),
+                    logger
+                );
+            }
+
+            screenshotMediaCacheService.UpdateGameInCaches(
+                gameId,
+                itemsWithThumbnails
+            );
+
+            if (sessionStart.HasValue && sessionEnd.HasValue)
+            {
+                screenshotMediaCacheService.UpdateMemoryFromSession(
+                    gameId,
+                    itemsWithThumbnails,
+                    sessionStart.Value,
+                    sessionEnd.Value
+                );
+            }
+
+            Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+            {
+                LoadHubLatestMediaFromCache();
+                LoadHubMemoryFromCache();
+                LoadMediaGalleryGamesFromCache();
+            }), DispatcherPriority.Background);
         }
 
         public void RefreshCurrentGameMediaFromSelectedGame()
@@ -4189,6 +6371,762 @@ namespace AnikiHelper
                 HubLatestMediaItems.Clear();
                 OnPropertyChanged(nameof(HubLatestMediaItems));
                 OnPropertyChanged(nameof(HasHubLatestMedia));
+            }
+        }
+
+        private static string NormalizeSettingText(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
+
+        private static string NormalizeExternalPath(string value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : value.Trim().Replace("\\", "/");
+        }
+
+        private string ResolveExternalImagePath(string imagePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(imagePath))
+                {
+                    return string.Empty;
+                }
+
+                var normalized = NormalizeExternalPath(imagePath);
+
+                if (Path.IsPathRooted(normalized) && File.Exists(normalized))
+                {
+                    return normalized;
+                }
+
+                return File.Exists(normalized) ? normalized : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private void EnsureHubCurrentPageInRange()
+        {
+            if (HubCurrentPage > HubMaxPage)
+            {
+                HubCurrentPage = HubMaxPage;
+                return;
+            }
+
+            OnPropertyChanged(nameof(HubMaxPage));
+            NotifyHubPageStateProperties();
+        }
+
+        private void RefreshHubApps()
+        {
+            var existingItems = HubAppItems?.ToList() ?? new List<AnikiOverlayAppItem>();
+
+            try
+            {
+                var newItems = new List<AnikiOverlayAppItem>();
+
+                var slots = new[]
+                {
+                    new { ToolName = HubAppSlot1ToolName, BackgroundPath = HubAppSlot1BackgroundPath },
+                    new { ToolName = HubAppSlot2ToolName, BackgroundPath = HubAppSlot2BackgroundPath },
+                    new { ToolName = HubAppSlot3ToolName, BackgroundPath = HubAppSlot3BackgroundPath },
+                    new { ToolName = HubAppSlot4ToolName, BackgroundPath = HubAppSlot4BackgroundPath }
+                };
+
+                var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var slot in slots)
+                {
+                    if (string.IsNullOrWhiteSpace(slot.ToolName))
+                    {
+                        continue;
+                    }
+
+                    if (usedNames.Contains(slot.ToolName))
+                    {
+                        continue;
+                    }
+
+                    var source = OverlayAppItems?
+                        .FirstOrDefault(x => string.Equals(x.Name, slot.ToolName, StringComparison.OrdinalIgnoreCase));
+
+                    if (source == null)
+                    {
+                        source = existingItems
+                            .FirstOrDefault(x => string.Equals(x.Name, slot.ToolName, StringComparison.OrdinalIgnoreCase));
+                    }
+
+                    if (source == null)
+                    {
+                        // Keep the page visible when the saved slot exists, but Playnite Software Tools
+                        // are not available yet. A later LoadOverlayApps() call will replace it with
+                        // the real Software Tool item.
+                        source = new AnikiOverlayAppItem
+                        {
+                            Name = slot.ToolName ?? string.Empty,
+                            BackgroundImagePath = ResolveExternalImagePath(slot.BackgroundPath)
+                        };
+                    }
+
+                    usedNames.Add(slot.ToolName);
+
+                    newItems.Add(new AnikiOverlayAppItem
+                    {
+                        Name = source.Name ?? string.Empty,
+                        IconPath = source.IconPath ?? string.Empty,
+                        BackgroundImagePath = !string.IsNullOrWhiteSpace(slot.BackgroundPath)
+                            ? ResolveExternalImagePath(slot.BackgroundPath)
+                            : (source.BackgroundImagePath ?? string.Empty),
+                        Path = source.Path ?? string.Empty,
+                        Arguments = source.Arguments ?? string.Empty,
+                        WorkingDir = source.WorkingDir ?? string.Empty,
+                        IsScript = source.IsScript,
+                        SourceApp = source.SourceApp
+                    });
+                }
+
+                HubAppItems.Clear();
+                foreach (var item in newItems)
+                {
+                    HubAppItems.Add(item);
+                }
+
+                HubAppsEmptyText = HasSelectedHubAppSlot
+                    ? "Loading selected Software Tools..."
+                    : "Select apps in Aniki Helper settings first.";
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to refresh Hub apps. Keeping previous Hub Apps state.");
+
+                if (HubAppItems == null || HubAppItems.Count == 0)
+                {
+                    HubAppItems.Clear();
+                    foreach (var item in existingItems)
+                    {
+                        HubAppItems.Add(item);
+                    }
+                }
+            }
+
+            OnPropertyChanged(nameof(HubAppItems));
+            OnPropertyChanged(nameof(HasHubApps));
+            OnPropertyChanged(nameof(ShowHubAppsPage));
+            OnPropertyChanged(nameof(HubMaxPage));
+            OnPropertyChanged(nameof(HubAppsEmptyText));
+            NotifyHubPageStateProperties();
+            EnsureHubCurrentPageInRange();
+        }
+
+        public void LoadOverlayApps()
+        {
+            try
+            {
+                // Playnite's public IGameDatabaseAPI does not expose SoftwareApps.
+                // The native Fullscreen Tools window uses the internal GameDatabase.SoftwareApps
+                // collection, so we read it through reflection to keep the overlay Apps view
+                // available without referencing Playnite internals directly.
+                var apps = GetSoftwareAppsForOverlay();
+
+                if ((apps == null || apps.Count == 0) && (OverlayAppItems?.Count > 0 || HubAppItems?.Count > 0) && HasSelectedHubAppSlot)
+                {
+                    logger?.Warn("[AnikiHelper] Software Tools refresh returned 0 apps. Keeping the previous Hub Apps list to avoid hiding the Hub page during fullscreen startup.");
+                    RefreshHubApps();
+                    OnPropertyChanged(nameof(OverlayAppItems));
+                    OnPropertyChanged(nameof(HasOverlayApps));
+                    OnPropertyChanged(nameof(SoftwareToolNamesForSelection));
+                    OnPropertyChanged(nameof(OverlayAppsEmptyText));
+                    return;
+                }
+
+                var items = (apps ?? new List<AppSoftware>())
+                    .Where(x => x != null)
+                    .OrderBy(x => x.Name)
+                    .Select(x => new AnikiOverlayAppItem
+                    {
+                        Name = x.Name ?? string.Empty,
+                        IconPath = ResolveDatabaseFilePath(x.Icon),
+                        BackgroundImagePath = string.Empty,
+                        Path = x.Path ?? string.Empty,
+                        Arguments = x.Arguments ?? string.Empty,
+                        WorkingDir = x.WorkingDir ?? string.Empty,
+                        IsScript = x.AppType == AppSoftwareType.Script,
+                        SourceApp = x
+                    })
+                    .ToList();
+
+                OverlayAppItems.Clear();
+                foreach (var item in items)
+                {
+                    OverlayAppItems.Add(item);
+                }
+
+                SoftwareToolNamesForSelection.Clear();
+                SoftwareToolNamesForSelection.Add(string.Empty);
+                foreach (var name in items.Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    SoftwareToolNamesForSelection.Add(name);
+                }
+
+                OverlayAppsEmptyText = "No apps configured. Add Software Tools in Playnite first.";
+                RefreshHubApps();
+
+                OnPropertyChanged(nameof(OverlayAppItems));
+                OnPropertyChanged(nameof(HasOverlayApps));
+                OnPropertyChanged(nameof(SoftwareToolNamesForSelection));
+                OnPropertyChanged(nameof(OverlayAppsEmptyText));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load overlay apps. Keeping previous Hub Apps state when possible.");
+
+                if ((OverlayAppItems?.Count > 0 || HubAppItems?.Count > 0) && HasSelectedHubAppSlot)
+                {
+                    RefreshHubApps();
+                    OnPropertyChanged(nameof(OverlayAppItems));
+                    OnPropertyChanged(nameof(HasOverlayApps));
+                    OnPropertyChanged(nameof(SoftwareToolNamesForSelection));
+                    OnPropertyChanged(nameof(OverlayAppsEmptyText));
+                    return;
+                }
+
+                OverlayAppItems.Clear();
+                SoftwareToolNamesForSelection.Clear();
+                SoftwareToolNamesForSelection.Add(string.Empty);
+                OverlayAppsEmptyText = "No apps configured. Add Software Tools in Playnite first.";
+                RefreshHubApps();
+
+                OnPropertyChanged(nameof(OverlayAppItems));
+                OnPropertyChanged(nameof(HasOverlayApps));
+                OnPropertyChanged(nameof(SoftwareToolNamesForSelection));
+                OnPropertyChanged(nameof(OverlayAppsEmptyText));
+            }
+        }
+
+        private List<AppSoftware> GetSoftwareAppsForOverlay()
+        {
+            try
+            {
+                var dbApi = plugin?.PlayniteApi?.Database;
+                if (dbApi == null)
+                {
+                    return new List<AppSoftware>();
+                }
+
+                object internalDatabase = null;
+                var dbApiType = dbApi.GetType();
+
+                var databaseField = dbApiType.GetField("database", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (databaseField != null)
+                {
+                    internalDatabase = databaseField.GetValue(dbApi);
+                }
+
+                if (internalDatabase == null)
+                {
+                    var databaseProperty = dbApiType.GetProperty("Database", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    if (databaseProperty != null)
+                    {
+                        internalDatabase = databaseProperty.GetValue(dbApi, null);
+                    }
+                }
+
+                if (internalDatabase == null)
+                {
+                    logger?.Warn("[AnikiHelper] Cannot load overlay apps: internal Playnite database object not found.");
+                    return new List<AppSoftware>();
+                }
+
+                var softwareAppsProperty = internalDatabase.GetType().GetProperty("SoftwareApps", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                var softwareApps = softwareAppsProperty?.GetValue(internalDatabase, null);
+                if (softwareApps == null)
+                {
+                    logger?.Warn("[AnikiHelper] Cannot load overlay apps: SoftwareApps collection not found.");
+                    return new List<AppSoftware>();
+                }
+
+                var result = new List<AppSoftware>();
+
+                if (softwareApps is System.Collections.IEnumerable enumerable)
+                {
+                    foreach (var entry in enumerable)
+                    {
+                        if (entry is AppSoftware app)
+                        {
+                            result.Add(app);
+                        }
+                    }
+                }
+
+                if (result.Count == 0)
+                {
+                    var itemsProperty = softwareApps.GetType().GetProperty("Items", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    var items = itemsProperty?.GetValue(softwareApps, null) as System.Collections.IEnumerable;
+                    if (items != null)
+                    {
+                        foreach (var item in items)
+                        {
+                            var valueProperty = item.GetType().GetProperty("Value", BindingFlags.Instance | BindingFlags.Public);
+                            if (valueProperty?.GetValue(item, null) is AppSoftware app)
+                            {
+                                result.Add(app);
+                            }
+                        }
+                    }
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to read Playnite Software Tools through reflection.");
+                return new List<AppSoftware>();
+            }
+        }
+
+        private string ResolveDatabaseFilePath(string databaseFilePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(databaseFilePath))
+                {
+                    return string.Empty;
+                }
+
+                if (Path.IsPathRooted(databaseFilePath) && File.Exists(databaseFilePath))
+                {
+                    return databaseFilePath;
+                }
+
+                var fullPath = plugin?.PlayniteApi?.Database?.GetFullFilePath(databaseFilePath);
+                return string.IsNullOrWhiteSpace(fullPath) ? databaseFilePath : fullPath;
+            }
+            catch
+            {
+                return databaseFilePath ?? string.Empty;
+            }
+        }
+
+        private void OpenOverlayApp(AnikiOverlayAppItem item)
+        {
+            try
+            {
+                var app = item?.SourceApp;
+                if (app == null)
+                {
+                    StartOverlayAppFromPathFallback(item);
+                    return;
+                }
+
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    StartSoftwareToolViaMainModel(app);
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() => StartSoftwareToolViaMainModel(app)), DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to open overlay app.");
+            }
+        }
+
+        private void StartOverlayAppFromPathFallback(AnikiOverlayAppItem item)
+        {
+            try
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.Path))
+                {
+                    logger?.Warn("[AnikiHelper] Cannot start Hub app: Software Tool source and path are missing.");
+                    return;
+                }
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = item.Path,
+                    Arguments = item.Arguments ?? string.Empty,
+                    UseShellExecute = true
+                };
+
+                if (!string.IsNullOrWhiteSpace(item.WorkingDir) && Directory.Exists(item.WorkingDir))
+                {
+                    startInfo.WorkingDirectory = item.WorkingDir;
+                }
+
+                Process.Start(startInfo);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to start Hub app from path fallback.");
+            }
+        }
+
+        private void StartSoftwareToolViaMainModel(AppSoftware app)
+        {
+            try
+            {
+                if (app == null)
+                {
+                    return;
+                }
+
+                var mainWindow = Application.Current?.MainWindow;
+                var dataContext = mainWindow?.DataContext;
+                if (dataContext == null)
+                {
+                    logger?.Warn("[AnikiHelper] Cannot start software tool: Playnite DataContext not found.");
+                    return;
+                }
+
+                var method = dataContext.GetType().GetMethod("StartSoftwareTool", new[] { typeof(AppSoftware) });
+                if (method == null)
+                {
+                    method = dataContext.GetType()
+                        .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                        .FirstOrDefault(m =>
+                            string.Equals(m.Name, "StartSoftwareTool", StringComparison.Ordinal) &&
+                            m.GetParameters().Length == 1 &&
+                            m.GetParameters()[0].ParameterType.IsAssignableFrom(typeof(AppSoftware)));
+                }
+
+                if (method == null)
+                {
+                    logger?.Warn("[AnikiHelper] Cannot start software tool: StartSoftwareTool method not found.");
+                    return;
+                }
+
+                method.Invoke(dataContext, new object[] { app });
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to start software tool from overlay.");
+            }
+        }
+
+        public void LoadOverlayAchievements(Guid gameId, string gameName)
+        {
+            try
+            {
+                OverlayAchievementsTitle = "Achievements";
+
+                if (gameId == Guid.Empty)
+                {
+                    OverlayAchievementItems.Clear();
+                    OverlayAchievementsSubtitle = "No game is currently running.";
+                    OverlayAchievementsEmptyText = "Launch a game to view its achievements.";
+                    OverlayAchievementsProgressText = string.Empty;
+                    OverlayAchievementsUnlockedCount = 0;
+                    OverlayAchievementsTotalCount = 0;
+                    NotifyOverlayAchievementsChanged();
+                    return;
+                }
+
+                var reader = new PlayniteAchievementsReader(plugin.PlayniteApi, logger);
+                var achievements = reader.LoadAchievementsForGame(gameId)
+                    .Where(x => x != null)
+                    .ToList();
+
+                var finalGameName = string.IsNullOrWhiteSpace(gameName) ? "current game" : gameName;
+                OverlayAchievementsSubtitle = finalGameName;
+                OverlayAchievementsEmptyText = "No PlayniteAchievements data found for " + finalGameName + ".";
+
+                ReplaceAchievementCollection(OverlayAchievementItems, SortOverlayAchievements(achievements));
+
+                OverlayAchievementsTotalCount = achievements.Count;
+                OverlayAchievementsUnlockedCount = achievements.Count(x => x.Unlocked);
+                OverlayAchievementsProgressText = OverlayAchievementsTotalCount > 0
+                    ? OverlayAchievementsUnlockedCount + " / " + OverlayAchievementsTotalCount
+                    : string.Empty;
+
+                NotifyOverlayAchievementsChanged();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load overlay achievements.");
+
+                OverlayAchievementItems.Clear();
+                OverlayAchievementsTitle = "Achievements";
+                OverlayAchievementsSubtitle = string.Empty;
+                OverlayAchievementsEmptyText = "No PlayniteAchievements data found.";
+                OverlayAchievementsProgressText = string.Empty;
+                OverlayAchievementsUnlockedCount = 0;
+                OverlayAchievementsTotalCount = 0;
+                NotifyOverlayAchievementsChanged();
+            }
+        }
+
+        private void ToggleOverlayAchievementsSort()
+        {
+            OverlayAchievementsSortMode = string.Equals(OverlayAchievementsSortMode, "LockedFirst", StringComparison.OrdinalIgnoreCase)
+                ? "LastUnlocked"
+                : "LockedFirst";
+        }
+
+        private void ApplyOverlayAchievementsSort()
+        {
+            if (OverlayAchievementItems == null || OverlayAchievementItems.Count <= 1)
+            {
+                return;
+            }
+
+            ReplaceAchievementCollection(OverlayAchievementItems, SortOverlayAchievements(OverlayAchievementItems));
+            OnPropertyChanged(nameof(OverlayAchievementItems));
+            OnPropertyChanged(nameof(HasOverlayAchievements));
+        }
+
+        private List<AnikiOverlayAchievementItem> SortOverlayAchievements(IEnumerable<AnikiOverlayAchievementItem> items)
+        {
+            var list = items == null
+                ? new List<AnikiOverlayAchievementItem>()
+                : items.Where(x => x != null).ToList();
+
+            if (string.Equals(OverlayAchievementsSortMode, "LockedFirst", StringComparison.OrdinalIgnoreCase))
+            {
+                return list
+                    .OrderBy(x => x.Unlocked ? 1 : 0)
+                    .ThenByDescending(x => x.UnlockDate ?? DateTime.MinValue)
+                    .ThenBy(x => x.Title ?? string.Empty)
+                    .ToList();
+            }
+
+            return list
+                .OrderBy(x => x.Unlocked ? 0 : 1)
+                .ThenByDescending(x => x.UnlockDate ?? DateTime.MinValue)
+                .ThenBy(x => x.Title ?? string.Empty)
+                .ToList();
+        }
+
+        private void NotifyOverlayAchievementsSortChanged()
+        {
+            OnPropertyChanged(nameof(OverlayAchievementsSortMode));
+            OnPropertyChanged(nameof(OverlayAchievementsSortButtonText));
+            OnPropertyChanged(nameof(OverlayAchievementsSortDescription));
+        }
+
+        private void NotifyOverlayAchievementsChanged()
+        {
+            OnPropertyChanged(nameof(OverlayAchievementItems));
+            OnPropertyChanged(nameof(HasOverlayAchievements));
+            OnPropertyChanged(nameof(OverlayAchievementsTitle));
+            OnPropertyChanged(nameof(OverlayAchievementsSubtitle));
+            OnPropertyChanged(nameof(OverlayAchievementsEmptyText));
+            OnPropertyChanged(nameof(OverlayAchievementsProgressText));
+            OnPropertyChanged(nameof(OverlayAchievementsUnlockedCount));
+            OnPropertyChanged(nameof(OverlayAchievementsTotalCount));
+            NotifyOverlayAchievementsSortChanged();
+        }
+
+        private void ReplaceAchievementCollection(ObservableCollection<AnikiOverlayAchievementItem> target, IEnumerable<AnikiOverlayAchievementItem> items)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            target.Clear();
+
+            if (items == null)
+            {
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                if (item != null)
+                {
+                    target.Add(item);
+                }
+            }
+        }
+
+        private async Task RefreshOverlayLastCapturesAsync()
+        {
+            Guid gameId;
+            string gameName;
+
+            lock (overlayLastCapturesRefreshLock)
+            {
+                if (overlayLastCapturesRefreshRunning)
+                {
+                    return;
+                }
+
+                gameId = overlayLastCapturesGameId;
+                gameName = overlayLastCapturesGameName;
+
+                if (gameId == Guid.Empty)
+                {
+                    return;
+                }
+
+                overlayLastCapturesRefreshRunning = true;
+            }
+
+            SetOverlayLastCapturesRefreshing(true);
+
+            try
+            {
+                if (screenshotsVisualizerReader == null)
+                {
+                    screenshotsVisualizerReader = new ScreenshotsVisualizerReader(
+                        plugin.PlayniteApi,
+                        logger
+                    );
+                }
+
+                var refreshed = await screenshotsVisualizerReader.RefreshGameDataAsync(gameId);
+                if (!refreshed)
+                {
+                    return;
+                }
+
+                await Task.Run(() =>
+                {
+                    RefreshStoppedGameMediaCacheOnce(
+                        gameId,
+                        null,
+                        null
+                    );
+                });
+
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.CheckAccess())
+                {
+                    LoadOverlayLastCaptures(gameId, gameName);
+                }
+                else
+                {
+                    await dispatcher.InvokeAsync(() =>
+                    {
+                        LoadOverlayLastCaptures(gameId, gameName);
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(
+                    ex,
+                    "[AnikiHelper] Failed to refresh overlay captures from Screenshots Visualizer."
+                );
+            }
+            finally
+            {
+                lock (overlayLastCapturesRefreshLock)
+                {
+                    overlayLastCapturesRefreshRunning = false;
+                }
+
+                SetOverlayLastCapturesRefreshing(false);
+            }
+        }
+
+        private void SetOverlayLastCapturesRefreshing(bool isRefreshing)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher != null && !dispatcher.CheckAccess())
+                {
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        IsRefreshingOverlayLastCaptures = isRefreshing;
+                    }), DispatcherPriority.Background);
+
+                    return;
+                }
+
+                IsRefreshingOverlayLastCaptures = isRefreshing;
+            }
+            catch
+            {
+            }
+        }
+
+        public void LoadOverlayLastCaptures(Guid gameId, string gameName)
+        {
+            overlayLastCapturesGameId = gameId;
+            overlayLastCapturesGameName = gameName ?? string.Empty;
+            OnPropertyChanged(nameof(CanRefreshOverlayLastCaptures));
+            OnPropertyChanged(nameof(OverlayLastCapturesRefreshButtonVisibility));
+            OnPropertyChanged(nameof(OverlayLastCapturesRefreshButtonText));
+
+            try
+            {
+                if (screenshotMediaCacheService == null)
+                {
+                    screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                        plugin.PlayniteApi,
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                OverlayLastCapturesTitle = "Last Captures";
+
+                List<AnikiMediaItem> items;
+
+                if (gameId != Guid.Empty)
+                {
+                    var finalGameName = string.IsNullOrWhiteSpace(gameName) ? "current game" : gameName;
+                    OverlayLastCapturesSubtitle = $"Latest captures for {finalGameName}.";
+                    OverlayLastCapturesEmptyText = $"No captures found for {finalGameName}.";
+
+                    items = LoadUnifiedMediaItemsForGame(gameId)
+                        .Where(x => x != null)
+                        .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                        .Where(x => File.Exists(x.FilePath))
+                        .OrderByDescending(x => x.CaptureDate)
+                        .Take(3)
+                        .ToList();
+
+                    items = ApplyThumbnailsToMediaItems(items);
+                }
+                else
+                {
+                    OverlayLastCapturesSubtitle = "Latest captures from your library.";
+                    OverlayLastCapturesEmptyText = "No captures found. Refresh the media gallery first.";
+
+                    items = screenshotMediaCacheService.LoadLatestMediaCache()
+                        .Where(x => x != null)
+                        .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                        .Where(x => File.Exists(x.FilePath))
+                        .OrderByDescending(x => x.CaptureDate)
+                        .Take(3)
+                        .ToList();
+
+                    items = ApplyThumbnailsToMediaItems(items);
+                }
+
+                ReplaceMediaCollection(OverlayLastCaptureItems, items);
+
+                OnPropertyChanged(nameof(OverlayLastCaptureItems));
+                OnPropertyChanged(nameof(HasOverlayLastCaptures));
+                OnPropertyChanged(nameof(OverlayLastCapturesTitle));
+                OnPropertyChanged(nameof(OverlayLastCapturesSubtitle));
+                OnPropertyChanged(nameof(OverlayLastCapturesEmptyText));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load overlay last captures.");
+
+                OverlayLastCaptureItems.Clear();
+                OverlayLastCapturesTitle = "Last Captures";
+                OverlayLastCapturesSubtitle = string.Empty;
+                OverlayLastCapturesEmptyText = "No captures found.";
+
+                OnPropertyChanged(nameof(OverlayLastCaptureItems));
+                OnPropertyChanged(nameof(HasOverlayLastCaptures));
+                OnPropertyChanged(nameof(OverlayLastCapturesTitle));
+                OnPropertyChanged(nameof(OverlayLastCapturesSubtitle));
+                OnPropertyChanged(nameof(OverlayLastCapturesEmptyText));
             }
         }
 
@@ -5609,6 +8547,101 @@ namespace AnikiHelper
         }
 
 
+
+        public bool IsInGameOverlaySuspendGameEnabled()
+        {
+            return string.Equals(InGameOverlayGameBehavior, "SuspendGame", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public bool IsInGameOverlayNeverSuspendGame(Guid gameId)
+        {
+            return gameId != Guid.Empty &&
+                   InGameOverlayNeverSuspendGames != null &&
+                   InGameOverlayNeverSuspendGames.ContainsKey(gameId);
+        }
+
+        public void ToggleInGameOverlayNeverSuspendGame(Playnite.SDK.Models.Game game)
+        {
+            if (game == null || game.Id == Guid.Empty)
+            {
+                return;
+            }
+
+            SetInGameOverlayNeverSuspend(game.Id, !IsInGameOverlayNeverSuspendGame(game.Id), game.Name);
+        }
+
+        public void SetInGameOverlayNeverSuspend(Guid gameId, bool neverSuspend, string gameName = null)
+        {
+            if (gameId == Guid.Empty)
+            {
+                return;
+            }
+
+            if (InGameOverlayNeverSuspendGames == null)
+            {
+                InGameOverlayNeverSuspendGames = new Dictionary<Guid, string>();
+            }
+
+            if (neverSuspend)
+            {
+                InGameOverlayNeverSuspendGames[gameId] = string.IsNullOrWhiteSpace(gameName)
+                    ? gameId.ToString()
+                    : gameName;
+            }
+            else if (InGameOverlayNeverSuspendGames.ContainsKey(gameId))
+            {
+                InGameOverlayNeverSuspendGames.Remove(gameId);
+            }
+
+            RefreshInGameOverlayNeverSuspendGameItems();
+            OnPropertyChanged(nameof(InGameOverlayNeverSuspendGames));
+
+            try
+            {
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to save in-game overlay never suspend list.");
+            }
+        }
+
+        public void ClearInGameOverlayNeverSuspendGames()
+        {
+            if (InGameOverlayNeverSuspendGames == null || InGameOverlayNeverSuspendGames.Count == 0)
+            {
+                return;
+            }
+
+            InGameOverlayNeverSuspendGames.Clear();
+            RefreshInGameOverlayNeverSuspendGameItems();
+            OnPropertyChanged(nameof(InGameOverlayNeverSuspendGames));
+
+            try
+            {
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to clear in-game overlay never suspend list.");
+            }
+        }
+
+        private void RefreshInGameOverlayNeverSuspendGameItems()
+        {
+            var items = new ObservableCollection<AnikiOverlayNeverSuspendGameItem>();
+
+            if (InGameOverlayNeverSuspendGames != null)
+            {
+                foreach (var pair in InGameOverlayNeverSuspendGames.OrderBy(x => x.Value ?? string.Empty))
+                {
+                    items.Add(new AnikiOverlayNeverSuspendGameItem(this, pair.Key, pair.Value));
+                }
+            }
+
+            InGameOverlayNeverSuspendGameItems = items;
+        }
+
         // ===== ISettings =====
         public void BeginEdit() { }
         public void CancelEdit() { }
@@ -5722,8 +8755,342 @@ namespace AnikiHelper
             }
         }
 
+        public void RefreshDuplicateHiderAvailability(Playnite.SDK.Models.Game selectedGame)
+        {
+            try
+            {
+                if (selectedGame == null)
+                {
+                    HasDuplicateHiderVersions = false;
+                    return;
+                }
 
+                if (!TryGetDuplicateHiderCopies(selectedGame, out var copies))
+                {
+                    HasDuplicateHiderVersions = false;
+                    return;
+                }
+
+                HasDuplicateHiderVersions = copies != null && copies.Count > 1;
+            }
+            catch
+            {
+                HasDuplicateHiderVersions = false;
+            }
+        }
+
+        private bool PrepareDuplicateHiderVersionsWindow()
+        {
+            try
+            {
+                DuplicateHiderGameVersions.Clear();
+
+                var selectedGame = plugin?.PlayniteApi?.MainView?.SelectedGames?.FirstOrDefault();
+
+                if (selectedGame == null)
+                {
+                    HasDuplicateHiderVersions = false;
+                    return false;
+                }
+
+                if (!TryGetDuplicateHiderCopies(selectedGame, out var copies))
+                {
+                    HasDuplicateHiderVersions = false;
+                    return false;
+                }
+
+                if (copies == null || copies.Count <= 1)
+                {
+                    HasDuplicateHiderVersions = false;
+                    return false;
+                }
+
+                HasDuplicateHiderVersions = true;
+
+                var duplicateHiderInstance = GetDuplicateHiderInstance();
+
+                foreach (var copy in copies)
+                {
+                    if (copy == null)
+                    {
+                        continue;
+                    }
+
+                    var gameId = copy.Id;
+
+                    var item = new AnikiDuplicateHiderGameItem
+                    {
+                        GameId = gameId,
+                        Name = copy.Name ?? string.Empty,
+                        SourceName = copy.Source?.Name ?? string.Empty,
+                        PlatformName = copy.Platforms?.FirstOrDefault()?.Name ?? string.Empty,
+                        DisplayString = GetDuplicateHiderDisplayString(duplicateHiderInstance, copy),
+                        Icon = TryGetDuplicateHiderIcon(copy),
+                        IsCurrent = copy.Id == selectedGame.Id
+                    };
+
+                    item.SelectCommand = new RelayCommand(
+                        () =>
+                        {
+                            SelectDuplicateHiderGame(gameId);
+                        }
+                    );
+
+                    DuplicateHiderGameVersions.Add(item);
+                }
+
+                return DuplicateHiderGameVersions.Count > 1;
+            }
+            catch
+            {
+                DuplicateHiderGameVersions.Clear();
+                HasDuplicateHiderVersions = false;
+                return false;
+            }
+        }
+
+        private object GetDuplicateHiderInstance()
+        {
+            try
+            {
+                var type = AppDomain.CurrentDomain
+                    .GetAssemblies()
+                    .Select(a => a.GetType("DuplicateHider.DuplicateHiderPlugin", false))
+                    .FirstOrDefault(t => t != null);
+
+                if (type == null)
+                {
+                    return null;
+                }
+
+                return type
+                    .GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private bool TryGetDuplicateHiderCopies(Playnite.SDK.Models.Game selectedGame, out List<Playnite.SDK.Models.Game> copies)
+        {
+            copies = new List<Playnite.SDK.Models.Game>();
+
+            try
+            {
+                if (selectedGame == null)
+                {
+                    return false;
+                }
+
+                var instance = GetDuplicateHiderInstance();
+
+                if (instance == null)
+                {
+                    return false;
+                }
+
+                var method = instance.GetType().GetMethod(
+                    "GetCopies",
+                    BindingFlags.Public | BindingFlags.Instance);
+
+                if (method == null)
+                {
+                    return false;
+                }
+
+                var result = method.Invoke(instance, new object[] { selectedGame }) as IEnumerable<Playnite.SDK.Models.Game>;
+
+                if (result == null)
+                {
+                    return false;
+                }
+
+                copies = result
+                    .Where(g => g != null)
+                    .ToList();
+
+                return copies.Count > 0;
+            }
+            catch
+            {
+                copies = new List<Playnite.SDK.Models.Game>();
+                return false;
+            }
+        }
+
+        private string GetDuplicateHiderDisplayString(object duplicateHiderInstance, Playnite.SDK.Models.Game game)
+        {
+            try
+            {
+                if (duplicateHiderInstance == null || game == null)
+                {
+                    return GetDuplicateHiderFallbackLabel(game);
+                }
+
+                var settings = duplicateHiderInstance
+                    .GetType()
+                    .GetProperty("Settings", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(duplicateHiderInstance);
+
+                var displayString = settings?
+                    .GetType()
+                    .GetProperty("DisplayString", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(settings) as string;
+
+                var method = duplicateHiderInstance
+                    .GetType()
+                    .GetMethod("ExpandDisplayString", BindingFlags.Public | BindingFlags.Instance);
+
+                if (method == null || string.IsNullOrWhiteSpace(displayString))
+                {
+                    return GetDuplicateHiderFallbackLabel(game);
+                }
+
+                var expanded = method.Invoke(duplicateHiderInstance, new object[] { game, displayString }) as string;
+
+                if (!string.IsNullOrWhiteSpace(expanded))
+                {
+                    return expanded;
+                }
+
+                return GetDuplicateHiderFallbackLabel(game);
+            }
+            catch
+            {
+                return GetDuplicateHiderFallbackLabel(game);
+            }
+        }
+
+        private string GetDuplicateHiderFallbackLabel(Playnite.SDK.Models.Game game)
+        {
+            if (game == null)
+            {
+                return string.Empty;
+            }
+
+            var platform = game.Platforms?.FirstOrDefault()?.Name ?? string.Empty;
+            var source = game.Source?.Name ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(platform) && !string.IsNullOrWhiteSpace(source))
+            {
+                if (!string.Equals(platform, source, StringComparison.OrdinalIgnoreCase))
+                {
+                    return $"{source} / {platform}";
+                }
+
+                return platform;
+            }
+
+            if (!string.IsNullOrWhiteSpace(platform))
+            {
+                return platform;
+            }
+
+            if (!string.IsNullOrWhiteSpace(source))
+            {
+                return source;
+            }
+
+            return game.Name ?? string.Empty;
+        }
+
+        private ImageSource TryGetDuplicateHiderIcon(Playnite.SDK.Models.Game game)
+        {
+            try
+            {
+                if (game == null)
+                {
+                    return null;
+                }
+
+                var pluginType = AppDomain.CurrentDomain
+                    .GetAssemblies()
+                    .Select(a => a.GetType("DuplicateHider.DuplicateHiderPlugin", false))
+                    .FirstOrDefault(t => t != null);
+
+                if (pluginType == null)
+                {
+                    return null;
+                }
+
+                var iconCache = pluginType
+                    .GetField("SourceIconCache", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                    ?.GetValue(null);
+
+                if (iconCache == null)
+                {
+                    return null;
+                }
+
+                var method = iconCache
+                    .GetType()
+                    .GetMethod("GetOrGenerate", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                if (method == null)
+                {
+                    return null;
+                }
+
+                return method.Invoke(iconCache, new object[] { game }) as ImageSource;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void SelectDuplicateHiderGame(Guid gameId)
+        {
+            try
+            {
+                var instance = GetDuplicateHiderInstance();
+
+                if (instance != null)
+                {
+                    var method = instance.GetType().GetMethod(
+                        "SelectGame",
+                        BindingFlags.Public | BindingFlags.Instance);
+
+                    if (method != null)
+                    {
+                        method.Invoke(instance, new object[] { gameId });
+                    }
+                    else
+                    {
+                        plugin?.PlayniteApi?.MainView?.SelectGame(gameId);
+                    }
+                }
+                else
+                {
+                    plugin?.PlayniteApi?.MainView?.SelectGame(gameId);
+                }
+            }
+            catch
+            {
+                try
+                {
+                    plugin?.PlayniteApi?.MainView?.SelectGame(gameId);
+                }
+                catch
+                {
+                }
+            }
+            finally
+            {
+                try
+                {
+                    plugin?.CloseTopWindow();
+                }
+                catch
+                {
+                }
+            }
+        }
     }
+
+
 
     public class AnikiHelperSettingsViewModel : ObservableObject, ISettings
     {
@@ -5736,6 +9103,15 @@ namespace AnikiHelper
         private static readonly HashSet<string> AutoSaveSettingNames = new HashSet<string>
         {
             nameof(AnikiHelperSettings.OpenWelcomeHubOnStartup),
+            nameof(AnikiHelperSettings.HubAppsEnabled),
+            nameof(AnikiHelperSettings.HubAppSlot1ToolName),
+            nameof(AnikiHelperSettings.HubAppSlot2ToolName),
+            nameof(AnikiHelperSettings.HubAppSlot3ToolName),
+            nameof(AnikiHelperSettings.HubAppSlot4ToolName),
+            nameof(AnikiHelperSettings.HubAppSlot1BackgroundPath),
+            nameof(AnikiHelperSettings.HubAppSlot2BackgroundPath),
+            nameof(AnikiHelperSettings.HubAppSlot3BackgroundPath),
+            nameof(AnikiHelperSettings.HubAppSlot4BackgroundPath),
             nameof(AnikiHelperSettings.EventSoundsEnabled),
             nameof(AnikiHelperSettings.NewsScanEnabled),
             nameof(AnikiHelperSettings.IncludeHidden),
@@ -5755,15 +9131,30 @@ namespace AnikiHelper
             nameof(AnikiHelperSettings.SteamStoreEnabled),
             nameof(AnikiHelperSettings.SteamStoreLanguage),
             nameof(AnikiHelperSettings.SteamStoreRegion),
+            nameof(AnikiHelperSettings.NotifyOnConnect),
+            nameof(AnikiHelperSettings.NotifyOnGameStart),
+            nameof(AnikiHelperSettings.ShowOffline),
+            nameof(AnikiHelperSettings.SteamId64),
+            nameof(AnikiHelperSettings.SteamAccountSteamId64),
+            nameof(AnikiHelperSettings.SteamAccountProfileUrl),
+            nameof(AnikiHelperSettings.SteamApiKey),
+            nameof(AnikiHelperSettings.SteamFriendsEnabled),
 
             nameof(AnikiHelperSettings.GameLaunchSplashEnabled),
             nameof(AnikiHelperSettings.GameLaunchSplashPauseUniPlaySong),
             nameof(AnikiHelperSettings.GameLaunchSplashSelectionMode),
+            nameof(AnikiHelperSettings.GameLaunchSplashCustomPriority1),
+            nameof(AnikiHelperSettings.GameLaunchSplashCustomPriority2),
+            nameof(AnikiHelperSettings.GameLaunchSplashCustomPriority3),
+            nameof(AnikiHelperSettings.GameLaunchSplashCustomPriority4),
+            nameof(AnikiHelperSettings.GameLaunchSplashCustomPriority5),
             nameof(AnikiHelperSettings.GameLaunchSplashShowLogo),
             nameof(AnikiHelperSettings.GameLaunchSplashLogoPosition),
             nameof(AnikiHelperSettings.GameLaunchSplashMinimumDurationMs),
             nameof(AnikiHelperSettings.GameLaunchSplashMinimumDurationSeconds),
+            nameof(AnikiHelperSettings.GameLaunchSplashAutoDetectReadyEnabled),
             nameof(AnikiHelperSettings.GameLaunchSplashMaximumWaitMs),
+            nameof(AnikiHelperSettings.GameLaunchSplashMaximumWaitSeconds),
             nameof(AnikiHelperSettings.GameLaunchSplashVideoEndBehavior),
             nameof(AnikiHelperSettings.GameLaunchSplashVideoSoundEnabled),
             nameof(AnikiHelperSettings.GameLaunchSplashVideoVolume),
@@ -5771,6 +9162,7 @@ namespace AnikiHelper
             nameof(AnikiHelperSettings.InGameOverlayEnabled),
             nameof(AnikiHelperSettings.InGameOverlayHotkey),
             nameof(AnikiHelperSettings.InGameOverlayControllerShortcut),
+            nameof(AnikiHelperSettings.InGameOverlayGameBehavior),
 
             nameof(AnikiHelperSettings.DynamicAutoPrecacheUserEnabled)
         };

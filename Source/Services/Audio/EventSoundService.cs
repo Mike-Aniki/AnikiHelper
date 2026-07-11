@@ -14,6 +14,36 @@ namespace AnikiHelper
     {
         private static readonly ILogger logger = LogManager.GetLogger();
 
+        private static void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private static void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
         private const string ThemeFolderName = "Aniki_ReMake_bb8728bd-ac83-4324-88b1-ee5c586527d1";
 
         private readonly IPlayniteAPI playniteApi;
@@ -151,7 +181,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, $"[AnikiHelper] PlaySound failed: {fileName}");
+                DebugLog(ex, $"[AnikiHelper] PlaySound failed: {fileName}");
             }
         }
 
@@ -161,21 +191,21 @@ namespace AnikiHelper
             {
                 if (!CanPlay(out var reason))
                 {
-                    logger.Debug($"[AnikiHelper] Event sound skipped: {fileName} | reason={reason}");
+                    DebugLog($"[AnikiHelper] Event sound skipped: {fileName} | reason={reason}");
                     return;
                 }
 
                 var folder = GetThemeEventsFolder();
                 if (string.IsNullOrWhiteSpace(folder))
                 {
-                    logger.Debug($"[AnikiHelper] Event sound folder not found for theme: {ThemeFolderName}");
+                    DebugLog($"[AnikiHelper] Event sound folder not found for theme: {ThemeFolderName}");
                     return;
                 }
 
                 var fullPath = ResolveSoundPath(folder, fileName, forceKonamiFolder);
                 if (string.IsNullOrWhiteSpace(fullPath))
                 {
-                    logger.Debug($"[AnikiHelper] Event sound file not found: {fileName} | folder={folder} | konamiMode={settings?.IsKonamiModeActive} | forceKonami={forceKonamiFolder}");
+                    DebugLog($"[AnikiHelper] Event sound file not found: {fileName} | folder={folder} | konamiMode={settings?.IsKonamiModeActive} | forceKonami={forceKonamiFolder}");
                     return;
                 }
 
@@ -184,7 +214,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, $"[AnikiHelper] PlaySoundCore failed: {fileName}");
+                DebugLog(ex, $"[AnikiHelper] PlaySoundCore failed: {fileName}");
             }
         }
 
@@ -211,7 +241,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, $"[AnikiHelper] Failed to resolve event sound path: {fileName}");
+                DebugLog(ex, $"[AnikiHelper] Failed to resolve event sound path: {fileName}");
                 return null;
             }
         }
@@ -264,7 +294,7 @@ namespace AnikiHelper
 
                 mediaFailed = (s, e) =>
                 {
-                    logger.Debug(e.ErrorException, $"[AnikiHelper] Event sound media failed: {fileName}");
+                    DebugLog(e.ErrorException, $"[AnikiHelper] Event sound media failed: {fileName}");
                     cleanup();
                 };
 
@@ -305,7 +335,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, $"[AnikiHelper] Failed to play event sound: {fileName}");
+                DebugLog(ex, $"[AnikiHelper] Failed to play event sound: {fileName}");
 
                 try
                 {
@@ -346,7 +376,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, "[AnikiHelper] Failed to get cached InterfaceVolume.");
+                DebugLog(ex, "[AnikiHelper] Failed to get cached InterfaceVolume.");
                 return 1.0;
             }
         }
@@ -362,7 +392,7 @@ namespace AnikiHelper
 
                 if (!File.Exists(fullscreenConfigPath))
                 {
-                    logger.Debug($"[AnikiHelper] fullscreenConfig.json not found: {fullscreenConfigPath}");
+                    DebugLog($"[AnikiHelper] fullscreenConfig.json not found: {fullscreenConfigPath}");
                     return 1.0;
                 }
 
@@ -375,7 +405,7 @@ namespace AnikiHelper
 
                 if (!match.Success)
                 {
-                    logger.Debug("[AnikiHelper] InterfaceVolume not found in fullscreenConfig.json.");
+                    DebugLog("[AnikiHelper] InterfaceVolume not found in fullscreenConfig.json.");
                     return 1.0;
                 }
 
@@ -385,7 +415,7 @@ namespace AnikiHelper
                         CultureInfo.InvariantCulture,
                         out var volume))
                 {
-                    logger.Debug($"[AnikiHelper] Failed to parse InterfaceVolume: {match.Groups[1].Value}");
+                    DebugLog($"[AnikiHelper] Failed to parse InterfaceVolume: {match.Groups[1].Value}");
                     return 1.0;
                 }
 
@@ -408,7 +438,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                logger.Debug(ex, "[AnikiHelper] Failed to read InterfaceVolume from fullscreenConfig.json.");
+                DebugLog(ex, "[AnikiHelper] Failed to read InterfaceVolume from fullscreenConfig.json.");
                 return 1.0;
             }
         }
@@ -458,9 +488,53 @@ namespace AnikiHelper
             PlaySound("FullscreenViewChanged.wav");
         }
 
+        private string ResolveLuckyDaySoundFileName()
+        {
+            try
+            {
+                const string fallbackFileName = "LuckyDay.wav";
+
+                if (settings?.IsLuckyDay != true)
+                {
+                    return fallbackFileName;
+                }
+
+                string luckyFileName = null;
+                switch (settings.LuckyStyleIndex)
+                {
+                    case 1:
+                        luckyFileName = "LuckyDay1.wav";
+                        break;
+
+                    case 2:
+                        luckyFileName = "LuckyDay2.wav";
+                        break;
+                }
+
+                if (string.IsNullOrWhiteSpace(luckyFileName))
+                {
+                    return fallbackFileName;
+                }
+
+                var folder = GetThemeEventsFolder();
+                if (string.IsNullOrWhiteSpace(folder))
+                {
+                    return fallbackFileName;
+                }
+
+                return ResolveSoundPath(folder, luckyFileName) != null
+                    ? luckyFileName
+                    : fallbackFileName;
+            }
+            catch
+            {
+                return "LuckyDay.wav";
+            }
+        }
+
         public void PlayLuckyDay()
         {
-            PlaySound("LuckyDay.wav");
+            PlaySound(ResolveLuckyDaySoundFileName());
         }
 
         public void PlayKonamiCodeAccepted()

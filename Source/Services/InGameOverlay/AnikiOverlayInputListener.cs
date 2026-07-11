@@ -23,9 +23,41 @@ namespace AnikiHelper.Services.InGameOverlay
         private const int SDL_CONTROLLER_BUTTON_START = 6;
         private const int SDL_CONTROLLER_BUTTON_DPAD_UP = 11;
         private const int SDL_CONTROLLER_BUTTON_DPAD_DOWN = 12;
+        private const int SDL_CONTROLLER_BUTTON_DPAD_LEFT = 13;
+        private const int SDL_CONTROLLER_BUTTON_DPAD_RIGHT = 14;
 
         private readonly AnikiHelperSettings settings;
         private readonly ILogger logger;
+
+        private void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
         private readonly Action onShortcutPressed;
         private readonly Func<bool> isOverlayEnabled;
         private readonly Func<bool> isOverlayVisible;
@@ -47,6 +79,8 @@ namespace AnikiHelper.Services.InGameOverlay
         private bool previousB;
         private bool previousDPadUp;
         private bool previousDPadDown;
+        private bool previousDPadLeft;
+        private bool previousDPadRight;
         private bool shortcutHeld;
         private DateTime lastShortcutTime = DateTime.MinValue;
         private DateTime lastRefreshTime = DateTime.MinValue;
@@ -263,6 +297,8 @@ namespace AnikiHelper.Services.InGameOverlay
                 previousB = false;
                 previousDPadUp = false;
                 previousDPadDown = false;
+                previousDPadLeft = false;
+                previousDPadRight = false;
                 shortcutHeld = false;
                 return;
             }
@@ -275,6 +311,8 @@ namespace AnikiHelper.Services.InGameOverlay
             var b = false;
             var dpadUp = false;
             var dpadDown = false;
+            var dpadLeft = false;
+            var dpadRight = false;
 
             lock (syncRoot)
             {
@@ -294,6 +332,8 @@ namespace AnikiHelper.Services.InGameOverlay
                     b = b || IsPressed(controller, SDL_CONTROLLER_BUTTON_B);
                     dpadUp = dpadUp || IsPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_UP);
                     dpadDown = dpadDown || IsPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+                    dpadLeft = dpadLeft || IsPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+                    dpadRight = dpadRight || IsPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
                 }
             }
 
@@ -307,6 +347,8 @@ namespace AnikiHelper.Services.InGameOverlay
             var bPressedNow = b && !previousB;
             var dpadUpPressedNow = dpadUp && !previousDPadUp;
             var dpadDownPressedNow = dpadDown && !previousDPadDown;
+            var dpadLeftPressedNow = dpadLeft && !previousDPadLeft;
+            var dpadRightPressedNow = dpadRight && !previousDPadRight;
 
             previousGuide = guide;
             previousStart = start;
@@ -316,35 +358,51 @@ namespace AnikiHelper.Services.InGameOverlay
             previousB = b;
             previousDPadUp = dpadUp;
             previousDPadDown = dpadDown;
+            previousDPadLeft = dpadLeft;
+            previousDPadRight = dpadRight;
 
             if (isOverlayVisible != null && isOverlayVisible())
             {
                 shortcutHeld = false;
 
+                if (dpadLeftPressedNow)
+                {
+                    DebugLog("[AnikiHelper][OverlayInput] SDL DPadLeft pressed.");
+                    onOverlayButtonPressed?.Invoke(ControllerInput.DPadLeft);
+                    return;
+                }
+
+                if (dpadRightPressedNow)
+                {
+                    DebugLog("[AnikiHelper][OverlayInput] SDL DPadRight pressed.");
+                    onOverlayButtonPressed?.Invoke(ControllerInput.DPadRight);
+                    return;
+                }
+
                 if (dpadUpPressedNow)
                 {
-                    logger?.Debug("[AnikiHelper][OverlayInput] SDL DPadUp pressed.");
+                    DebugLog("[AnikiHelper][OverlayInput] SDL DPadUp pressed.");
                     onOverlayButtonPressed?.Invoke(ControllerInput.DPadUp);
                     return;
                 }
 
                 if (dpadDownPressedNow)
                 {
-                    logger?.Debug("[AnikiHelper][OverlayInput] SDL DPadDown pressed.");
+                    DebugLog("[AnikiHelper][OverlayInput] SDL DPadDown pressed.");
                     onOverlayButtonPressed?.Invoke(ControllerInput.DPadDown);
                     return;
                 }
 
                 if (aPressedNow)
                 {
-                    logger?.Debug("[AnikiHelper][OverlayInput] SDL A pressed.");
+                    DebugLog("[AnikiHelper][OverlayInput] SDL A pressed.");
                     onOverlayButtonPressed?.Invoke(ControllerInput.A);
                     return;
                 }
 
                 if (bPressedNow || backPressedNow)
                 {
-                    logger?.Debug("[AnikiHelper][OverlayInput] SDL B/Back pressed.");
+                    DebugLog("[AnikiHelper][OverlayInput] SDL B/Back pressed.");
                     onOverlayButtonPressed?.Invoke(ControllerInput.B);
                     return;
                 }
@@ -385,7 +443,7 @@ namespace AnikiHelper.Services.InGameOverlay
                         return;
                     }
 
-                    logger?.Debug($"[AnikiHelper][OverlayInput] SDL Guide hold ignored. HeldMs={heldMs:0}");
+                    DebugLog($"[AnikiHelper][OverlayInput] SDL Guide hold ignored. HeldMs={heldMs:0}");
                     return;
                 }
 

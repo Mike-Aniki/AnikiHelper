@@ -19,6 +19,36 @@ namespace AnikiHelper.Services.Controller
     {
         private static readonly ILogger logger = LogManager.GetLogger();
 
+        private static void DebugLog(string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
+        private static void DebugLog(Exception exception, string message)
+        {
+            try
+            {
+                if (global::AnikiHelper.AnikiHelper.Instance?.Settings?.EnableDebugLogs == true)
+                {
+                    logger?.Debug(exception, message);
+                }
+            }
+            catch
+            {
+                // Never let debug logging break the plugin.
+            }
+        }
+
         private readonly bool suppressDefaults;
         private readonly bool global;
         private readonly AnikiControllerInput controller;
@@ -265,13 +295,13 @@ namespace AnikiHelper.Services.Controller
                 {
                     if (gameRunning)
                     {
-                        logger.Debug($"[AnikiHelper][Controller] Input ignored because a game is running and Playnite is not foreground. Button={button}");
+                        DebugLog($"[AnikiHelper][Controller] Input ignored because a game is running and Playnite is not foreground. Button={button}");
                         return;
                     }
 
                     if (IsThemeShortcutButton(button))
                     {
-                        logger.Debug($"[AnikiHelper][Controller] Shortcut ignored because Playnite is not foreground. Button={button}");
+                        DebugLog($"[AnikiHelper][Controller] Shortcut ignored because Playnite is not foreground. Button={button}");
                         return;
                     }
                 }
