@@ -47,6 +47,7 @@ namespace AnikiHelper.Services
                 // Never let debug logging break the plugin.
             }
         }
+
         private readonly SteamStoreService steamStoreService;
         private readonly SteamStorePersonalizationService personalizationService;
         private readonly string recommendedCacheFolder;
@@ -341,19 +342,19 @@ namespace AnikiHelper.Services
                 DebugLog($"[Recommended] Playable-now filter skipped | kept={playableNowCandidates.Count} would be too low | total={recommendationCandidates.Count}");
             }
 
-            var qualityCandidates = recommendationCandidates
-                .Where(x => !LooksLikeAdultDatingOrLowQualityRecommended(x))
+            var adultSafeCandidates = recommendationCandidates
+                .Where(x => !LooksLikeExplicitAdultContent(x))
                 .ToList();
 
-            if (qualityCandidates.Count >= 8)
+            if (adultSafeCandidates.Count != recommendationCandidates.Count)
             {
-                DebugLog($"[Recommended] Content quality filter ON | kept={qualityCandidates.Count} | dropped={recommendationCandidates.Count - qualityCandidates.Count}");
-                LogDroppedRecommendedItems(recommendationCandidates.Except(qualityCandidates).ToList(), "dating-adult-low-quality");
-                recommendationCandidates = qualityCandidates;
+                DebugLog($"[Recommended] explicit adult filter ON | kept={adultSafeCandidates.Count} | dropped={recommendationCandidates.Count - adultSafeCandidates.Count}");
+                LogDroppedRecommendedItems(recommendationCandidates.Except(adultSafeCandidates).ToList(), "explicit-adult-content");
+                recommendationCandidates = adultSafeCandidates;
             }
             else
             {
-                DebugLog($"[Recommended] Content quality filter skipped | kept={qualityCandidates.Count} would be too low | total={recommendationCandidates.Count}");
+                DebugLog($"[Recommended] explicit adult filter OK | kept={recommendationCandidates.Count} | dropped=0");
             }
 
             var filtered = personalizationService.FilterSection(
@@ -402,7 +403,9 @@ namespace AnikiHelper.Services
 
             ApplyWishlistFlagsFromWishlistSetOrRecommendedHtml(html, parsed, wishlistAppIds);
 
-            var wishlistSource = wishlistAppIds != null && wishlistAppIds.Count > 0 ? "wishlistdata" : "recommended-html";
+            var wishlistSource = wishlistAppIds != null
+                ? "authenticated-wishlist"
+                : "unavailable";
             DebugLog($"[Steam Recommender] parsed={parsed.Count} | wishlist={parsed.Count(x => x.IsInWishlist)} | wishlistSource={wishlistSource} | wishlistKnown={wishlistAppIds?.Count ?? 0}");
             reportProgress?.Invoke(25);
 
@@ -857,38 +860,133 @@ namespace AnikiHelper.Services
 
         private bool LooksLikeExplicitAdultContent(SteamStoreItem item)
         {
+            return !string.IsNullOrWhiteSpace(GetExplicitAdultFilterReason(item));
+        }
+
+        private string GetExplicitAdultFilterReason(SteamStoreItem item)
+        {
             if (item == null)
             {
-                return true;
+                return "invalid-item";
             }
 
-            var haystack = BuildRecommendedQualityText(item);
+            var title = (item.Name ?? string.Empty).Trim().ToLowerInvariant();
+            var haystack = PrepareAdultFilterText(BuildRecommendedQualityText(item));
+
             if (string.IsNullOrWhiteSpace(haystack))
             {
-                return false;
+                return string.Empty;
             }
 
-            // Strict adult filter only: do not remove violent/mature games like Cyberpunk,
-            // RDR2, Sekiro, etc. This only targets explicit sexual/NSFW signals.
-            return haystack.Contains("adult only") ||
-                   haystack.Contains("adult-only") ||
-                   haystack.Contains("adults only") ||
-                   haystack.Contains("sexual content") ||
-                   haystack.Contains("strong sexual content") ||
-                   haystack.Contains("explicit sexual") ||
-                   haystack.Contains("nudity") ||
-                   haystack.Contains("hentai") ||
-                   haystack.Contains("erotic") ||
-                   haystack.Contains("nsfw") ||
-                   haystack.Contains("porn") ||
-                   haystack.Contains("pornography") ||
-                   haystack.Contains("18+") ||
-                   haystack.Contains("sexuel") ||
-                   haystack.Contains("contenu sexuel") ||
-                   haystack.Contains("contenu a caractere sexuel") ||
-                   haystack.Contains("contenu à caractère sexuel") ||
-                   haystack.Contains("nudité") ||
-                   haystack.Contains("nudite");
+            // Strong and unambiguous signals. Generic nudity, sexual themes, sexual material,
+            // innuendo and references are intentionally not included here.
+            var strongTerms = new[]
+            {
+                "adult only sexual content",
+                "adult-only sexual content",
+                "contenu sexuel réservé aux adultes",
+                "contenu sexuel reserve aux adultes",
+                "sexually explicit",
+                "explicit sexual",
+                "graphic depictions of sex",
+                "graphic depiction of sex",
+                "graphic sex",
+                "hardcore sex",
+                "hardcore sexual",
+                "uncensored sex",
+                "sex simulator",
+                "depictions of sexual acts",
+                "depiction of sexual acts",
+                "vaginal sex",
+                "anal sex",
+                "oral sex",
+                "fellatio",
+                "blowjob",
+                "masturbation",
+                "hentai",
+                "eroge",
+                "nsfw",
+                "porn"
+            };
+
+            foreach (var term in strongTerms)
+            {
+                if (haystack.Contains(term))
+                {
+                    return "strong-term:" + term;
+                }
+            }
+
+            // Some games have no mature-content description. Keep a very small title-only
+            // fallback for unmistakably explicit labels, without blacklisting game names.
+            if (Regex.IsMatch(
+                title,
+                @"\b(hentai|porn|pornographic|eroge|nsfw|fetish|xxx)\b|\bsex\s+simulator\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            {
+                return "explicit-title";
+            }
+
+            // Block descriptions that positively say the game contains or depicts sex/sexual acts.
+            // Negated clauses and simple references/innuendo have already been removed.
+            if (Regex.IsMatch(
+                    haystack,
+                    @"\b(contains?|includes?|features?|depicts?|shows?|offers?)\b[^.!?;\r\n]{0,180}\b(sex|sexual\s+acts?|sexual\s+intercourse)\b",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) ||
+                Regex.IsMatch(
+                    haystack,
+                    @"\b(contient|inclut|incluent|comprend|comporte|présente|presente|montre)\b[^.!?;\r\n]{0,180}\b(du\s+)?(sexe|actes?\s+sexuels?)\b",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            {
+                return "direct-sex-description";
+            }
+
+            return string.Empty;
+        }
+
+        private static string PrepareAdultFilterText(string text)
+        {
+            var result = (text ?? string.Empty).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                return string.Empty;
+            }
+
+            var options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+
+            // Remove clauses that explicitly deny sexual acts/content. This prevents sentences
+            // such as "does not contain any depictions of sexual acts" from becoming false positives.
+            var negatedClausePatterns = new[]
+            {
+                @"\b(does\s+not|doesn't|doesnt|do\s+not|don't|dont)\s+(contain|include|depict|feature|show)\b[^.!?;\r\n]{0,240}",
+                @"\b(contains?|includes?|features?|depicts?|shows?)\s+no\b[^.!?;\r\n]{0,240}",
+                @"\bno\s+(depictions?|representations?)\s+of\b[^.!?;\r\n]{0,240}",
+                @"\bwithout\s+(any\s+)?(depictions?\s+of\s+)?(sex|sexual\s+acts?|sexual\s+content|pornographic\s+content)\b[^.!?;\r\n]{0,240}",
+                @"\bne\s+(contient|comporte|présente|presente|montre)\s+pas\b[^.!?;\r\n]{0,240}",
+                @"\baucun(e)?\s+(représentation|representation|scène|scene|acte|contenu)\b[^.!?;\r\n]{0,240}"
+            };
+
+            foreach (var pattern in negatedClausePatterns)
+            {
+                result = Regex.Replace(result, pattern, " ", options);
+            }
+
+            // References and innuendo are not explicit content by themselves.
+            var referencePatterns = new[]
+            {
+                @"\bsexual\s+(references?|innuendo)\b",
+                @"\b(references?|mentions?|allusions?)\s+to\s+(sex|sexual\s+acts?)\b",
+                @"\bsex-related\s+(references?|jokes?)\b",
+                @"\b(références?|references?|allusions?)\s+sexuelles?\b",
+                @"\bsous-entendus?\s+sexuels?\b"
+            };
+
+            foreach (var pattern in referencePatterns)
+            {
+                result = Regex.Replace(result, pattern, " ", options);
+            }
+
+            return result;
         }
 
         private static long GetSteamForYouPopularityScore(SteamStoreItem item)
@@ -940,23 +1038,25 @@ namespace AnikiHelper.Services
 
         private void ApplyWishlistFlagsFromWishlistSetOrRecommendedHtml(string html, IEnumerable<SteamStoreItem> items, ISet<int> wishlistAppIds)
         {
-            var list = items == null ? new List<SteamStoreItem>() : items.Where(x => x != null && x.AppId > 0).ToList();
-            if (list.Count == 0)
+            var list = items == null
+                ? new List<SteamStoreItem>()
+                : items
+                    .Where(x => x != null && x.AppId > 0)
+                    .ToList();
+
+            foreach (var item in list)
             {
-                return;
+                // Never guess wishlist membership from nearby HTML.
+                //
+                // null  = the real wishlist could not be loaded:
+                //         do not display any Wishlist badge.
+                //
+                // empty = the real wishlist was loaded successfully
+                //         and contains no games.
+                item.IsInWishlist =
+                    wishlistAppIds != null &&
+                    wishlistAppIds.Contains(item.AppId);
             }
-
-            if (wishlistAppIds != null && wishlistAppIds.Count > 0)
-            {
-                foreach (var item in list)
-                {
-                    item.IsInWishlist = wishlistAppIds.Contains(item.AppId);
-                }
-
-                return;
-            }
-
-            ApplyWishlistFlagsFromRecommendedHtml(html, list);
         }
 
         private void ApplyWishlistFlagsFromRecommendedHtml(string html, IEnumerable<SteamStoreItem> items)
@@ -1128,36 +1228,9 @@ namespace AnikiHelper.Services
 
         private bool LooksLikeAdultDatingOrLowQualityRecommended(SteamStoreItem item)
         {
-            if (item == null)
-            {
-                return true;
-            }
-
-            var haystack = BuildRecommendedQualityText(item);
-            if (string.IsNullOrWhiteSpace(haystack))
-            {
-                return false;
-            }
-
-            // For You is a premium recommendation row. Keep Store-wide adult/dating/social filler
-            // out even if Steam MoreLikeThis returns it for story-rich/narrative seeds.
-            return haystack.Contains("date everything") ||
-                   haystack.Contains("house party") ||
-                   haystack.Contains("dating sim") ||
-                   haystack.Contains("dating simulator") ||
-                   haystack.Contains("sexual content") ||
-                   haystack.Contains("nudity") ||
-                   haystack.Contains("hentai") ||
-                   haystack.Contains("erotic") ||
-                   haystack.Contains("nsfw") ||
-                   haystack.Contains("adult only") ||
-                   haystack.Contains("adult-only") ||
-                   haystack.Contains("porn") ||
-                   haystack.Contains("mature content") ||
-                   haystack.Contains("sexuel") ||
-                   haystack.Contains("nudité") ||
-                   haystack.Contains("jeu de drague") ||
-                   haystack.Contains("simulation de rencontre");
+            // Kept as a compatibility wrapper for the older seed-based recommender path.
+            // Dating simulations, nudity and generic sexual themes are no longer blocked here.
+            return LooksLikeExplicitAdultContent(item);
         }
 
         private string BuildRecommendedQualityText(SteamStoreItem item)
@@ -1175,6 +1248,7 @@ namespace AnikiHelper.Services
             Add(item.Name);
             Add(item.AppType);
             Add(item.ShortDescription);
+            Add(item.ContentDescriptorNotes);
             Add(item.Source);
 
             if (item.Tags != null)
@@ -1204,7 +1278,15 @@ namespace AnikiHelper.Services
 
             foreach (var item in dropped.Take(20))
             {
-                DebugLog($"[Recommended] Dropped | reason={reason} | {item?.Name} | AppId={item?.AppId} | Release={item?.ReleaseDateDisplay} | ComingSoon={item?.ComingSoon} | Preorder={item?.IsPreorder}");
+                var adultDetail = reason?.IndexOf("adult", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? GetExplicitAdultFilterReason(item)
+                    : string.Empty;
+
+                var detailText = string.IsNullOrWhiteSpace(adultDetail)
+                    ? string.Empty
+                    : $" | detail={adultDetail}";
+
+                DebugLog($"[Recommended] Dropped | reason={reason}{detailText} | {item?.Name} | AppId={item?.AppId} | Release={item?.ReleaseDateDisplay} | ComingSoon={item?.ComingSoon} | Preorder={item?.IsPreorder}");
             }
         }
 
@@ -1613,8 +1695,23 @@ namespace AnikiHelper.Services
         {
             var safeLanguage = SanitizeCachePart(language);
             var safeRegion = SanitizeCachePart(region);
-            var targetPath = Path.Combine(recommendedCacheFolder, $"steam_recommender_{safeLanguage}_{safeRegion}.json");
-            TryMigrateLegacyRecommendedCache(profileKey, safeLanguage, safeRegion, targetPath);
+            var safeProfile = SanitizeCachePart(profileKey);
+
+            if (string.IsNullOrWhiteSpace(safeProfile))
+            {
+                safeProfile = "steam_recommender_v5";
+            }
+
+            var targetPath = Path.Combine(
+                recommendedCacheFolder,
+                $"{safeProfile}_{safeLanguage}_{safeRegion}.json");
+
+            // v5 starts clean because the explicit-content filter is now always enabled.
+            if (!safeProfile.StartsWith("steam_recommender_v5", StringComparison.OrdinalIgnoreCase))
+            {
+                TryMigrateLegacyRecommendedCache(profileKey, safeLanguage, safeRegion, targetPath);
+            }
+
             return targetPath;
         }
 

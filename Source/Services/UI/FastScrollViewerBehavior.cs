@@ -1,16 +1,16 @@
 ﻿using System;
 using System.Globalization;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Threading;
 
 namespace AnikiHelper
 {
     internal static class FastScrollViewerService
     {
-        private static DispatcherTimer timer;
+        private static bool isRunning;
+        private static bool classHandlerRegistered;
+        private static bool exitHandlerRegistered;
 
         private static readonly DependencyProperty IsPatchedProperty =
             DependencyProperty.RegisterAttached(
@@ -21,76 +21,106 @@ namespace AnikiHelper
 
         public static void Start()
         {
-            if (timer != null)
+            if (isRunning)
             {
                 return;
             }
 
-            timer = new DispatcherTimer(DispatcherPriority.Background)
-            {
-                Interval = TimeSpan.FromMilliseconds(500)
-            };
+            isRunning = true;
 
-            timer.Tick += Tick;
-            timer.Start();
-
-            Application.Current.Exit += (_, __) => Stop();
-        }
-
-        public static void Stop()
-        {
-            try
+            // Register a single global Loaded handler for ScrollViewer controls.
+            // This replaces the previous full visual-tree scan that ran every 500 ms.
+            if (!classHandlerRegistered)
             {
-                timer?.Stop();
-            }
-            catch
-            {
+                EventManager.RegisterClassHandler(
+                    typeof(ScrollViewer),
+                    FrameworkElement.LoadedEvent,
+                    new RoutedEventHandler(ScrollViewer_Loaded),
+                    true);
+
+                classHandlerRegistered = true;
             }
 
-            timer = null;
-        }
-
-        private static void Tick(object sender, EventArgs e)
-        {
             var app = Application.Current;
             if (app == null)
             {
                 return;
             }
 
-            foreach (Window window in app.Windows)
+            if (!exitHandlerRegistered)
             {
-                if (window == null || !window.IsVisible)
-                {
-                    continue;
-                }
-
-                PatchWindow(window);
+                app.Exit += Application_Exit;
+                exitHandlerRegistered = true;
             }
+
+            // The service starts after Playnite's UI is already visible, so patch the
+            // currently loaded controls once. Any control loaded later is handled by
+            // ScrollViewer_Loaded without polling.
+            PatchExistingScrollViewers(app);
         }
 
-        private static void PatchWindow(Window window)
+        public static void Stop()
+        {
+            isRunning = false;
+        }
+
+        private static void Application_Exit(object sender, ExitEventArgs e)
+        {
+            Stop();
+        }
+
+        private static void ScrollViewer_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (!isRunning)
+            {
+                return;
+            }
+
+            PatchScrollViewer(sender as ScrollViewer);
+        }
+
+        private static void PatchExistingScrollViewers(Application app)
         {
             try
             {
-                foreach (var scrollViewer in VisualTreeHelpers.FindVisualChildren<ScrollViewer>(window))
+                foreach (Window window in app.Windows)
                 {
-                    if (!ShouldPatch(scrollViewer))
+                    if (window == null || !window.IsVisible)
                     {
                         continue;
                     }
 
-                    if ((bool)scrollViewer.GetValue(IsPatchedProperty))
+                    foreach (var scrollViewer in VisualTreeHelpers.FindVisualChildren<ScrollViewer>(window))
                     {
-                        continue;
+                        PatchScrollViewer(scrollViewer);
                     }
-
-                    scrollViewer.SetValue(IsPatchedProperty, true);
-                    scrollViewer.Focusable = true;
-
-                    scrollViewer.PreviewKeyDown -= ScrollViewer_PreviewKeyDown;
-                    scrollViewer.PreviewKeyDown += ScrollViewer_PreviewKeyDown;
                 }
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+        }
+
+        private static void PatchScrollViewer(ScrollViewer scrollViewer)
+        {
+            try
+            {
+                if (!ShouldPatch(scrollViewer))
+                {
+                    return;
+                }
+
+                if ((bool)scrollViewer.GetValue(IsPatchedProperty))
+                {
+                    return;
+                }
+
+                scrollViewer.SetValue(IsPatchedProperty, true);
+                scrollViewer.Focusable = true;
+
+                scrollViewer.PreviewKeyDown -= ScrollViewer_PreviewKeyDown;
+                scrollViewer.PreviewKeyDown += ScrollViewer_PreviewKeyDown;
             }
             catch
             {

@@ -1253,8 +1253,10 @@
                                                            Margin="0,0,0,8"
                                                            TextWrapping="Wrap"/>
 
-                                                <TextBox Text="{Binding Settings.SteamApiKey, UpdateSourceTrigger=PropertyChanged}"
-                                                         HorizontalAlignment="Stretch"/>
+                                                <PasswordBox x:Name="SteamApiKeyPasswordBox"
+                                                             PasswordChanged="SteamApiKeyPasswordBox_PasswordChanged"
+                                                             PasswordChar="●"
+                                                             HorizontalAlignment="Stretch"/>
                                             </StackPanel>
                                         </Border>
 

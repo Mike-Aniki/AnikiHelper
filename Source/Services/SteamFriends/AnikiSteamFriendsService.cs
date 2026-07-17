@@ -130,6 +130,7 @@ namespace AnikiHelper.Services.SteamFriends
         };
 
         private readonly SemaphoreSlim avatarDlSem = new SemaphoreSlim(2, 2);
+        private readonly SemaphoreSlim selfAvatarRefreshGate = new SemaphoreSlim(1, 1);
         private readonly ConcurrentDictionary<string, byte> avatarDlInProgress = new ConcurrentDictionary<string, byte>();
 
         private readonly SemaphoreSlim gameHeaderDlSem = new SemaphoreSlim(2, 2);
@@ -1892,6 +1893,78 @@ namespace AnikiHelper.Services.SteamFriends
             finally
             {
                 isRefreshing = false;
+            }
+        }
+
+        public async Task RefreshSelfAvatarOnlyAsync()
+        {
+            if (settings == null ||
+                !await selfAvatarRefreshGate.WaitAsync(0).ConfigureAwait(false))
+            {
+                return;
+            }
+
+            try
+            {
+                var apiKey = settings.SteamApiKey?.Trim();
+                var steamIdInput = GetEffectiveSteamIdInput();
+                var steamId64 = await ResolveSteamId64Async(apiKey, steamIdInput).ConfigureAwait(false);
+
+                if (string.IsNullOrWhiteSpace(steamId64))
+                {
+                    InvokeOnUi(() => settings.SelfAvatar = null);
+                    return;
+                }
+
+                var localPath = GetAvatarFilePath(steamId64);
+                if (IsUsableImageFile(localPath))
+                {
+                    var cachedAvatar = ToFileUri(localPath);
+                    InvokeOnUi(() => settings.SelfAvatar = cachedAvatar);
+                }
+                else
+                {
+                    InvokeOnUi(() => settings.SelfAvatar = null);
+                }
+
+                if (string.IsNullOrWhiteSpace(apiKey))
+                {
+                    return;
+                }
+
+                var players = await steamClient
+                    .GetPlayerSummariesAsync(apiKey, new[] { steamId64 })
+                    .ConfigureAwait(false);
+
+                var self = players?.FirstOrDefault(player =>
+                    player != null &&
+                    string.Equals(player.SteamId, steamId64, StringComparison.OrdinalIgnoreCase));
+
+                if (self == null)
+                {
+                    return;
+                }
+
+                string avatarSource;
+                if (IsUsableImageFile(localPath))
+                {
+                    avatarSource = ToFileUri(localPath);
+                }
+                else
+                {
+                    avatarSource = self.AvatarFull;
+                    _ = CacheAvatarAsync(steamId64, self.AvatarFull);
+                }
+
+                InvokeOnUi(() => settings.SelfAvatar = avatarSource);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][SteamFriends] Failed to refresh the Steam profile avatar.");
+            }
+            finally
+            {
+                selfAvatarRefreshGate.Release();
             }
         }
 

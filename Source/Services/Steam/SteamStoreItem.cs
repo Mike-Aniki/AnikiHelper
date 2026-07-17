@@ -56,6 +56,13 @@ namespace AnikiHelper.Services
 
         public List<string> Tags { get; set; } = new List<string>();
 
+        // Developer-written mature-content warning returned by Steam appdetails.
+        // Example: "The game contains some naked and pornographic content."
+        public string ContentDescriptorNotes { get; set; }
+
+        // Raw Steam content descriptor IDs are stored for diagnostics and future filtering.
+        public List<int> ContentDescriptorIds { get; set; } = new List<int>();
+
         public string ReleaseDateDisplay { get; set; }
 
         public bool ComingSoon { get; set; }

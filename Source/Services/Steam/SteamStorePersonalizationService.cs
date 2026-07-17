@@ -86,8 +86,31 @@ namespace AnikiHelper.Services
             }
 
             item.IsInLibrary = IsOwnedOrInLibrary(item, context);
-            item.IsInWishlist = item.IsInWishlist ||
-                (context?.WishlistSteamAppIds != null && item.AppId > 0 && context.WishlistSteamAppIds.Contains(item.AppId));
+
+            var isForYouItem =
+                string.Equals(
+                    item.Source,
+                    "Steam Recommender",
+                    StringComparison.OrdinalIgnoreCase
+                ) ||
+                string.Equals(
+                    item.Source,
+                    "Steam Recommended Supplement",
+                    StringComparison.OrdinalIgnoreCase
+                );
+
+            // For You already received the freshly loaded real wishlist.
+            // Do not overwrite that result with an older cached wishlist.
+            if (!isForYouItem)
+            {
+                item.IsInWishlist =
+                    item.IsInWishlist ||
+                    (
+                        context?.WishlistSteamAppIds != null &&
+                        item.AppId > 0 &&
+                        context.WishlistSteamAppIds.Contains(item.AppId)
+                    );
+            }
         }
 
         private static bool ShouldFilterOwnedItems(string section)

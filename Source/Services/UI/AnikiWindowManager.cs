@@ -45,6 +45,8 @@ namespace AnikiHelper.Services
         private readonly ILogger logger;
         private readonly Stack<Window> windows = new Stack<Window>();
         private Func<bool> isOverlayOpenOrOpening;
+        public event Action<bool> OpenWindowStateChanged;
+        private bool lastReportedOpenWindowState;
         private const string QuickAccessWindowStyleName = "QuickAccessWindowStyle";
 
         public AnikiWindowManager(IPlayniteAPI playniteApi)
@@ -192,6 +194,7 @@ namespace AnikiHelper.Services
                 }), DispatcherPriority.ApplicationIdle);
             }
 
+            NotifyOpenWindowStateChanged();
             FocusTopWindow();
             return true;
         }
@@ -376,6 +379,8 @@ namespace AnikiHelper.Services
                 window.Show();
                 window.Activate();
                 window.Focus();
+
+                NotifyOpenWindowStateChanged();
 
                 if (refocusAfterClick)
                 {
@@ -731,6 +736,8 @@ namespace AnikiHelper.Services
                     }
                 }), DispatcherPriority.ApplicationIdle);
             }
+
+            NotifyOpenWindowStateChanged();
         }
 
         private void RemoveWindow(Window window)
@@ -744,6 +751,8 @@ namespace AnikiHelper.Services
 
             foreach (var item in rebuilt)
                 windows.Push(item);
+
+            NotifyOpenWindowStateChanged();
         }
 
         private void CleanupClosedWindows()
@@ -756,6 +765,28 @@ namespace AnikiHelper.Services
 
             foreach (var item in opened)
                 windows.Push(item);
+        }
+
+        private void NotifyOpenWindowStateChanged()
+        {
+            try
+            {
+                bool hasVisibleWindow = windows.Any(window =>
+                    window != null &&
+                    window.IsVisible);
+
+                if (lastReportedOpenWindowState == hasVisibleWindow)
+                {
+                    return;
+                }
+
+                lastReportedOpenWindowState = hasVisibleWindow;
+                OpenWindowStateChanged?.Invoke(hasVisibleWindow);
+            }
+            catch
+            {
+                // État informatif uniquement : ne jamais casser une fenêtre.
+            }
         }
 
         private void FocusTopWindow()

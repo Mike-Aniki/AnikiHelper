@@ -173,7 +173,29 @@ namespace AnikiHelper.Services.Controller
         public class MainMenuCommands
         {
             public RelayCommand CloseCommand => CreateCommand("CloseCommand");
-            public RelayCommand ExitCommand => CreateCommand("ExitCommand");
+            public RelayCommand ExitCommand => new RelayCommand(async () =>
+            {
+                try
+                {
+                    var helper = global::AnikiHelper.AnikiHelper.Instance;
+
+                    if (helper != null)
+                    {
+                        await helper.ShowShutdownVideoAndExitAsync();
+                        return;
+                    }
+
+                    // Sécurité si l'instance du Helper n'est pas disponible.
+                    ExecuteMainMenuCommand("ExitCommand");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to execute shutdown video command.");
+
+                    // Fallback : quitter Playnite normalement.
+                    ExecuteMainMenuCommand("ExitCommand");
+                }
+            });
             public RelayCommand SwitchToDesktopCommand => CreateCommand("SwitchToDesktopCommand");
             public RelayCommand OpenSettingsCommand => CreateCommand("OpenSettingsCommand");
             public RelayCommand SelectRandomGameCommand => CreateCommand("SelectRandomGameCommand");

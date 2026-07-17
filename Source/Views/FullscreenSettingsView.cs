@@ -118,6 +118,15 @@ namespace AnikiHelperFullscreen.Views
                 return;
             }
 
+            // Une fenêtre native de paramètres Playnite est maintenant ouverte.
+            // On la considère comme une fenêtre secondaire pour la gestion UPS.
+            var plugin = global::AnikiHelper.AnikiHelper.Instance;
+
+            if (plugin?.Settings != null)
+            {
+                plugin.Settings.IsAnikiWindowOpen = true;
+            }
+
             window.Closed -= OnSettingsWindowClosed;
             window.Closed += OnSettingsWindowClosed;
 
@@ -169,11 +178,23 @@ namespace AnikiHelperFullscreen.Views
             try
             {
                 originalSettingsMenuChildren = null;
-                global::AnikiHelper.AnikiHelper.Instance?.ShowAnikiThemeSettingsRestartPromptIfNeeded();
+
+                var plugin = global::AnikiHelper.AnikiHelper.Instance;
+
+                if (plugin?.Settings != null)
+                {
+                    // Les paramètres natifs sont fermés :
+                    // UPS peut revenir au comportement normal du Hub ou de la bibliothèque.
+                    plugin.Settings.IsAnikiWindowOpen = false;
+                }
+
+                plugin?.ShowAnikiThemeSettingsRestartPromptIfNeeded();
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] Failed to handle settings window close for Aniki Theme Settings.");
+                logger.Warn(
+                    ex,
+                    "[AnikiHelper] Failed to handle settings window close for Aniki Theme Settings.");
             }
         }
 

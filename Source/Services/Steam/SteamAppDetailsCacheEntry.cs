@@ -33,6 +33,10 @@ namespace AnikiHelper.Services
 
         public List<string> Categories { get; set; } = new List<string>();
 
+        public string ContentDescriptorNotes { get; set; }
+
+        public List<int> ContentDescriptorIds { get; set; } = new List<int>();
+
         public string BackgroundImageUrl { get; set; }
 
         public string BackgroundImageLocalPath { get; set; }

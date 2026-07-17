@@ -13,10 +13,11 @@ namespace AnikiHelper
     internal static class FullscreenShutdownVideoHook
     {
         private const int MainMenuScanIntervalMs = 250;
-        
 
         private static DispatcherTimer timer;
         private static readonly HashSet<int> hookedButtons = new HashSet<int>();
+        private static readonly HashSet<Window> scannedWindows = new HashSet<Window>();
+        private static readonly HashSet<Window> pendingWindows = new HashSet<Window>();
         private static AnikiHelper plugin;
 
         public static void Start(AnikiHelper owner)
@@ -35,6 +36,9 @@ namespace AnikiHelper
 
             timer.Tick += Tick;
             timer.Start();
+
+            // Hook the already loaded fullscreen window immediately.
+            Tick(null, EventArgs.Empty);
 
             Application.Current.Exit += (_, __) => Stop();
         }
@@ -55,6 +59,8 @@ namespace AnikiHelper
             plugin = null;
 
             hookedButtons.Clear();
+            scannedWindows.Clear();
+            pendingWindows.Clear();
         }
 
         private static void Tick(object sender, EventArgs e)
@@ -65,7 +71,7 @@ namespace AnikiHelper
                 return;
             }
 
-            foreach (var win in app.Windows.Cast<Window>())
+            foreach (var win in app.Windows.Cast<Window>().ToArray())
             {
                 var windowType = win.GetType().FullName ?? string.Empty;
                 var dataContextType = win.DataContext?.GetType().FullName ?? string.Empty;
@@ -74,25 +80,51 @@ namespace AnikiHelper
                     windowType.IndexOf("MainMenu", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     dataContextType.IndexOf("MainMenu", StringComparison.OrdinalIgnoreCase) >= 0;
 
-                // On scanne aussi la fenêtre principale pour trouver les boutons customs du thème.
-                bool isMainWindow = ReferenceEquals(win, Application.Current?.MainWindow);
-
-                if (!looksLikeMainMenuWindow && !isMainWindow)
+                // Le bouton custom du thème utilise directement
+                // AnikiControllerCommandsControl.MainMenu.ExitCommand.
+                // Il n'est donc plus nécessaire de scanner toute la fenêtre principale.
+                if (!looksLikeMainMenuWindow)
                 {
                     continue;
                 }
 
-                win.Dispatcher.InvokeAsync(() => ScanWindow(win), DispatcherPriority.Loaded);
+                // The old implementation scanned the entire visual tree every 250 ms.
+                // We now scan each loaded window only until its exit button is found.
+                // The timer remains only as a lightweight watcher for newly opened menu windows.
+                if (!win.IsLoaded || scannedWindows.Contains(win) || !pendingWindows.Add(win))
+                {
+                    continue;
+                }
+
+                win.Dispatcher.InvokeAsync(
+                    () =>
+                    {
+                        try
+                        {
+                            if (plugin != null && win.IsLoaded && ScanWindow(win))
+                            {
+                                scannedWindows.Add(win);
+                            }
+                        }
+                        finally
+                        {
+                            pendingWindows.Remove(win);
+                        }
+                    },
+                    DispatcherPriority.Loaded);
             }
         }
 
-        private static void ScanWindow(Window win)
+        private static bool ScanWindow(Window win)
         {
+            bool exitButtonFound = false;
+
             foreach (var btn in VisualTreeHelpers.FindVisualChildren<Button>(win))
             {
                 var key = btn.GetHashCode();
                 if (hookedButtons.Contains(key))
                 {
+                    exitButtonFound = true;
                     continue;
                 }
 
@@ -112,7 +144,10 @@ namespace AnikiHelper
                 btn.CommandParameter = null;
 
                 hookedButtons.Add(key);
+                exitButtonFound = true;
             }
+
+            return exitButtonFound;
         }
 
         private static bool LooksLikeExitPlayniteButton(string name, string content, string commandPath, string commandType)

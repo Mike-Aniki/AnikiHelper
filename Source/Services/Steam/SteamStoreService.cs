@@ -1267,6 +1267,9 @@ namespace AnikiHelper.Services
             [JsonProperty("categories")]
             public List<SteamNamedItem> Categories { get; set; }
 
+            [JsonProperty("content_descriptors")]
+            public SteamContentDescriptorsData ContentDescriptors { get; set; }
+
             [JsonProperty("developers")]
             public List<string> Developers { get; set; }
 
@@ -1302,6 +1305,15 @@ namespace AnikiHelper.Services
 
             [JsonProperty("dlc")]
             public List<int> Dlc { get; set; }
+        }
+
+        private sealed class SteamContentDescriptorsData
+        {
+            [JsonProperty("ids")]
+            public List<int> Ids { get; set; }
+
+            [JsonProperty("notes")]
+            public string Notes { get; set; }
         }
 
         private sealed class SteamReleaseDateData
@@ -1383,7 +1395,9 @@ namespace AnikiHelper.Services
                 return;
             }
 
-            var cacheKey = $"appdetails_{item.AppId}_{language}_{countryCode}".ToLowerInvariant();
+            // v2 includes Steam mature-content descriptors. The version bump prevents
+            // a fresh legacy cache entry from hiding the new data for up to 24 hours.
+            var cacheKey = $"appdetails_v2_{item.AppId}_{language}_{countryCode}".ToLowerInvariant();
             var maxAge = TimeSpan.FromHours(24);
 
             // 1) Cache frais
@@ -1488,6 +1502,8 @@ namespace AnikiHelper.Services
                     item.Publishers = envelope.Data.Publishers ?? new List<string>();
                     item.ControllerSupport = envelope.Data.ControllerSupport ?? string.Empty;
                     item.SupportedLanguages = envelope.Data.SupportedLanguages ?? string.Empty;
+                    item.ContentDescriptorNotes = envelope.Data.ContentDescriptors?.Notes ?? string.Empty;
+                    item.ContentDescriptorIds = envelope.Data.ContentDescriptors?.Ids ?? new List<int>();
                     var backgroundUrl = !string.IsNullOrWhiteSpace(envelope.Data.BackgroundRaw)
                         ? envelope.Data.BackgroundRaw
                         : envelope.Data.Background;
@@ -1623,6 +1639,8 @@ namespace AnikiHelper.Services
             item.SupportedLanguages = FirstNonEmpty(cache.SupportedLanguages, item.SupportedLanguages);
             item.Genres = cache.Genres ?? item.Genres ?? new List<string>();
             item.Categories = cache.Categories ?? item.Categories ?? new List<string>();
+            item.ContentDescriptorNotes = FirstNonEmpty(cache.ContentDescriptorNotes, item.ContentDescriptorNotes);
+            item.ContentDescriptorIds = cache.ContentDescriptorIds ?? item.ContentDescriptorIds ?? new List<int>();
 
             item.BackgroundImageUrl = FirstNonEmpty(cache.BackgroundImageUrl, item.BackgroundImageUrl);
 
@@ -1827,6 +1845,8 @@ namespace AnikiHelper.Services
                 SupportedLanguages = item.SupportedLanguages,
                 Genres = item.Genres ?? new List<string>(),
                 Categories = item.Categories ?? new List<string>(),
+                ContentDescriptorNotes = item.ContentDescriptorNotes,
+                ContentDescriptorIds = item.ContentDescriptorIds ?? new List<int>(),
                 HeaderImageUrl = item.HeaderImageUrl,
                 HeaderImageLocalPath = item.HeaderImageLocalPath,
 

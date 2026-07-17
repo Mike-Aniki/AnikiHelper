@@ -5613,17 +5613,47 @@ namespace AnikiHelper
                 });
         }
 
-        private string BuildTopFranchiseName(IEnumerable<Game> games)
+        private string BuildTopFranchiseName(
+     IEnumerable<Game> allPlayedGames,
+     IEnumerable<Game> recentPlayedGames)
         {
-            var playtimeScores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-            var gameCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-            if (games == null)
+            if (allPlayedGames == null || recentPlayedGames == null)
             {
                 return string.Empty;
             }
 
-            foreach (var g in games)
+            // Une série devient éligible dès qu'au moins un de ses jeux
+            // a été joué pendant les deux dernières années.
+            var eligibleSeries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var g in recentPlayedGames)
+            {
+                if (g == null || g.Playtime == 0UL)
+                {
+                    continue;
+                }
+
+                var seriesNames = GetSeriesNames(g)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var series in seriesNames)
+                {
+                    eligibleSeries.Add(series);
+                }
+            }
+
+            if (eligibleSeries.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            // Pour chaque série éligible, on additionne maintenant le temps
+            // de jeu historique de tous les jeux appartenant à cette série.
+            var playtimeScores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var g in allPlayedGames)
             {
                 if (g == null || g.Playtime == 0UL)
                 {
@@ -5635,34 +5665,34 @@ namespace AnikiHelper
                 var seriesNames = GetSeriesNames(g)
                     .Where(x => !string.IsNullOrWhiteSpace(x))
                     .Select(x => x.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var series in seriesNames)
                 {
+                    if (!eligibleSeries.Contains(series))
+                    {
+                        continue;
+                    }
+
                     if (!playtimeScores.ContainsKey(series))
                     {
                         playtimeScores[series] = 0;
-                        gameCounts[series] = 0;
                     }
 
                     playtimeScores[series] += weight;
-                    gameCounts[series]++;
                 }
             }
 
-            var eligible = playtimeScores
-                .Where(x => gameCounts.ContainsKey(x.Key) && gameCounts[x.Key] >= 2)
-                .OrderByDescending(x => x.Value)
-                .ThenBy(x => x.Key)
-                .ToList();
-
-            if (eligible.Count == 0)
+            if (playtimeScores.Count == 0)
             {
                 return string.Empty;
             }
 
-            return eligible.First().Key;
+            return playtimeScores
+                .OrderByDescending(x => x.Value)
+                .ThenBy(x => x.Key)
+                .First()
+                .Key;
         }
 
         private string BuildTopTagName(IEnumerable<Game> games)
@@ -7000,6 +7030,30 @@ namespace AnikiHelper
             UpdateFullscreenAspectRatio();
         }
 
+        private bool IsThemeOptionEnabled(string key)
+        {
+            try
+            {
+                if (Settings?.Options == null ||
+                    string.IsNullOrWhiteSpace(key) ||
+                    !Settings.Options.TryGetValue(key, out var value))
+                {
+                    return false;
+                }
+
+                if (value is bool boolValue)
+                {
+                    return boolValue;
+                }
+
+                return bool.TryParse(value?.ToString(), out var parsed) && parsed;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public AnikiHelper(IPlayniteAPI api) : base(api)
         {
             Instance = this;
@@ -7031,6 +7085,13 @@ namespace AnikiHelper
             rssNewsService = new SteamGlobalNewsService(api, Settings);
             eventSoundService = new EventSoundService(api, Settings);
             anikiWindowManager = new AnikiWindowManager(api);
+            anikiWindowManager.OpenWindowStateChanged += isOpen =>
+            {
+                if (Settings != null)
+                {
+                    Settings.IsAnikiWindowOpen = isOpen;
+                }
+            };
             inGameOverlayService = new InGameOverlayService(
                 api,
                 Settings,
@@ -7067,6 +7128,15 @@ namespace AnikiHelper
                 DebugLog,
                 IsAnikiThemeActive,
                 SaveSettingsSafe);
+
+            Settings.Options.PropertyChanged += (s, e) =>
+            {
+                if (string.Equals(e.PropertyName, "UseSteamAvatar", StringComparison.OrdinalIgnoreCase) &&
+                    IsThemeOptionEnabled("UseSteamAvatar"))
+                {
+                    _ = steamFriendsService?.RefreshSelfAvatarOnlyAsync();
+                }
+            };
             splashScreenService = new SplashScreenService(GetPluginUserDataPath());
             splashScreenRuntimeService = new SplashScreenRuntimeService(IsPlayniteForegroundWindow);
 
@@ -7116,6 +7186,11 @@ namespace AnikiHelper
                     else
                     {
                         steamFriendsService?.Stop();
+                    }
+
+                    if (IsThemeOptionEnabled("UseSteamAvatar"))
+                    {
+                        _ = steamFriendsService?.RefreshSelfAvatarOnlyAsync();
                     }
                 }
 
@@ -7994,8 +8069,8 @@ namespace AnikiHelper
         {
             // Keep the public cache name stable and user-independent.
             // The language and region are appended by SteamStoreRecommendationService,
-            // so the final file is: SteamStore/StoreCache/steam_recommender_<language>_<region>.json
-            return "steam_recommender";
+            // so the final file is: SteamStore/StoreCache/steam_recommender_v3_<language>_<region>.json
+            return "steam_recommender_v3";
         }
 
         private bool CanUseConnectedSteamStoreAccount()
@@ -8549,10 +8624,68 @@ namespace AnikiHelper
 
             logger.Info($"[Steam Recommender] connected page loaded | finalUrl={page.FinalUrl} | html={page.Html.Length}");
 
-            // Build-safe strict mode:
-            // Do not call Steam wishlistdata here. For You now uses Steam Interactive Recommender first.
-            // If strict filters leave too few games, /recommended/ is used only as a low-priority supplement.
-            logger.Info("[Steam Recommender] wishlistdata disabled | recommender-primary strict mode v5");
+            // Load the real wishlist for the For You badges.
+            // GetWishlistAppIdsAsync first tries the public API, then falls back
+            // to the authenticated Steam Store page when necessary.
+            ISet<int> wishlistAppIds = null;
+
+            try
+            {
+                var steamId = GetConnectedSteamAccountId64();
+
+                if (!string.IsNullOrWhiteSpace(steamId))
+                {
+                    var wishlist = await steamAccountSessionService.GetWishlistAppIdsAsync(
+                        steamId,
+                        language,
+                        region,
+                        CancellationToken.None
+                    ).ConfigureAwait(false);
+
+                    // The authenticated Store-page fallback can refresh the current
+                    // Steam session information.
+                    if (wishlist?.LoadedFromWebApi != true && wishlist?.Session != null)
+                    {
+                        ApplySteamAccountSession(
+                            wishlist.Session,
+                            wishlist.Session.IsConnected
+                                ? "Connected to Steam."
+                                : (wishlist.Error ?? "Steam Store session is not connected."),
+                            allowVisibleStoreUiRebuild
+                        );
+                    }
+
+                    if (wishlist?.Success == true)
+                    {
+                        // An empty HashSet is valid: it means the wishlist was loaded
+                        // successfully but contains no games.
+                        wishlistAppIds = new HashSet<int>(
+                            wishlist.AppIds ?? new HashSet<int>()
+                        );
+
+                        logger.Info(
+                            $"[Steam Recommender] real wishlist loaded | " +
+                            $"source={(wishlist.LoadedFromWebApi ? "web-api" : "authenticated-store-page")} | " +
+                            $"count={wishlistAppIds.Count}"
+                        );
+                    }
+                    else
+                    {
+                        logger.Info(
+                            $"[Steam Recommender] real wishlist unavailable | " +
+                            $"error={wishlist?.Error ?? "unknown"} | " +
+                            "wishlist badges disabled"
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(
+                    ex,
+                    "[Steam Recommender] Failed to load real wishlist; wishlist badges disabled."
+                );
+            }
 
             var cacheKey = GetSteamForYouCacheKey(recommendationProfile);
             var primaryItems = await steamStoreRecommendationService.RefreshFromSteamRecommendedHtmlAsync(
@@ -8561,7 +8694,8 @@ namespace AnikiHelper
                 cacheKey,
                 language,
                 region,
-                reportProgress
+                reportProgress,
+                wishlistAppIds
             ).ConfigureAwait(false);
 
             if (primaryItems != null && primaryItems.Count >= 18)
@@ -8599,7 +8733,8 @@ namespace AnikiHelper
                 cacheKey,
                 language,
                 region,
-                reportProgress
+                reportProgress,
+                wishlistAppIds
             ).ConfigureAwait(false);
 
             if (finalItems == null || finalItems.Count == 0)
@@ -13838,6 +13973,14 @@ namespace AnikiHelper
                     {
                         CloseTopWindow();
 
+                        // Le menu Aniki vient d'être fermé, mais les paramètres natifs
+                        // vont prendre sa place. On maintient donc la musique par défaut
+                        // pendant la transition entre les deux fenêtres.
+                        if (Settings != null)
+                        {
+                            Settings.IsAnikiWindowOpen = true;
+                        }
+
                         var appAssembly = Application.Current.GetType().Assembly;
                         var fullscreenVm = Application.Current.MainWindow?.DataContext;
 
@@ -13860,7 +14003,21 @@ namespace AnikiHelper
                         var vm = Activator.CreateInstance(viewModelType, windowFactory, fullscreenVm);
 
                         var openView = viewModelType.GetMethod("OpenView");
-                        openView?.Invoke(vm, null);
+
+                        if (openView == null)
+                        {
+                            logger.Warn("[AnikiHelper] Settings OpenView method not found.");
+
+                            if (Settings != null)
+                            {
+                                Settings.IsAnikiWindowOpen =
+                                    anikiWindowManager?.HasOpenWindow == true;
+                            }
+
+                            return;
+                        }
+
+                        openView.Invoke(vm, null);
                     }
                     catch (Exception ex)
                     {
@@ -15890,6 +16047,12 @@ namespace AnikiHelper
                     {
                         sw.Restart();
                         steamFriendsService?.Start();
+
+                        if (IsThemeOptionEnabled("UseSteamAvatar"))
+                        {
+                            _ = steamFriendsService?.RefreshSelfAvatarOnlyAsync();
+                        }
+
                         DebugLog($"[AnikiHelper][OnApplicationStarted] steamFriendsService.Start took {sw.ElapsedMilliseconds}ms");
                     }
                 }
@@ -17413,6 +17576,19 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] Failed to open in-game overlay from theme button.");
+            }
+        }
+
+        public bool ApplyOverlayAchievementSortToPlayniteAchievements()
+        {
+            try
+            {
+                return inGameOverlayService?.ApplyOverlayAchievementSortToPlayniteAchievements() == true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to apply overlay achievement sorting.");
+                return false;
             }
         }
 
@@ -19780,8 +19956,13 @@ namespace AnikiHelper
             var played = games.Where(g => ToMinutes(g.Playtime) > 0UL).ToList();
 
             var recentPlayedForProfile = played
-                .Where(g => g.LastActivity != null && g.LastActivity >= DateTime.Now.AddYears(-2))
-                .ToList();
+     .Where(g => g.LastActivity != null && g.LastActivity >= DateTime.Now.AddYears(-2))
+     .ToList();
+
+            // Une série est éligible si au moins un de ses jeux a été joué
+            // pendant les deux dernières années, mais son score utilise
+            // le temps total historique de toute la série.
+            var topFranchise = BuildTopFranchiseName(played, recentPlayedForProfile);
 
             if (!runtimeOnly)
             {
@@ -19791,19 +19972,15 @@ namespace AnikiHelper
                     topPlatform = BuildTopPlatformName(played);
                 }
 
-                var topFranchise = BuildTopFranchiseName(recentPlayedForProfile);
-                if (string.IsNullOrWhiteSpace(topFranchise))
-                {
-                    topFranchise = BuildTopFranchiseName(played);
-                }
-
                 var topTag = BuildTopTagName(recentPlayedForProfile);
                 if (string.IsNullOrWhiteSpace(topTag))
                 {
                     topTag = BuildTopTagName(played);
                 }
 
-                s.AveragePlaytimeMinutes = (ulong)(played.Count == 0 ? 0 : played.Sum(g => (long)ToMinutes(g.Playtime)) / played.Count);
+                s.AveragePlaytimeMinutes = (ulong)(played.Count == 0
+                    ? 0
+                    : played.Sum(g => (long)ToMinutes(g.Playtime)) / played.Count);
 
                 if (string.IsNullOrWhiteSpace(s.ProfileGenreKey) ||
                     s.LastProfileGenreScanUtc == DateTime.MinValue ||
@@ -19816,10 +19993,14 @@ namespace AnikiHelper
                 {
                     DebugLog("[ProfileGenre] Cache valid, skipping recalculation.");
                 }
+
                 s.ProfileTopPlatformName = topPlatform;
-                s.ProfileTopFranchiseName = topFranchise;
                 s.ProfileTopTagName = topTag;
             }
+
+            // Top Series est également actualisé après l'arrêt d'un jeu,
+            // même lors d'un recalcul léger avec runtimeOnly = true.
+            s.ProfileTopFranchiseName = topFranchise;
 
             if (!runtimeOnly)
             {
@@ -20324,6 +20505,10 @@ namespace AnikiHelper
         {
             base.OnLibraryUpdated(args);
             eventSoundService.PlayLibraryUpdated();
+
+            // Actualise les statistiques après l'import des temps de jeu
+            // ou des métadonnées de la bibliothèque.
+            DebounceRecalcStatsSafe();
         }
 
         private async void GenerateThumbnailsForGame(Guid gameId, string gameName)

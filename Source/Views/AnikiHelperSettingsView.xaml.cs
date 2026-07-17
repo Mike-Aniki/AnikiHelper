@@ -19,6 +19,7 @@ namespace AnikiHelper
             LoadLocaleFromCurrentUICulture();
 
             Loaded += AnikiHelperSettingsView_Loaded;
+            DataContextChanged += (s, e) => SyncSteamApiKeyPasswordBox();
         }
 
         private void AnikiHelperSettingsView_Loaded(object sender, RoutedEventArgs e)
@@ -29,11 +30,58 @@ namespace AnikiHelper
                 {
                     var vm = DataContext as AnikiHelperSettingsViewModel;
                     vm?.Settings?.LoadOverlayApps();
+                    SyncSteamApiKeyPasswordBox();
                 }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             }
             catch
             {
             }
+        }
+
+        private bool isUpdatingSteamApiKeyPasswordBox;
+
+        private void SyncSteamApiKeyPasswordBox()
+        {
+            if (SteamApiKeyPasswordBox == null)
+            {
+                return;
+            }
+
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+            var apiKey = vm?.Settings?.SteamApiKey ?? string.Empty;
+
+            if (SteamApiKeyPasswordBox.Password == apiKey)
+            {
+                return;
+            }
+
+            try
+            {
+                isUpdatingSteamApiKeyPasswordBox = true;
+                SteamApiKeyPasswordBox.Password = apiKey;
+            }
+            finally
+            {
+                isUpdatingSteamApiKeyPasswordBox = false;
+            }
+        }
+
+        private void SteamApiKeyPasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
+        {
+            if (isUpdatingSteamApiKeyPasswordBox)
+            {
+                return;
+            }
+
+            var vm = DataContext as AnikiHelperSettingsViewModel;
+            var passwordBox = sender as PasswordBox;
+
+            if (vm?.Settings == null || passwordBox == null)
+            {
+                return;
+            }
+
+            vm.Settings.SteamApiKey = passwordBox.Password ?? string.Empty;
         }
 
         private void HubAppsToolComboBox_DropDownOpened(object sender, EventArgs e)

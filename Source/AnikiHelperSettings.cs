@@ -26,6 +26,8 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using System.Reflection;
 using AnikiHelper.Services.DuplicateHider;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.Windows.Media;
 
 
@@ -1076,7 +1078,7 @@ namespace AnikiHelper
                 }
 
                 SetValue(ref overlayAchievementsSortMode, normalized);
-                ApplyOverlayAchievementsSort();
+                AnikiHelper.Instance?.ApplyOverlayAchievementSortToPlayniteAchievements();
                 NotifyOverlayAchievementsSortChanged();
             }
         }
@@ -2002,6 +2004,16 @@ namespace AnikiHelper
         {
             get => isWelcomeHubClosing;
             set => SetValue(ref isWelcomeHubClosing, value);
+        }
+
+        [DontSerialize]
+        private bool isAnikiWindowOpen = false;
+
+        [DontSerialize]
+        public bool IsAnikiWindowOpen
+        {
+            get => isAnikiWindowOpen;
+            set => SetValue(ref isAnikiWindowOpen, value);
         }
 
         private bool openWelcomeHubOnStartup = true;
@@ -2999,16 +3011,56 @@ namespace AnikiHelper
             }
         }
 
+        private const string SteamApiKeyEncryptionPrefix = "dpapi:v1:";
+
+        private static readonly byte[] SteamApiKeyEntropy =
+            Encoding.UTF8.GetBytes("AnikiHelper.SteamApiKey.v1");
+
         private string steamApiKey = string.Empty;
+
+        // Runtime-only value used by the existing Steam services.
+        // It is deliberately excluded from config.json.
+        [DontSerialize]
+        [JsonIgnore]
         public string SteamApiKey
         {
             get => steamApiKey;
             set
             {
-                SetValue(ref steamApiKey, value ?? string.Empty);
+                var normalizedValue = value ?? string.Empty;
+                if (string.Equals(steamApiKey, normalizedValue, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                SetValue(ref steamApiKey, normalizedValue);
+
+                if (TryEncryptSteamApiKey(normalizedValue, out var encryptedValue))
+                {
+                    SteamApiKeyEncrypted = encryptedValue;
+                }
+                else
+                {
+                    // Do not keep a stale encrypted value for a different key.
+                    SteamApiKeyEncrypted = string.Empty;
+                    logger?.Error("[AnikiHelper] Steam Web API key could not be encrypted. It will only remain available for the current session.");
+                }
+
                 NotifySteamFriendsConfigurationPropertiesChanged();
             }
         }
+
+        // This is the only Steam API key value serialized to config.json.
+        // The clear-text SteamApiKey property above remains available to all existing code.
+        private string steamApiKeyEncrypted = string.Empty;
+        public string SteamApiKeyEncrypted
+        {
+            get => steamApiKeyEncrypted;
+            set => steamApiKeyEncrypted = value ?? string.Empty;
+        }
+
+        [DontSerialize]
+        private bool SteamApiKeyStorageNeedsSave { get; set; }
 
         private string steamId64 = string.Empty;
         public string SteamId64
@@ -3527,8 +3579,15 @@ namespace AnikiHelper
         public string SelfAvatar
         {
             get => selfAvatar;
-            set => SetValue(ref selfAvatar, value);
+            set
+            {
+                SetValue(ref selfAvatar, value);
+                OnPropertyChanged(nameof(SelfAvatarAvailable));
+            }
         }
+
+        [DontSerialize]
+        public bool SelfAvatarAvailable => !string.IsNullOrWhiteSpace(SelfAvatar);
 
         private string selfStateLoc = "Offline";
 
@@ -4902,11 +4961,164 @@ namespace AnikiHelper
 
         public AnikiHelperSettings() { }
 
+        private static bool TryEncryptSteamApiKey(string clearText, out string encryptedValue)
+        {
+            encryptedValue = string.Empty;
+
+            if (string.IsNullOrEmpty(clearText))
+            {
+                return true;
+            }
+
+            try
+            {
+                var clearBytes = Encoding.UTF8.GetBytes(clearText);
+                var protectedBytes = ProtectedData.Protect(
+                    clearBytes,
+                    SteamApiKeyEntropy,
+                    DataProtectionScope.CurrentUser);
+
+                encryptedValue = SteamApiKeyEncryptionPrefix + Convert.ToBase64String(protectedBytes);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryDecryptSteamApiKey(string encryptedValue, out string clearText)
+        {
+            clearText = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(encryptedValue))
+            {
+                return true;
+            }
+
+            if (!encryptedValue.StartsWith(SteamApiKeyEncryptionPrefix, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            try
+            {
+                var base64Value = encryptedValue.Substring(SteamApiKeyEncryptionPrefix.Length);
+                var protectedBytes = Convert.FromBase64String(base64Value);
+                var clearBytes = ProtectedData.Unprotect(
+                    protectedBytes,
+                    SteamApiKeyEntropy,
+                    DataProtectionScope.CurrentUser);
+
+                clearText = Encoding.UTF8.GetString(clearBytes);
+                return true;
+            }
+            catch
+            {
+                clearText = string.Empty;
+                return false;
+            }
+        }
+
+        private void RestoreSteamApiKeyFromConfig(string configPath)
+        {
+            steamApiKey = string.Empty;
+            SteamApiKeyStorageNeedsSave = false;
+
+            string legacyValue = null;
+            var legacyPropertyExists = false;
+
+            // Inspect the raw JSON so migration works even if Playnite's serializer
+            // ignores DontSerialize during deserialization.
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(configPath) && File.Exists(configPath))
+                {
+                    var root = JObject.Parse(File.ReadAllText(configPath));
+                    var legacyToken = root[nameof(SteamApiKey)];
+
+                    if (legacyToken != null)
+                    {
+                        legacyPropertyExists = true;
+                        legacyValue = legacyToken.Type == JTokenType.String
+                            ? legacyToken.Value<string>()
+                            : null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to inspect the legacy Steam Web API key during config migration.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(SteamApiKeyEncrypted))
+            {
+                if (TryDecryptSteamApiKey(SteamApiKeyEncrypted, out var decryptedValue))
+                {
+                    steamApiKey = decryptedValue ?? string.Empty;
+
+                    // Remove a leftover clear-text property if both formats exist.
+                    SteamApiKeyStorageNeedsSave = legacyPropertyExists;
+                    return;
+                }
+
+                // If an encrypted value is unusable but an old clear-text value is
+                // still present, recover from it and immediately migrate it.
+                if (!string.IsNullOrEmpty(legacyValue) &&
+                    TryEncryptSteamApiKey(legacyValue, out var recoveredValue))
+                {
+                    steamApiKey = legacyValue;
+                    SteamApiKeyEncrypted = recoveredValue;
+                    SteamApiKeyStorageNeedsSave = true;
+                    logger?.Info("[AnikiHelper] Steam Web API key recovered from legacy storage and migrated to encrypted storage.");
+                    return;
+                }
+
+                // This normally means that config.json was copied from another
+                // Windows account or computer. The user must enter the key again.
+                SteamApiKeyEncrypted = string.Empty;
+                SteamApiKeyStorageNeedsSave = true;
+                logger?.Warn("[AnikiHelper] The encrypted Steam Web API key could not be decrypted on this Windows account. Please enter it again in the plugin settings.");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(legacyValue))
+            {
+                // Save once to remove an obsolete empty SteamApiKey property.
+                SteamApiKeyStorageNeedsSave = legacyPropertyExists;
+                return;
+            }
+
+            // Migration from versions that stored SteamApiKey in clear text.
+            steamApiKey = legacyValue;
+
+            if (TryEncryptSteamApiKey(legacyValue, out var migratedValue))
+            {
+                SteamApiKeyEncrypted = migratedValue;
+                SteamApiKeyStorageNeedsSave = true;
+                logger?.Info("[AnikiHelper] Steam Web API key migrated to encrypted storage.");
+            }
+            else
+            {
+                // Keep the old config untouched so the key is not lost.
+                logger?.Error("[AnikiHelper] Failed to migrate the Steam Web API key to encrypted storage. The existing config.json was left unchanged.");
+            }
+        }
+
         private AnikiHelperSettings LoadSettingsSafe(global::AnikiHelper.AnikiHelper plugin)
         {
             try
             {
-                return plugin.LoadPluginSettings<AnikiHelperSettings>();
+                var loadedSettings = plugin.LoadPluginSettings<AnikiHelperSettings>();
+
+                if (loadedSettings != null)
+                {
+                    loadedSettings.logger = logger;
+                    loadedSettings.RestoreSteamApiKeyFromConfig(
+                        Path.Combine(plugin.GetPluginUserDataPath(), "config.json"));
+                }
+
+                return loadedSettings;
             }
             catch (Exception ex)
             {
@@ -5183,6 +5395,17 @@ namespace AnikiHelper
                 catch (Exception ex)
                 {
                     logger?.Warn(ex, "[AnikiHelper] Failed to create a new clean config.json.");
+                }
+            }
+            else if (saved.SteamApiKeyStorageNeedsSave)
+            {
+                try
+                {
+                    plugin.SavePluginSettings(this);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to save the migrated Steam Web API key.");
                 }
             }
 
