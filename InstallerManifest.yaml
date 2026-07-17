@@ -322,3 +322,11 @@ Packages:
       - Using a custom banner folder makes it easier to keep your personalized banners after updating the theme.
       - Reduced unnecessary plugin logs when debug mode is disabled.
       - Added various internal cleanup, stability improvements, and minor fixes.
+  - Version: 1.5.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-07-17
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.5.1/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_5_1.pext
+    Changelog:
+      - Added Windows DPAPI encryption for the Steam API key.
+      - Fixed an issue when returning to the running game from Playnite.
+      - Improved Fullscreen performance by reducing unnecessary background processing and repeated interface scans.
