@@ -330,3 +330,10 @@ Packages:
       - Added Windows DPAPI encryption for the Steam API key.
       - Fixed an issue when returning to the running game from Playnite.
       - Improved Fullscreen performance by reducing unnecessary background processing and repeated interface scans.
+  - Version: 1.5.2
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-07-18
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.5.2/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_5_2.pext
+    Changelog:
+      - Fixed a crash issue that occurred when Spanish was selected in Playnite.
+      - Fixed an issue where apps in Settings were not being saved.
