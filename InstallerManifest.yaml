@@ -337,3 +337,11 @@ Packages:
     Changelog:
       - Fixed a crash issue that occurred when Spanish was selected in Playnite.
       - Fixed an issue where apps in Settings were not being saved.
+  - Version: 1.5.3
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-07-19
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.5.3/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_5_3.pext
+    Changelog:
+      - Fixed several focus issues affecting Playnite secondary windows such as Settings and Extensions.
+      - Improved controller shortcut handling while a secondary window is open.
+      - Improved transitions between secondary theme windows to prevent the background music from restarting unnecessarily.
