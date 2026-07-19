@@ -249,10 +249,12 @@ namespace AnikiHelper.Services.Controller
 
                 if (inputManagerField?.GetValue(model.App.GameController) is InputManager manager)
                 {
-                    var mapPadToKeyboard = model.App.GameController.GetType()
+                    var gameController = model.App.GameController;
+
+                    var mapPadToKeyboard = gameController.GetType()
                         .GetMethod("MapPadToKeyboard", BindingFlags.Instance | BindingFlags.NonPublic);
 
-                    var simulateKeyInput = model.App.GameController.GetType()
+                    var simulateKeyInput = gameController.GetType()
                         .GetMethod("SimulateKeyInput", BindingFlags.Instance | BindingFlags.NonPublic);
 
                     if (mapPadToKeyboard == null || simulateKeyInput == null)
@@ -260,13 +262,25 @@ namespace AnikiHelper.Services.Controller
                         return;
                     }
 
-                    manager.ProcessInput(args);
+                    bool previousStandardProcessing = gameController.StandardProcessingEnabled;
 
-                    var keyboard = mapPadToKeyboard.Invoke(model.App.GameController, new object[] { controllerInput });
+                    try
+                    {
+                        manager.ProcessInput(args);
 
-                    model.App.GameController.StandardProcessingEnabled = EnableGameControllerSupport;
-                    simulateKeyInput.Invoke(model.App.GameController, new object[] { keyboard, true });
-                    model.App.GameController.StandardProcessingEnabled = false;
+                        var keyboard = mapPadToKeyboard.Invoke(
+                            gameController,
+                            new object[] { controllerInput });
+
+                        gameController.StandardProcessingEnabled = EnableGameControllerSupport;
+                        simulateKeyInput.Invoke(gameController, new object[] { keyboard, true });
+                    }
+                    finally
+                    {
+                        // Do not force custom override mode back on when the caller has just
+                        // released it for a native Playnite window.
+                        gameController.StandardProcessingEnabled = previousStandardProcessing;
+                    }
                 }
             }
             catch

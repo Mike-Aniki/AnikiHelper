@@ -44,9 +44,12 @@ namespace AnikiHelper.Services
         private readonly IPlayniteAPI playniteApi;
         private readonly ILogger logger;
         private readonly Stack<Window> windows = new Stack<Window>();
+        private readonly HashSet<Window> secondaryMusicWindows = new HashSet<Window>();
         private Func<bool> isOverlayOpenOrOpening;
         public event Action<bool> OpenWindowStateChanged;
+        public event Action<bool> SecondaryMusicStateChanged;
         private bool lastReportedOpenWindowState;
+        private bool lastReportedSecondaryMusicState;
         private const string QuickAccessWindowStyleName = "QuickAccessWindowStyle";
 
         public AnikiWindowManager(IPlayniteAPI playniteApi)
@@ -86,30 +89,60 @@ namespace AnikiHelper.Services
             }
         }
 
+        public bool HasSecondaryMusicWindow
+        {
+            get
+            {
+                try
+                {
+                    var dispatcher = Application.Current?.Dispatcher;
+                    if (dispatcher != null && !dispatcher.CheckAccess())
+                    {
+                        return dispatcher.Invoke(new Func<bool>(() =>
+                        {
+                            CleanupClosedWindows();
+                            return HasVisibleSecondaryMusicWindow();
+                        }));
+                    }
+
+                    CleanupClosedWindows();
+                    return HasVisibleSecondaryMusicWindow();
+                }
+                catch
+                {
+                    // Fallback without touching WPF visibility from a non-UI thread.
+                    return secondaryMusicWindows.Any(window =>
+                        window != null &&
+                        windows.Contains(window));
+                }
+            }
+        }
+
         public void OpenWindow(string parameter)
         {
-            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim);
-            Open(styleKey, false, focusTargetName, focusFirst, refocusAfterClick, noDim);
+            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim, out var secondaryMusic);
+            Open(styleKey, false, focusTargetName, focusFirst, refocusAfterClick, noDim, secondaryMusic);
         }
 
         public void OpenWindow(string styleKey, string focusTargetName)
         {
-            Open(styleKey, false, focusTargetName, false, false, false);
+            Open(styleKey, false, focusTargetName, false, false, false, false);
         }
 
         public void OpenChildWindow(string parameter)
         {
-            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim);
-            Open(styleKey, true, focusTargetName, focusFirst, refocusAfterClick, noDim);
+            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim, out var secondaryMusic);
+            Open(styleKey, true, focusTargetName, focusFirst, refocusAfterClick, noDim, secondaryMusic);
         }
 
-        private void ParseOpenParameter(string parameter, out string styleKey, out string focusTargetName, out bool focusFirst, out bool refocusAfterClick, out bool noDim)
+        private void ParseOpenParameter(string parameter, out string styleKey, out string focusTargetName, out bool focusFirst, out bool refocusAfterClick, out bool noDim, out bool secondaryMusic)
         {
             styleKey = parameter;
             focusTargetName = null;
             focusFirst = false;
             refocusAfterClick = false;
             noDim = false;
+            secondaryMusic = false;
 
             if (string.IsNullOrWhiteSpace(parameter) || !parameter.Contains("|"))
             {
@@ -147,6 +180,12 @@ namespace AnikiHelper.Services
                     continue;
                 }
 
+                if (IsSecondaryMusicOption(option))
+                {
+                    secondaryMusic = true;
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(focusTargetName))
                 {
                     focusTargetName = option;
@@ -175,6 +214,11 @@ namespace AnikiHelper.Services
                    string.Equals(option, "TransparentWindow", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsSecondaryMusicOption(string option)
+        {
+            return string.Equals(option, "SecondaryMusic", StringComparison.OrdinalIgnoreCase);
+        }
+
         public bool CloseTopWindow()
         {
             CleanupClosedWindows();
@@ -183,6 +227,7 @@ namespace AnikiHelper.Services
                 return false;
 
             var top = windows.Pop();
+            secondaryMusicWindows.Remove(top);
 
             if (top != null && top.IsVisible)
             {
@@ -210,7 +255,7 @@ namespace AnikiHelper.Services
             return top != null && top.IsActive;
         }
 
-        private void Open(string styleKey, bool forceChild, string focusTargetName, bool focusFirst, bool refocusAfterClick, bool noDim)
+        private void Open(string styleKey, bool forceChild, string focusTargetName, bool focusFirst, bool refocusAfterClick, bool noDim, bool secondaryMusic)
         {
             if (string.IsNullOrWhiteSpace(styleKey))
                 return;
@@ -252,6 +297,16 @@ namespace AnikiHelper.Services
 
                 if (existingWindow != null)
                 {
+                    if (secondaryMusic)
+                    {
+                        secondaryMusicWindows.Add(existingWindow);
+                    }
+                    else
+                    {
+                        secondaryMusicWindows.Remove(existingWindow);
+                    }
+
+                    NotifyOpenWindowStateChanged();
                     existingWindow.Activate();
                     existingWindow.Focus();
                     return;
@@ -375,6 +430,11 @@ namespace AnikiHelper.Services
                 }
 
                 windows.Push(window);
+
+                if (secondaryMusic)
+                {
+                    secondaryMusicWindows.Add(window);
+                }
 
                 window.Show();
                 window.Activate();
@@ -742,8 +802,16 @@ namespace AnikiHelper.Services
 
         private void RemoveWindow(Window window)
         {
-            if (window == null || !windows.Contains(window))
+            if (window == null)
                 return;
+
+            secondaryMusicWindows.Remove(window);
+
+            if (!windows.Contains(window))
+            {
+                NotifyOpenWindowStateChanged();
+                return;
+            }
 
             var rebuilt = windows.Reverse().Where(w => !ReferenceEquals(w, window)).ToList();
 
@@ -765,6 +833,19 @@ namespace AnikiHelper.Services
 
             foreach (var item in opened)
                 windows.Push(item);
+
+            secondaryMusicWindows.RemoveWhere(window =>
+                window == null ||
+                !window.IsVisible ||
+                !windows.Contains(window));
+        }
+
+        private bool HasVisibleSecondaryMusicWindow()
+        {
+            return windows.Any(window =>
+                window != null &&
+                window.IsVisible &&
+                secondaryMusicWindows.Contains(window));
         }
 
         private void NotifyOpenWindowStateChanged()
@@ -775,13 +856,19 @@ namespace AnikiHelper.Services
                     window != null &&
                     window.IsVisible);
 
-                if (lastReportedOpenWindowState == hasVisibleWindow)
+                if (lastReportedOpenWindowState != hasVisibleWindow)
                 {
-                    return;
+                    lastReportedOpenWindowState = hasVisibleWindow;
+                    OpenWindowStateChanged?.Invoke(hasVisibleWindow);
                 }
 
-                lastReportedOpenWindowState = hasVisibleWindow;
-                OpenWindowStateChanged?.Invoke(hasVisibleWindow);
+                bool hasSecondaryMusicWindow = HasVisibleSecondaryMusicWindow();
+
+                if (lastReportedSecondaryMusicState != hasSecondaryMusicWindow)
+                {
+                    lastReportedSecondaryMusicState = hasSecondaryMusicWindow;
+                    SecondaryMusicStateChanged?.Invoke(hasSecondaryMusicWindow);
+                }
             }
             catch
             {

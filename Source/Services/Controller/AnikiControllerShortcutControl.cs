@@ -93,6 +93,15 @@ namespace AnikiHelper.Services.Controller
                 typeof(AnikiControllerShortcutControl),
                 new FrameworkPropertyMetadata(null, OnTagChanged)
             );
+
+            // A native Playnite dialog may open before it assigns keyboard focus.
+            // Re-evaluate active shortcuts as soon as any WPF window is loaded so
+            // StandardProcessingEnabled is restored before controller navigation starts.
+            EventManager.RegisterClassHandler(
+                typeof(Window),
+                FrameworkElement.LoadedEvent,
+                new RoutedEventHandler(OnAnyWindowLoaded),
+                true);
         }
 
         public AnikiControllerShortcutControl(bool suppressDefaults = false, bool global = false)
@@ -274,6 +283,38 @@ namespace AnikiHelper.Services.Controller
             }
         }
 
+        private static void OnAnyWindowLoaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                List<AnikiControllerShortcutControl> activeControls;
+
+                lock (ActiveControlsLock)
+                {
+                    activeControls = ActiveControls.ToList();
+                }
+
+                foreach (var control in activeControls)
+                {
+                    control.UpdateOverrideProcessing();
+                }
+
+                if (activeControls.Count > 0 &&
+                    sender is Window loadedWindow &&
+                    loadedWindow.ShowActivated &&
+                    !ReferenceEquals(loadedWindow, Application.Current?.MainWindow))
+                {
+                    loadedWindow.Dispatcher.BeginInvoke(
+                        new Action(() => TryActivateBlockingWindow(loadedWindow)),
+                        DispatcherPriority.Input);
+                }
+            }
+            catch
+            {
+                // Window tracking must never break Playnite startup or dialog creation.
+            }
+        }
+
         private void OnButtonDown(object sender, ControllerInput button)
         {
             try
@@ -319,9 +360,18 @@ namespace AnikiHelper.Services.Controller
                     return;
                 }
 
-                if (IsShortcutBlockedByOpenWindow(parent))
+                var blockingWindow = GetBlockingSecondaryWindow(parent);
+
+                if (blockingWindow != null)
                 {
-                    SetControlActive(false);
+                    DebugLog(
+                        $"[AnikiHelper][Controller] Native or secondary window detected. " +
+                        $"Suspending Aniki shortcuts and forwarding {button}. " +
+                        $"Window={blockingWindow.GetType().FullName}");
+
+                    SuspendAllShortcutControls();
+                    TryActivateBlockingWindow(blockingWindow);
+                    controller.DefaultProcess(button.ToString(), true);
                     return;
                 }
 
@@ -380,50 +430,92 @@ namespace AnikiHelper.Services.Controller
 
         private static bool IsShortcutBlockedByOpenWindow(DependencyObject shortcutHost)
         {
+            return GetBlockingSecondaryWindow(shortcutHost) != null;
+        }
+
+        private static Window GetBlockingSecondaryWindow(DependencyObject shortcutHost)
+        {
             try
             {
-                var blockingWindows = Application.Current.Windows
+                var app = Application.Current;
+
+                if (app == null)
+                {
+                    return null;
+                }
+
+                var hostWindow = Window.GetWindow(shortcutHost) ?? app.MainWindow;
+
+                return app.Windows
                     .OfType<Window>()
-                    .Where(w => w.IsVisible && IsAnikiOrSettingsWindow(w))
-                    .ToList();
-
-                if (!blockingWindows.Any())
-                {
-                    return false;
-                }
-
-                var hostWindow = Window.GetWindow(shortcutHost);
-
-                if (hostWindow != null &&
-                    blockingWindows.Any(w => ReferenceEquals(w, hostWindow)))
-                {
-                    return false;
-                }
-
-                return true;
+                    .Where(window =>
+                        window != null &&
+                        window.IsVisible &&
+                        window.WindowState != WindowState.Minimized &&
+                        !ReferenceEquals(window, hostWindow) &&
+                        // Ignore non-activating visual-only windows such as passive toasts.
+                        (window.ShowActivated || window.IsActive))
+                    .OrderByDescending(window => window.IsActive)
+                    .ThenByDescending(window =>
+                        hostWindow != null &&
+                        ReferenceEquals(window.Owner, hostWindow))
+                    .FirstOrDefault();
             }
             catch
             {
-                return false;
+                return null;
             }
         }
 
-        private static bool IsAnikiOrSettingsWindowOpen()
+        private void SuspendAllShortcutControls()
         {
-            return Application.Current.Windows
-                .OfType<Window>()
-                .Any(w => w.IsVisible && IsAnikiOrSettingsWindow(w));
+            lock (ActiveControlsLock)
+            {
+                foreach (var activeControl in ActiveControls.ToList())
+                {
+                    activeControl.isControlActive = false;
+                }
+
+                ActiveControls.Clear();
+            }
+
+            // Restore Playnite's native controller routing before forwarding the current input.
+            controller.OverrideProcessing = false;
         }
 
-        private static bool IsAnikiOrSettingsWindow(Window window)
+        private static void TryActivateBlockingWindow(Window window)
         {
             if (window == null)
             {
-                return false;
+                return;
             }
 
-            return window.Tag is string ||
-                   IsWindowType(window, "SettingsWindow");
+            try
+            {
+                Action activate = () =>
+                {
+                    if (!window.IsVisible)
+                    {
+                        return;
+                    }
+
+                    window.Activate();
+                    window.Focus();
+                };
+
+                if (window.Dispatcher.CheckAccess())
+                {
+                    activate();
+                }
+                else
+                {
+                    window.Dispatcher.Invoke(activate);
+                }
+            }
+            catch
+            {
+                // Best effort only. DefaultProcess still forwards the controller input.
+            }
         }
 
         private static bool IsSettingsWindowOpen()

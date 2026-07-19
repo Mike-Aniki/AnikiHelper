@@ -2016,6 +2016,16 @@ namespace AnikiHelper
             set => SetValue(ref isAnikiWindowOpen, value);
         }
 
+        [DontSerialize]
+        private bool isSecondaryMusicWindowOpen = false;
+
+        [DontSerialize]
+        public bool IsSecondaryMusicWindowOpen
+        {
+            get => isSecondaryMusicWindowOpen;
+            set => SetValue(ref isSecondaryMusicWindowOpen, value);
+        }
+
         private bool openWelcomeHubOnStartup = true;
         public bool OpenWelcomeHubOnStartup
         {
@@ -5456,7 +5466,7 @@ namespace AnikiHelper
                 {
                     PrepareCurrentGameMediaLoading();
 
-                    plugin?.OpenWindow("ScreenShotsThumbsWindowStyle");
+                    plugin?.OpenWindow("ScreenShotsThumbsWindowStyle|SecondaryMusic");
                     plugin?.HookScreenshotsLazyLoad();
 
                     _ = RefreshCurrentGameMediaFromSelectedGameAsync();
@@ -5517,7 +5527,7 @@ namespace AnikiHelper
                 () =>
                 {
                     LoadMediaGalleryGamesFromCache();
-                    plugin?.OpenWindow("MediaGalleryGamesWindowStyle");
+                    plugin?.OpenWindow("MediaGalleryGamesWindowStyle|SecondaryMusic");
                 }
             );
 
@@ -6748,6 +6758,14 @@ namespace AnikiHelper
 
         public void LoadOverlayApps()
         {
+            // Preserve the current Hub App selections.
+            // Clearing SoftwareToolNamesForSelection temporarily resets the ComboBox
+            // SelectedItem values in the Settings view.
+            var savedHubAppSlot1ToolName = HubAppSlot1ToolName;
+            var savedHubAppSlot2ToolName = HubAppSlot2ToolName;
+            var savedHubAppSlot3ToolName = HubAppSlot3ToolName;
+            var savedHubAppSlot4ToolName = HubAppSlot4ToolName;
+
             try
             {
                 // Playnite's public IGameDatabaseAPI does not expose SoftwareApps.
@@ -6756,10 +6774,16 @@ namespace AnikiHelper
                 // available without referencing Playnite internals directly.
                 var apps = GetSoftwareAppsForOverlay();
 
-                if ((apps == null || apps.Count == 0) && (OverlayAppItems?.Count > 0 || HubAppItems?.Count > 0) && HasSelectedHubAppSlot)
+                if ((apps == null || apps.Count == 0) &&
+                    (OverlayAppItems?.Count > 0 || HubAppItems?.Count > 0) &&
+                    HasSelectedHubAppSlot)
                 {
-                    logger?.Warn("[AnikiHelper] Software Tools refresh returned 0 apps. Keeping the previous Hub Apps list to avoid hiding the Hub page during fullscreen startup.");
+                    logger?.Warn(
+                        "[AnikiHelper] Software Tools refresh returned 0 apps. " +
+                        "Keeping the previous Hub Apps list to avoid hiding the Hub page during fullscreen startup.");
+
                     RefreshHubApps();
+
                     OnPropertyChanged(nameof(OverlayAppItems));
                     OnPropertyChanged(nameof(HasOverlayApps));
                     OnPropertyChanged(nameof(SoftwareToolNamesForSelection));
@@ -6784,6 +6808,7 @@ namespace AnikiHelper
                     .ToList();
 
                 OverlayAppItems.Clear();
+
                 foreach (var item in items)
                 {
                     OverlayAppItems.Add(item);
@@ -6791,10 +6816,21 @@ namespace AnikiHelper
 
                 SoftwareToolNamesForSelection.Clear();
                 SoftwareToolNamesForSelection.Add(string.Empty);
-                foreach (var name in items.Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+
+                foreach (var name in items
+                    .Select(x => x.Name)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     SoftwareToolNamesForSelection.Add(name);
                 }
+
+                // Restore the values that the Settings ComboBoxes may have temporarily
+                // reset when SoftwareToolNamesForSelection was cleared.
+                HubAppSlot1ToolName = savedHubAppSlot1ToolName;
+                HubAppSlot2ToolName = savedHubAppSlot2ToolName;
+                HubAppSlot3ToolName = savedHubAppSlot3ToolName;
+                HubAppSlot4ToolName = savedHubAppSlot4ToolName;
 
                 OverlayAppsEmptyText = "No apps configured. Add Software Tools in Playnite first.";
                 RefreshHubApps();
@@ -6806,11 +6842,15 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                logger?.Warn(ex, "[AnikiHelper] Failed to load overlay apps. Keeping previous Hub Apps state when possible.");
+                logger?.Warn(
+                    ex,
+                    "[AnikiHelper] Failed to load overlay apps. Keeping previous Hub Apps state when possible.");
 
-                if ((OverlayAppItems?.Count > 0 || HubAppItems?.Count > 0) && HasSelectedHubAppSlot)
+                if ((OverlayAppItems?.Count > 0 || HubAppItems?.Count > 0) &&
+                    HasSelectedHubAppSlot)
                 {
                     RefreshHubApps();
+
                     OnPropertyChanged(nameof(OverlayAppItems));
                     OnPropertyChanged(nameof(HasOverlayApps));
                     OnPropertyChanged(nameof(SoftwareToolNamesForSelection));
@@ -6821,6 +6861,13 @@ namespace AnikiHelper
                 OverlayAppItems.Clear();
                 SoftwareToolNamesForSelection.Clear();
                 SoftwareToolNamesForSelection.Add(string.Empty);
+
+                // Keep the configured slots even if loading Playnite's Software Tools fails.
+                HubAppSlot1ToolName = savedHubAppSlot1ToolName;
+                HubAppSlot2ToolName = savedHubAppSlot2ToolName;
+                HubAppSlot3ToolName = savedHubAppSlot3ToolName;
+                HubAppSlot4ToolName = savedHubAppSlot4ToolName;
+
                 OverlayAppsEmptyText = "No apps configured. Add Software Tools in Playnite first.";
                 RefreshHubApps();
 
@@ -8112,7 +8159,7 @@ namespace AnikiHelper
 
                 PrepareCurrentGameMediaLoading();
 
-                plugin?.OpenWindow("ScreenShotsThumbsWindowStyle");
+                plugin?.OpenWindow("ScreenShotsThumbsWindowStyle|SecondaryMusic");
 
                 await Application.Current.Dispatcher.InvokeAsync(
                     () => { },

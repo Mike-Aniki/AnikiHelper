@@ -4,7 +4,6 @@
 
     <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
     <sys:String x:Key="AppSubtitle">Ajustes</sys:String>
-    <sys:String x:Key="AppInfo">Diseñado para el tema Aniki ReMake. Algunas funciones pueden requerir compatibilidad del tema para funcionar en otros temas.</sys:String>
     <sys:String x:Key="GroupAdditionalFeatures">Funciones adicionales</sys:String>
     <sys:String x:Key="AppInfo">Aniki Helper está diseñado para los temas de la marca Aniki. Las funciones avanzadas solo funcionan con temas Aniki.</sys:String>
     

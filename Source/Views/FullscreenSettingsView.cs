@@ -118,14 +118,11 @@ namespace AnikiHelperFullscreen.Views
                 return;
             }
 
-            // Une fenêtre native de paramètres Playnite est maintenant ouverte.
-            // On la considère comme une fenêtre secondaire pour la gestion UPS.
+            // Native Playnite Settings still counts as an open Aniki-related window,
+            // but it does not affect IsSecondaryMusicWindowOpen.
             var plugin = global::AnikiHelper.AnikiHelper.Instance;
 
-            if (plugin?.Settings != null)
-            {
-                plugin.Settings.IsAnikiWindowOpen = true;
-            }
+            plugin?.SetAnikiWindowOpenState(true, "FullscreenSettingsView.Load");
 
             window.Closed -= OnSettingsWindowClosed;
             window.Closed += OnSettingsWindowClosed;
@@ -181,13 +178,7 @@ namespace AnikiHelperFullscreen.Views
 
                 var plugin = global::AnikiHelper.AnikiHelper.Instance;
 
-                if (plugin?.Settings != null)
-                {
-                    // Les paramètres natifs sont fermés :
-                    // UPS peut revenir au comportement normal du Hub ou de la bibliothèque.
-                    plugin.Settings.IsAnikiWindowOpen = false;
-                }
-
+                plugin?.SetAnikiWindowOpenState(false, "FullscreenSettingsView.Closed");
                 plugin?.ShowAnikiThemeSettingsRestartPromptIfNeeded();
             }
             catch (Exception ex)

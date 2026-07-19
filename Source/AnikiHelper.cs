@@ -162,6 +162,16 @@ namespace AnikiHelper
         private readonly EventSoundService eventSoundService;
         private readonly AnikiWindowManager anikiWindowManager;
         private readonly InGameOverlayService inGameOverlayService;
+
+        // A short grace period prevents temporary false states while WPF replaces one
+        // Aniki window with another. IsAnikiWindowOpen keeps its original meaning and
+        // remains true for every Aniki window, including menus and native Settings.
+        private DispatcherTimer anikiWindowCloseGraceTimer;
+
+        // Music has its own independent state. Only windows explicitly opened with the
+        // SecondaryMusic option keep IsSecondaryMusicWindowOpen active.
+        private DispatcherTimer secondaryMusicWindowCloseGraceTimer;
+        private static readonly TimeSpan AnikiWindowCloseGracePeriod = TimeSpan.FromMilliseconds(750);
         private readonly AnikiThemeSettingsService anikiThemeSettingsService;
         private readonly NavigationFixService horizontalFocusFixService;
         private readonly KonamiCodeService konamiCodeService;
@@ -7087,10 +7097,11 @@ namespace AnikiHelper
             anikiWindowManager = new AnikiWindowManager(api);
             anikiWindowManager.OpenWindowStateChanged += isOpen =>
             {
-                if (Settings != null)
-                {
-                    Settings.IsAnikiWindowOpen = isOpen;
-                }
+                SetAnikiWindowOpenState(isOpen, "AnikiWindowManager");
+            };
+            anikiWindowManager.SecondaryMusicStateChanged += isOpen =>
+            {
+                SetSecondaryMusicWindowOpenState(isOpen, "AnikiWindowManager.SecondaryMusic");
             };
             inGameOverlayService = new InGameOverlayService(
                 api,
@@ -8839,7 +8850,7 @@ namespace AnikiHelper
                 var language = GetResolvedSteamStoreLanguage();
                 var region = GetResolvedSteamStoreRegion();
 
-                OpenChildWindow("SteamStoreDetailsStyle");
+                OpenChildWindow("SteamStoreDetailsStyle|SecondaryMusic");
 
                 OnUi(() =>
                 {
@@ -13115,7 +13126,7 @@ namespace AnikiHelper
                     return;
                 }
 
-                OpenChildWindow("GameNewsWindowStyle");
+                OpenChildWindow("GameNewsWindowStyle|SecondaryMusic");
 
                 var game = PlayniteApi?.MainView?.SelectedGames?.FirstOrDefault();
                 if (game == null)
@@ -13957,6 +13968,224 @@ namespace AnikiHelper
             }
         }
 
+        public void SetAnikiWindowOpenState(bool isOpen, string source = null)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    if (Settings != null)
+                    {
+                        Settings.IsAnikiWindowOpen = isOpen;
+                    }
+
+                    return;
+                }
+
+                if (!dispatcher.CheckAccess())
+                {
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        SetAnikiWindowOpenState(isOpen, source);
+                    }), DispatcherPriority.Normal);
+
+                    return;
+                }
+
+                EnsureAnikiWindowCloseGraceTimer();
+
+                if (isOpen)
+                {
+                    anikiWindowCloseGraceTimer.Stop();
+
+                    if (Settings != null && !Settings.IsAnikiWindowOpen)
+                    {
+                        Settings.IsAnikiWindowOpen = true;
+                        DebugLog($"[AnikiHelper][WindowState] Open | Source={source ?? "Unknown"}");
+                    }
+
+                    return;
+                }
+
+                // Do not expose the temporary false state generated while WPF replaces
+                // one Aniki window with another. A following true state cancels this timer.
+                anikiWindowCloseGraceTimer.Stop();
+                anikiWindowCloseGraceTimer.Start();
+
+                DebugLog($"[AnikiHelper][WindowState] Close pending | Source={source ?? "Unknown"}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to update Aniki window state.");
+            }
+        }
+
+        private void EnsureAnikiWindowCloseGraceTimer()
+        {
+            if (anikiWindowCloseGraceTimer != null)
+            {
+                return;
+            }
+
+            anikiWindowCloseGraceTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = AnikiWindowCloseGracePeriod
+            };
+
+            anikiWindowCloseGraceTimer.Tick += (sender, args) =>
+            {
+                anikiWindowCloseGraceTimer.Stop();
+
+                try
+                {
+                    // A new Aniki window may have opened without producing a new event yet,
+                    // or the native Playnite Settings window may now own the transition.
+                    var stillOpen = anikiWindowManager?.HasOpenWindow == true ||
+                                    IsNativeFullscreenSettingsWindowVisible();
+
+                    if (stillOpen)
+                    {
+                        if (Settings != null && !Settings.IsAnikiWindowOpen)
+                        {
+                            Settings.IsAnikiWindowOpen = true;
+                        }
+
+                        DebugLog("[AnikiHelper][WindowState] Close cancelled because another Aniki window is visible.");
+                        return;
+                    }
+
+                    if (Settings != null && Settings.IsAnikiWindowOpen)
+                    {
+                        Settings.IsAnikiWindowOpen = false;
+                        DebugLog("[AnikiHelper][WindowState] Closed after transition grace period.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to finalize Aniki window state.");
+                }
+            };
+        }
+
+        private static bool IsNativeFullscreenSettingsWindowVisible()
+        {
+            try
+            {
+                return Application.Current?.Windows
+                    .OfType<Window>()
+                    .Any(window =>
+                        window != null &&
+                        window.IsVisible &&
+                        (window.GetType().FullName ?? string.Empty).IndexOf(
+                            "SettingsWindow",
+                            StringComparison.OrdinalIgnoreCase) >= 0) == true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public void SetSecondaryMusicWindowOpenState(bool isOpen, string source = null)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    if (Settings != null)
+                    {
+                        Settings.IsSecondaryMusicWindowOpen = isOpen;
+                    }
+
+                    return;
+                }
+
+                if (!dispatcher.CheckAccess())
+                {
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        SetSecondaryMusicWindowOpenState(isOpen, source);
+                    }), DispatcherPriority.Normal);
+
+                    return;
+                }
+
+                EnsureSecondaryMusicWindowCloseGraceTimer();
+
+                if (isOpen)
+                {
+                    secondaryMusicWindowCloseGraceTimer.Stop();
+
+                    if (Settings != null && !Settings.IsSecondaryMusicWindowOpen)
+                    {
+                        Settings.IsSecondaryMusicWindowOpen = true;
+                        DebugLog($"[AnikiHelper][SecondaryAudio] Open | Source={source ?? "Unknown"}");
+                    }
+
+                    return;
+                }
+
+                // Keep the audio session alive while one music-enabled view is replaced
+                // by another. Menus that are not marked SecondaryMusic do not count.
+                secondaryMusicWindowCloseGraceTimer.Stop();
+                secondaryMusicWindowCloseGraceTimer.Start();
+
+                DebugLog($"[AnikiHelper][SecondaryAudio] Close pending | Source={source ?? "Unknown"}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to update secondary music window state.");
+            }
+        }
+
+        private void EnsureSecondaryMusicWindowCloseGraceTimer()
+        {
+            if (secondaryMusicWindowCloseGraceTimer != null)
+            {
+                return;
+            }
+
+            secondaryMusicWindowCloseGraceTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = AnikiWindowCloseGracePeriod
+            };
+
+            secondaryMusicWindowCloseGraceTimer.Tick += (sender, args) =>
+            {
+                secondaryMusicWindowCloseGraceTimer.Stop();
+
+                try
+                {
+                    var stillOpen = anikiWindowManager?.HasSecondaryMusicWindow == true;
+
+                    if (stillOpen)
+                    {
+                        if (Settings != null && !Settings.IsSecondaryMusicWindowOpen)
+                        {
+                            Settings.IsSecondaryMusicWindowOpen = true;
+                        }
+
+                        DebugLog("[AnikiHelper][SecondaryAudio] Close cancelled because another music-enabled window is visible.");
+                        return;
+                    }
+
+                    if (Settings != null && Settings.IsSecondaryMusicWindowOpen)
+                    {
+                        Settings.IsSecondaryMusicWindowOpen = false;
+                        DebugLog("[AnikiHelper][SecondaryAudio] Closed after transition grace period.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper] Failed to finalize secondary music window state.");
+                }
+            };
+        }
+
         public async void OpenPlayniteSettingsFromShortcut()
         {
             try
@@ -13972,14 +14201,6 @@ namespace AnikiHelper
                     try
                     {
                         CloseTopWindow();
-
-                        // Le menu Aniki vient d'être fermé, mais les paramètres natifs
-                        // vont prendre sa place. On maintient donc la musique par défaut
-                        // pendant la transition entre les deux fenêtres.
-                        if (Settings != null)
-                        {
-                            Settings.IsAnikiWindowOpen = true;
-                        }
 
                         var appAssembly = Application.Current.GetType().Assembly;
                         var fullscreenVm = Application.Current.MainWindow?.DataContext;
@@ -14008,20 +14229,22 @@ namespace AnikiHelper
                         {
                             logger.Warn("[AnikiHelper] Settings OpenView method not found.");
 
-                            if (Settings != null)
-                            {
-                                Settings.IsAnikiWindowOpen =
-                                    anikiWindowManager?.HasOpenWindow == true;
-                            }
+                            SetAnikiWindowOpenState(
+                                anikiWindowManager?.HasOpenWindow == true,
+                                "OpenPlayniteSettingsFromShortcut.OpenViewMissing");
 
                             return;
                         }
 
+                        // The Aniki window was just closed, but the native Settings window
+                        // is taking over. Preserve the general IsAnikiWindowOpen state.
+                        SetAnikiWindowOpenState(true, "OpenPlayniteSettingsFromShortcut");
                         openView.Invoke(vm, null);
                     }
                     catch (Exception ex)
                     {
                         logger.Warn(ex, "[AnikiHelper] Failed to open fullscreen Settings.");
+                        SetAnikiWindowOpenState(false, "OpenPlayniteSettingsFromShortcut.Failed");
                     }
                 }, DispatcherPriority.Background);
             }
@@ -15674,24 +15897,7 @@ namespace AnikiHelper
             }
         }
 
-        private void StartPostGameFocusDebugTrace(string gameName)
-        {
-            if (Settings?.EnableDebugLogs != true)
-            {
-                return;
-            }
-
-            var sw = Stopwatch.StartNew();
-
-            Task.Run(async () =>
-            {
-                for (int i = 0; i <= 40; i++)
-                {
-                    await Task.Delay(250);
-                    DebugLogFocusState($"AfterGameStopped REAL={sw.ElapsedMilliseconds}ms | Game='{gameName}'");
-                }
-            });
-        }
+       
 
         private async Task<bool> WaitForPlayniteForegroundAsync(TimeSpan timeout)
         {
@@ -15901,35 +16107,53 @@ namespace AnikiHelper
 
                 await app.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
 
-                try
-                {
-                    if (main != null)
-                    {
-                        main.Activate();
-                        main.Focus();
-
-                        bool oldTopmost = main.Topmost;
-                        main.Topmost = true;
-                        main.Topmost = oldTopmost;
-                    }
-                }
-                catch { }
+                RestoreTopVisiblePlayniteWindowFocus(main, true);
 
                 await Task.Delay(100);
 
-                try
-                {
-                    if (main != null)
-                    {
-                        main.Activate();
-                        main.Focus();
-                    }
-                }
-                catch { }
+                RestoreTopVisiblePlayniteWindowFocus(main, false);
             }
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] RestorePlayniteWindowsAfterStartupAsync failed.");
+            }
+        }
+
+        private void RestoreTopVisiblePlayniteWindowFocus(Window mainWindow, bool pulseTopmost)
+        {
+            try
+            {
+                var blockingWindow = GetVisibleBlockingSecondaryWindow();
+
+                if (blockingWindow != null)
+                {
+                    blockingWindow.Activate();
+                    blockingWindow.Focus();
+
+                    DebugLog(
+                        $"[AnikiHelper][StartupVideoFocus] Restored secondary window focus. " +
+                        $"Window={blockingWindow.GetType().FullName}");
+                    return;
+                }
+
+                if (mainWindow == null || !mainWindow.IsVisible)
+                {
+                    return;
+                }
+
+                mainWindow.Activate();
+                mainWindow.Focus();
+
+                if (pulseTopmost)
+                {
+                    bool oldTopmost = mainWindow.Topmost;
+                    mainWindow.Topmost = true;
+                    mainWindow.Topmost = oldTopmost;
+                }
+            }
+            catch
+            {
+                // Startup focus recovery is best effort only.
             }
         }
 
@@ -16271,8 +16495,12 @@ namespace AnikiHelper
                     return;
                 }
 
-                if (IsAnyAnikiModalOrOverlayWindowOpen())
+                var blockingWindow = GetVisibleBlockingSecondaryWindow();
+                if (blockingWindow != null)
                 {
+                    DebugLog(
+                        $"[AnikiHelper][StartupFocusRecovery] {context} skipped because a secondary window owns focus. " +
+                        $"Window={blockingWindow.GetType().FullName}, Active={blockingWindow.IsActive}, ShowActivated={blockingWindow.ShowActivated}");
                     return;
                 }
 
@@ -16403,33 +16631,45 @@ namespace AnikiHelper
 
         private bool IsAnyAnikiModalOrOverlayWindowOpen()
         {
+            return GetVisibleBlockingSecondaryWindow() != null;
+        }
+
+        private Window GetVisibleBlockingSecondaryWindow()
+        {
             try
             {
-                return Application.Current?.Windows
+                var app = Application.Current;
+                var mainWindow = app?.MainWindow;
+
+                if (app == null)
+                {
+                    return null;
+                }
+
+                // Do not identify native Playnite dialogs by a small hard-coded list of
+                // class names. Extension selection, game actions, item selection, main
+                // menu and future Playnite dialogs can all use different window types.
+                // Any visible activating WPF window above MainWindow must own the focus.
+                return app.Windows
                     .OfType<Window>()
-                    .Any(w =>
-                    {
-                        if (w == null || !w.IsVisible || ReferenceEquals(w, Application.Current.MainWindow))
-                        {
-                            return false;
-                        }
-
-                        if (w is AnikiVideoOverlayWindow)
-                        {
-                            return true;
-                        }
-
-                        var typeName = w.GetType().FullName ?? string.Empty;
-
-                        return w.Tag is string ||
-                               typeName.IndexOf("SettingsWindow", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                               typeName.IndexOf("TextInputWindow", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                               typeName.IndexOf("Aniki", StringComparison.OrdinalIgnoreCase) >= 0;
-                    }) == true;
+                    .Where(window =>
+                        window != null &&
+                        window.IsVisible &&
+                        window.WindowState != WindowState.Minimized &&
+                        !ReferenceEquals(window, mainWindow) &&
+                        (window.IsActive ||
+                         window.ShowActivated ||
+                         window is AnikiVideoOverlayWindow ||
+                         window.Tag is string))
+                    .OrderByDescending(window => window.IsActive)
+                    .ThenByDescending(window =>
+                        mainWindow != null &&
+                        ReferenceEquals(window.Owner, mainWindow))
+                    .FirstOrDefault();
             }
             catch
             {
-                return false;
+                return null;
             }
         }
 
@@ -19562,13 +19802,11 @@ namespace AnikiHelper
             );
 
             DebugLogFocusState("GameStopped START");
-            StartPostGameFocusDebugTrace(args?.Game?.Name ?? "NULL");
 
             try
             {
                 base.OnGameStopped(args);
                 try { steamFriendsService?.OnGameStopped(); } catch { }
-                DebugLogFocusState("After base.OnGameStopped");
 
                 var g = args?.Game;
 
@@ -19594,7 +19832,6 @@ namespace AnikiHelper
                 if (isFullscreen && isAnikiTheme)
                 {
                     inGameOverlayService?.ClearCurrentGame(g);
-                    DebugLogFocusState("After ClearCurrentGame");
                     DebugLog($"[AnikiHelper][Overlay][ClearCurrentGame] Requested after game stop. Game='{g?.Name ?? "NULL"}'");
                 }
                 else
@@ -19695,8 +19932,6 @@ namespace AnikiHelper
                         s.SessionNotificationStamp = Guid.NewGuid().ToString();
                         s.SessionNotificationFlip = !s.SessionNotificationFlip;
 
-                        DebugLogFocusState("Before SessionNotificationArmed");
-
                         s.SessionNotificationArmed = true;
 
                         DebugLogFocusState("After SessionNotificationArmed");
@@ -19754,7 +19989,6 @@ namespace AnikiHelper
 
                     if (refreshAllowed)
                     {
-                        DebugLogFocusState("Before Schedule MediaRefresh");
                         _ = Settings?.RefreshStoppedGameMediaSilentAsync(g.Id, 6000, memorySessionStart, memorySessionEnd);
 
                         DebugLog(
@@ -19766,7 +20000,6 @@ namespace AnikiHelper
                         );
 
                         _ = Settings?.RefreshAchievementMemoriesForGameAsync(g.Id);
-                        DebugLogFocusState("After Schedule AchievementsRefresh");
 
                         DebugLog(
                             $"[AnikiHelper][Achievements][ScheduleRefresh] " +
