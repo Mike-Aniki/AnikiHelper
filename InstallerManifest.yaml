@@ -345,3 +345,23 @@ Packages:
       - Fixed several focus issues affecting Playnite secondary windows such as Settings and Extensions.
       - Improved controller shortcut handling while a secondary window is open.
       - Improved transitions between secondary theme windows to prevent the background music from restarting unnecessarily.
+  - Version: 1.5.5
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-08-03
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.5.5/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_5_5.pext
+    Changelog:
+      - Completely redesigned the Desktop mode settings interface.
+      - Added a virtual keyboard accessible from the in-game overlay or through a customizable controller shortcut.
+      - Added two keyboard options, the Aniki virtual keyboard and the Windows touch keyboard.
+      - Added a virtual mouse controlled with the gamepad.
+      - Added a long-press B fallback from secondary windows to force-close all secondary windows if one behaves unexpectedly.
+      - Added an option to back up and restore Aniki ReMake customization settings, making it easier to recover or share a configuration.
+      - Added an integrated web browser with support for saving favorite websites from the settings.
+      - Splash screen animations now continue until the splash screen is fully closed.
+      - Removed SuccessStory scanning. PlayniteAchievements is now recommended instead.
+      - Removed the Steam Web API key requirement.
+      - Aniki Helper now uses a single authenticated Steam session for Friends, Wishlist, For You, and personalized recommendations.
+      - Your Steam profile no longer needs to be publicly visible.
+      - Steam session tokens are securely protected with Windows DPAPI.
+      - Reduced Steam Store requests to help prevent rate limiting.
+      - Various performance improvements and optimizations.
