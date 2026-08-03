@@ -27,7 +27,7 @@ namespace AnikiHelper
         private static CancellationTokenSource debounceCts;
         private static CancellationTokenSource animCts;
 
-        private const int DebounceMs = 1000;          // decrease = more reactive
+        private const int DebounceMs = 500;          // decrease = more reactive
         private const int TransitionMs = 0;        // total fade time
         private const int TransitionSteps = 1;      // + more steps = smoother
 
@@ -250,6 +250,11 @@ namespace AnikiHelper
             "GameListFrameBackground",
             "BackgroundItemEndPoint",
 
+            "MenuBackground_Top",
+            "MenuBackground_Bottom",
+            "MenuHeader_Top",
+            "MenuHeader_Bottom",
+
             "MenuBorderPrimaryColor",
             "MenuBorderSecondaryColor",
 
@@ -263,6 +268,12 @@ namespace AnikiHelper
 
             "GameFocus_Left",
             "GameFocus_Right",
+            "GameFocus_AnimatedContrast",
+            "CoverFlash_Transparent",
+            "CoverFlash_VerySoft",
+            "CoverFlash_Soft",
+            "CoverFlash_Core",
+            "CoverFlash_Tail",
 
             "SecondaryViewBackground_Center",
             "SecondaryViewBackground_Mid",
@@ -289,7 +300,10 @@ namespace AnikiHelper
 
         private static readonly string[] BrushesToTouch = new[]
         {
-            "DynamicGlowBackgroundSuccess"
+            "BackgroundMenu",
+            "HeaderMenu",
+            "DynamicGlowBackgroundSuccess",
+            "AnimatedFocusGameBorderBrush"
         };
                
 
@@ -1442,6 +1456,11 @@ namespace AnikiHelper
             SetColor("GameListFrameBackground", p.GameListFrameBackground);
             SetColor("BackgroundItemEndPoint", p.BackgroundItemEndPoint);
 
+            SetColor("MenuBackground_Top", p.OverlayTop);
+            SetColor("MenuBackground_Bottom", p.OverlayBottom);
+            SetColor("MenuHeader_Top", p.TopBarTop);
+            SetColor("MenuHeader_Bottom", p.TopBarBottom);
+
             SetColor("MenuBorderPrimaryColor", p.MenuBorderPrimary);
             SetColor("MenuBorderSecondaryColor", p.MenuBorderSecondary);
 
@@ -1455,6 +1474,13 @@ namespace AnikiHelper
 
             SetColor("GameFocus_Left", p.GameFocusLeft);
             SetColor("GameFocus_Right", p.GameFocusRight);
+            SetColor("GameFocus_AnimatedContrast", Colors.White);
+
+            SetColor("CoverFlash_Transparent", WithAlpha(p.GameFocusRight, 0x00));
+            SetColor("CoverFlash_VerySoft", WithAlpha(p.GameFocusRight, 0x03));
+            SetColor("CoverFlash_Soft", WithAlpha(p.GameFocusRight, 0x08));
+            SetColor("CoverFlash_Core", WithAlpha(p.GameFocusRight, 0x28));
+            SetColor("CoverFlash_Tail", WithAlpha(p.GameFocusRight, 0x0C));
 
             SetColor("SecondaryViewBackground_Center", p.SecondaryCenter);
             SetColor("SecondaryViewBackground_Mid", p.SecondaryMid);
@@ -1483,6 +1509,16 @@ namespace AnikiHelper
             // 2) Light BRUSH resources
             // Updated during transition
             // -----------------------------
+
+            SetBrush("BackgroundMenu",
+                MakeLinearV(
+                    p.OverlayTop,
+                    p.OverlayBottom));
+
+            SetBrush("HeaderMenu",
+                MakeLinearV(
+                    p.TopBarTop,
+                    p.TopBarBottom));
 
             UpdateOrSetLinearBrushV("OverlayMenu",
                 p.OverlayTop,
@@ -1516,6 +1552,10 @@ namespace AnikiHelper
             UpdateOrSetLinearBrushDiag("FocusGameBorderBrush",
                 p.GameFocusLeft,
                 p.GameFocusRight);
+
+            UpdateAnimatedFocusGameBorderBrush(
+                WithAlpha(p.GameFocusRight, 0xFF),
+                Colors.White);
 
             SetBrush("SeparatorListGameBrush", new SolidColorBrush(p.SeparatorAccent));
 
@@ -1604,6 +1644,34 @@ namespace AnikiHelper
                     RadiusX = .8,
                     RadiusY = .9
                 });
+        }
+
+        private static void UpdateAnimatedFocusGameBorderBrush(MediaColor baseColor, MediaColor contrastColor)
+        {
+            var dict = Application.Current?.Resources;
+            if (dict == null)
+                return;
+
+            // Always create a new, unfrozen brush. The rotation storyboard must be able
+            // to animate RelativeTransform.Angle, and the original theme brush must stay
+            // untouched in the snapshot for proper restoration.
+            var brush = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(1, 1),
+                MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                RelativeTransform = new RotateTransform(0, 0.5, 0.5)
+            };
+
+            brush.GradientStops.Add(new GradientStop(baseColor, 0.00));
+            brush.GradientStops.Add(new GradientStop(baseColor, 0.30));
+            brush.GradientStops.Add(new GradientStop(contrastColor, 0.44));
+            brush.GradientStops.Add(new GradientStop(contrastColor, 0.50));
+            brush.GradientStops.Add(new GradientStop(contrastColor, 0.56));
+            brush.GradientStops.Add(new GradientStop(baseColor, 0.70));
+            brush.GradientStops.Add(new GradientStop(baseColor, 1.00));
+
+            dict["AnimatedFocusGameBorderBrush"] = brush;
         }
 
         // ---------- Helpers ----------

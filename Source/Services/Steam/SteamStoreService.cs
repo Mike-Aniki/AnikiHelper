@@ -54,6 +54,9 @@ namespace AnikiHelper.Services
         private readonly object appDetailsCacheLock = new object();
         private static readonly HttpClient httpClient = new HttpClient();
 
+        private const string StoreBrowseItemsUrl =
+            "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=";
+
         private const int MaxCachedImages = 2000;
 
         public SteamStoreService(IPlayniteAPI playniteApi, string pluginUserDataPath)
@@ -69,6 +72,107 @@ namespace AnikiHelper.Services
             Directory.CreateDirectory(detailsCacheFolder);
             Directory.CreateDirectory(imageCacheFolder);
             MigrateLegacySteamStoreFolders(pluginUserDataPath);
+        }
+
+        /// <summary>
+        /// Resolves Steam app names in one StoreBrowse request.
+        /// This avoids sending one /api/appdetails request per wishlist item and keeps
+        /// card titles usable even when Steam temporarily rate-limits appdetails.
+        /// </summary>
+        public async Task<Dictionary<int, string>> GetStoreItemNamesAsync(
+            IEnumerable<int> appIds,
+            string language,
+            string countryCode)
+        {
+            var result = new Dictionary<int, string>();
+
+            var ids = (appIds ?? Enumerable.Empty<int>())
+                .Where(x => x > 0)
+                .Distinct()
+                .Take(100)
+                .ToList();
+
+            if (ids.Count == 0)
+            {
+                return result;
+            }
+
+            try
+            {
+                var input = new JObject
+                {
+                    ["ids"] = new JArray(ids.Select(x => new JObject
+                    {
+                        ["appid"] = x
+                    })),
+                    ["context"] = new JObject
+                    {
+                        ["language"] = string.IsNullOrWhiteSpace(language)
+                            ? "english"
+                            : language.Trim().ToLowerInvariant(),
+                        ["country_code"] = string.IsNullOrWhiteSpace(countryCode)
+                            ? "US"
+                            : countryCode.Trim().ToUpperInvariant(),
+                        ["steam_realm"] = 1
+                    },
+                    ["data_request"] = new JObject
+                    {
+                        ["include_basic_info"] = true,
+                        ["include_assets"] = true
+                    }
+                };
+
+                var url = StoreBrowseItemsUrl + Uri.EscapeDataString(input.ToString(Formatting.None));
+
+                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12)))
+                using (var response = await httpClient.GetAsync(url, cts.Token).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        logger.Warn(
+                            $"STORE browse names failed status={(int)response.StatusCode} | count={ids.Count}");
+                        return result;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(json))
+                    {
+                        return result;
+                    }
+
+                    var root = JObject.Parse(json);
+                    var items = root["response"]?["store_items"] as JArray;
+                    if (items == null)
+                    {
+                        return result;
+                    }
+
+                    foreach (var token in items)
+                    {
+                        var appId = token?["appid"]?.Value<int?>()
+                            ?? token?["id"]?.Value<int?>()
+                            ?? 0;
+
+                        var name = token?["name"]?.ToString()?.Trim() ?? string.Empty;
+                        if (appId > 0 &&
+                            !string.IsNullOrWhiteSpace(name) &&
+                            !LooksLikePlaceholderSteamAppName(name))
+                        {
+                            result[appId] = name;
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                logger.Warn($"STORE browse names timeout | count={ids.Count}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "STORE browse names request failed.");
+            }
+
+            return result;
         }
 
         public async Task<List<SteamStoreItem>> GetDealsAsync(string language, string countryCode, TimeSpan maxAge)
@@ -1404,7 +1508,10 @@ namespace AnikiHelper.Services
             var freshCache = LoadAppDetailsCache(cacheKey, maxAge);
             if (freshCache != null)
             {
-                var needsNameRefresh = LooksLikePlaceholderSteamAppName(item.Name) && string.IsNullOrWhiteSpace(freshCache.Name);
+                var needsNameRefresh =
+                    LooksLikePlaceholderSteamAppName(item.Name) &&
+                    (string.IsNullOrWhiteSpace(freshCache.Name) ||
+                     LooksLikePlaceholderSteamAppName(freshCache.Name));
                 ApplyDetailsCacheToItem(item, freshCache);
 
                 // Store refreshes can save light appdetails cache entries with URLs only.
@@ -1627,7 +1734,11 @@ namespace AnikiHelper.Services
                 return;
             }
 
-            item.Name = FirstNonEmpty(cache.Name, item.Name);
+            if (!string.IsNullOrWhiteSpace(cache.Name) &&
+                !LooksLikePlaceholderSteamAppName(cache.Name))
+            {
+                item.Name = cache.Name;
+            }
             item.AppType = FirstNonEmpty(cache.AppType, item.AppType);
             item.ShortDescription = FirstNonEmpty(cache.ShortDescription, item.ShortDescription);
             item.ReleaseDateDisplay = FirstNonEmpty(cache.ReleaseDateDisplay, item.ReleaseDateDisplay);
@@ -1833,7 +1944,9 @@ namespace AnikiHelper.Services
             {
                 LastUpdatedUtc = DateTime.UtcNow,
                 AppId = item.AppId,
-                Name = item.Name,
+                Name = LooksLikePlaceholderSteamAppName(item.Name)
+                    ? string.Empty
+                    : item.Name,
                 AppType = item.AppType,
                 ShortDescription = item.ShortDescription,
                 ReleaseDateDisplay = item.ReleaseDateDisplay,

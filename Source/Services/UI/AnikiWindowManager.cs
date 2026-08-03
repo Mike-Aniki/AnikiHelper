@@ -8,6 +8,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace AnikiHelper.Services
 {
@@ -41,11 +44,22 @@ namespace AnikiHelper.Services
 
     public class AnikiWindowManager
     {
+        private sealed class TrackedWindow
+        {
+            public Window Window { get; set; }
+            public string StyleKey { get; set; }
+            public Window Parent { get; set; }
+            public bool IsChild { get; set; }
+            public bool IsClosing { get; set; }
+        }
+
         private readonly IPlayniteAPI playniteApi;
         private readonly ILogger logger;
-        private readonly Stack<Window> windows = new Stack<Window>();
+        private readonly Stack<TrackedWindow> windows = new Stack<TrackedWindow>();
         private readonly HashSet<Window> secondaryMusicWindows = new HashSet<Window>();
+        private readonly HashSet<Window> suppressFinalFocusRestoreWindows = new HashSet<Window>();
         private Func<bool> isOverlayOpenOrOpening;
+        private Func<string, bool> cancelRequestHandler;
         public event Action<bool> OpenWindowStateChanged;
         public event Action<bool> SecondaryMusicStateChanged;
         private bool lastReportedOpenWindowState;
@@ -61,6 +75,46 @@ namespace AnikiHelper.Services
         public void SetOverlayOpenStateProvider(Func<bool> provider)
         {
             isOverlayOpenOrOpening = provider;
+        }
+
+        public void SetCancelRequestHandler(Func<string, bool> handler)
+        {
+            cancelRequestHandler = handler;
+        }
+
+        public void FocusTopWindowElement(string elementName)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        CleanupClosedWindows();
+                        var window = windows.Any() ? windows.Peek()?.Window : null;
+                        if (window == null || !window.IsVisible)
+                        {
+                            return;
+                        }
+
+                        ApplyInitialFocus(window, elementName, false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex, $"[AnikiHelper][WindowManager] Failed to focus top window element: {elementName}");
+                    }
+                }), DispatcherPriority.Loaded);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, $"[AnikiHelper][WindowManager] Failed to queue top window focus: {elementName}");
+            }
         }
 
         public bool HasOpenWindow
@@ -113,7 +167,7 @@ namespace AnikiHelper.Services
                     // Fallback without touching WPF visibility from a non-UI thread.
                     return secondaryMusicWindows.Any(window =>
                         window != null &&
-                        windows.Contains(window));
+                        windows.Any(entry => ReferenceEquals(entry.Window, window)));
                 }
             }
         }
@@ -219,29 +273,560 @@ namespace AnikiHelper.Services
             return string.Equals(option, "SecondaryMusic", StringComparison.OrdinalIgnoreCase);
         }
 
+        public void RegisterExternalWindow(Window window, string styleKey, bool isChild = true, bool secondaryMusic = false)
+        {
+            if (window == null)
+            {
+                return;
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(() => RegisterExternalWindow(window, styleKey, isChild, secondaryMusic));
+                return;
+            }
+
+            CleanupClosedWindows();
+
+            if (windows.Any(tracked => tracked?.Window != null && ReferenceEquals(tracked.Window, window)))
+            {
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] External window already tracked. " +
+                    $"Style={styleKey ?? "<none>"}, {DescribeWindow(window)}, StackCount={windows.Count}");
+                return;
+            }
+
+            var parent = window.Owner ?? playniteApi.Dialogs.GetCurrentAppWindow();
+
+            if (window.Tag == null && !string.IsNullOrWhiteSpace(styleKey))
+            {
+                window.Tag = styleKey;
+            }
+
+            var trackedEntry = new TrackedWindow
+            {
+                Window = window,
+                StyleKey = styleKey,
+                Parent = parent,
+                IsChild = isChild,
+                IsClosing = false
+            };
+
+            windows.Push(trackedEntry);
+
+            if (secondaryMusic)
+            {
+                secondaryMusicWindows.Add(window);
+            }
+
+            window.Closed += (s, e) =>
+            {
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] CLOSED event received for external window. " +
+                    $"{DescribeWindow(window)}, StackCountBeforeRemove={windows.Count}");
+
+                RemoveWindow(window);
+            };
+
+            logger?.Debug(
+                $"[AnikiHelper][WindowManager] External window registered. {DescribeTrackedWindow(trackedEntry)}, " +
+                $"StackCount={windows.Count}");
+
+            NotifyOpenWindowStateChanged();
+        }
+
+        public bool HandleCancelRequest(string source = null)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                return dispatcher.Invoke(new Func<bool>(() => HandleCancelRequest(source)));
+            }
+
+            CleanupClosedWindows();
+
+            logger?.Debug(
+                $"[AnikiHelper][WindowManager] CANCEL requested. Source={source ?? "<unknown>"}, " +
+                $"StackCount={windows.Count}, Top={DescribeTrackedWindow(windows.Any() ? windows.Peek() : null)}");
+
+            if (!windows.Any())
+            {
+                return false;
+            }
+
+            var topStyleKey = windows.Peek()?.StyleKey;
+
+            try
+            {
+                if (cancelRequestHandler?.Invoke(topStyleKey) == true)
+                {
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] CANCEL consumed by specialized handler. Style={topStyleKey ?? "<none>"}");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex,
+                    $"[AnikiHelper][WindowManager] Specialized cancel handler failed. Style={topStyleKey ?? "<none>"}");
+            }
+
+            // If no specialized view consumed B/Escape, close the most recent Aniki window,
+            // even when WPF temporarily reports IsActive=false during a focus transition.
+            return CloseTopWindow();
+        }
+
+        public bool CloseTopWindowForExternalHandoff(Action afterClosed)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                return dispatcher.Invoke(new Func<bool>(() => CloseTopWindowForExternalHandoff(afterClosed)));
+            }
+
+            CleanupClosedWindows();
+
+            if (!windows.Any())
+            {
+                logger?.Debug(
+                    "[AnikiHelper][WindowManager] EXTERNAL HANDOFF requested but the window stack is empty.");
+
+                return false;
+            }
+
+            var topEntry = windows.Pop();
+            var top = topEntry?.Window;
+
+            if (topEntry != null)
+            {
+                topEntry.IsClosing = true;
+            }
+
+            secondaryMusicWindows.Remove(top);
+
+            logger?.Debug(
+                $"[AnikiHelper][WindowManager] EXTERNAL HANDOFF close requested. {DescribeTrackedWindow(topEntry)}, " +
+                $"StackCountAfterPop={windows.Count}");
+
+            if (top == null)
+            {
+                NotifyOpenWindowStateChanged();
+                afterClosed?.Invoke();
+                return true;
+            }
+
+            // The normal Closed handler would restore focus to Playnite when the last Aniki window
+            // disappears. During an external handoff that restoration races with the native window
+            // we are about to open, so suppress it for this one close only.
+            suppressFinalFocusRestoreWindows.Add(top);
+
+            EventHandler closedHandler = null;
+            closedHandler = (sender, args) =>
+            {
+                top.Closed -= closedHandler;
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] EXTERNAL HANDOFF source window fully closed. {DescribeWindow(top)}");
+
+                var targetDispatcher = Application.Current?.Dispatcher ?? top.Dispatcher;
+                if (targetDispatcher == null)
+                {
+                    afterClosed?.Invoke();
+                    return;
+                }
+
+                targetDispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        afterClosed?.Invoke();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex, "[AnikiHelper][WindowManager] External handoff callback failed.");
+                    }
+                }), DispatcherPriority.Normal);
+            };
+
+            top.Closed += closedHandler;
+
+            if (top.IsVisible)
+            {
+                top.Hide();
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] EXTERNAL HANDOFF source hidden before deferred close. {DescribeWindow(top)}");
+            }
+
+            NotifyOpenWindowStateChanged();
+
+            top.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] EXTERNAL HANDOFF deferred close executing. {DescribeWindow(top)}");
+                    top.Close();
+                }
+                catch (Exception ex)
+                {
+                    suppressFinalFocusRestoreWindows.Remove(top);
+                    top.Closed -= closedHandler;
+                    logger?.Warn(ex, "[AnikiHelper][WindowManager] External handoff close failed.");
+                    afterClosed?.Invoke();
+                }
+            }), DispatcherPriority.Background);
+
+            // Deliberately do not call FocusAfterClosing here. The callback opens and focuses the
+            // external Playnite window after the Aniki source window has fully closed.
+            return true;
+        }
+
         public bool CloseTopWindow()
         {
             CleanupClosedWindows();
 
             if (!windows.Any())
+            {
+                logger?.Debug("[AnikiHelper][WindowManager] CLOSE requested but the window stack is empty.");
                 return false;
+            }
 
-            var top = windows.Pop();
+            var topEntry = windows.Pop();
+            var top = topEntry?.Window;
+
+            if (topEntry != null)
+            {
+                topEntry.IsClosing = true;
+            }
+
             secondaryMusicWindows.Remove(top);
 
-            if (top != null && top.IsVisible)
-            {
-                top.Hide();
+            logger?.Debug(
+                $"[AnikiHelper][WindowManager] CLOSE requested. {DescribeTrackedWindow(topEntry)}, " +
+                $"StackCountAfterPop={windows.Count}");
 
-                top.Dispatcher.BeginInvoke(new Action(() =>
+            if (top != null)
+            {
+                try
                 {
-                    top.Close();
-                }), DispatcherPriority.ApplicationIdle);
+                    if (top.IsVisible)
+                    {
+                        top.Hide();
+
+                        logger?.Debug(
+                            $"[AnikiHelper][WindowManager] Window hidden before deferred close. {DescribeWindow(top)}");
+                    }
+                    else
+                    {
+                        // IsVisible=false does not mean that the WPF window is closed. A hidden
+                        // Playnite dialog can still keep its owner dimmed until Close() is called.
+                        logger?.Debug(
+                            $"[AnikiHelper][WindowManager] Popped window was already hidden; forcing its deferred close. {DescribeWindow(top)}");
+                    }
+
+                    top.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            logger?.Debug(
+                                $"[AnikiHelper][WindowManager] Deferred close executing. {DescribeWindow(top)}");
+
+                            top.Close();
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // The window was already closed between the request and this callback.
+                        }
+                        catch (Exception ex)
+                        {
+                            logger?.Warn(ex,
+                                $"[AnikiHelper][WindowManager] Deferred close failed. {DescribeWindow(top)}");
+                        }
+                    }), DispatcherPriority.Background);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The window was already closed while the close request was being prepared.
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex,
+                        $"[AnikiHelper][WindowManager] Failed to hide or schedule the top window close. {DescribeWindow(top)}");
+
+                    try
+                    {
+                        top.Close();
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            else
+            {
+                logger?.Debug(
+                    "[AnikiHelper][WindowManager] Popped tracked entry had no window instance.");
             }
 
             NotifyOpenWindowStateChanged();
-            FocusTopWindow();
+
+            // Restore the real parent immediately after Hide(), including when this was the
+            // final Aniki window. This matches the former no-desktop-flash behavior.
+            // The actual Close() now runs at Background priority instead of ApplicationIdle,
+            // keeping the hidden owned window alive for the shortest practical time.
+            FocusAfterClosing(topEntry);
+
             return true;
+        }
+
+
+        public async Task<bool> CloseAllWindowsAndWaitAsync(string source = null)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                return false;
+            }
+
+            var closeTasks = new List<Task>();
+            var hadWindows = false;
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                // Include both tracked visible windows and hidden manager-created windows that
+                // are still alive in Application.Current.Windows. CleanupClosedWindows normally drops
+                // hidden entries from the stack before their deferred Close executes; those orphaned
+                // owners are exactly what can leave Playnite dimmed after reopening the setup.
+                var trackedEntries = windows
+                    .Where(entry => entry?.Window != null)
+                    .ToList();
+
+                var managedWindows = trackedEntries
+                    .Select(entry => entry.Window)
+                    .Concat(
+                        Application.Current.Windows
+                            .OfType<Window>()
+                            .Where(window =>
+                            {
+                                var styleKey = window?.Tag as string;
+                                return !string.IsNullOrWhiteSpace(styleKey) &&
+                                       window.Content is Viewbox &&
+                                       Application.Current.TryFindResource(styleKey) is Style;
+                            }))
+                    .Where(window => window != null)
+                    .Distinct()
+                    .ToList();
+
+                hadWindows = managedWindows.Count > 0;
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] CLOSE ALL AND WAIT requested. " +
+                    $"Source={source ?? "<unknown>"}, TrackedCount={trackedEntries.Count}, " +
+                    $"ManagedWindowCount={managedWindows.Count}");
+
+                if (!hadWindows)
+                {
+                    NotifyOpenWindowStateChanged();
+                    return;
+                }
+
+                foreach (var entry in trackedEntries)
+                {
+                    entry.IsClosing = true;
+                }
+
+                // Publish the final closed state immediately. The actual WPF Window.Close calls
+                // are still awaited below so hidden owned windows cannot keep Playnite dimmed.
+                windows.Clear();
+                secondaryMusicWindows.Clear();
+                NotifyOpenWindowStateChanged();
+
+                foreach (var window in managedWindows)
+                {
+                    var closeCompletion = new TaskCompletionSource<bool>();
+
+                    EventHandler closedHandler = null;
+                    closedHandler = (sender, args) =>
+                    {
+                        try
+                        {
+                            window.Closed -= closedHandler;
+                        }
+                        catch
+                        {
+                        }
+
+                        closeCompletion.TrySetResult(true);
+                    };
+
+                    window.Closed += closedHandler;
+                    suppressFinalFocusRestoreWindows.Add(window);
+                    closeTasks.Add(closeCompletion.Task);
+
+                    try
+                    {
+                        if (window.IsVisible)
+                        {
+                            window.Hide();
+                        }
+
+                        window.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try
+                            {
+                                window.Close();
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                closeCompletion.TrySetResult(true);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger?.Warn(ex,
+                                    $"[AnikiHelper][WindowManager] Awaited close failed for {DescribeWindow(window)}");
+                                closeCompletion.TrySetResult(true);
+                            }
+                        }), DispatcherPriority.Background);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        closeCompletion.TrySetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex,
+                            $"[AnikiHelper][WindowManager] Awaited hide/close scheduling failed for {DescribeWindow(window)}");
+                        closeCompletion.TrySetResult(true);
+                    }
+                }
+            }, DispatcherPriority.Send);
+
+            if (!hadWindows)
+            {
+                return false;
+            }
+
+            if (closeTasks.Count > 0)
+            {
+                var allClosed = Task.WhenAll(closeTasks);
+                var completed = await Task.WhenAny(allClosed, Task.Delay(1800));
+
+                if (!ReferenceEquals(completed, allClosed))
+                {
+                    logger?.Warn(
+                        $"[AnikiHelper][WindowManager] Timed out while waiting for all Aniki windows to close. " +
+                        $"Source={source ?? "<unknown>"}");
+                }
+            }
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                CleanupClosedWindows();
+                NotifyOpenWindowStateChanged();
+                RestorePlayniteForegroundAfterFinalClose();
+            }, DispatcherPriority.ApplicationIdle);
+
+            return true;
+        }
+
+        public bool CloseAllWindowsAndRestorePlayniteFocus(string source = null)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                return dispatcher.Invoke(new Func<bool>(() => CloseAllWindowsAndRestorePlayniteFocus(source)));
+            }
+
+            CleanupClosedWindows();
+
+            var entries = windows
+                .Where(entry => entry?.Window != null)
+                .ToList();
+
+            logger?.Warn(
+                $"[AnikiHelper][WindowManager] EMERGENCY CLOSE ALL requested. " +
+                $"Source={source ?? "<unknown>"}, TrackedCount={entries.Count}");
+
+            // Never steal the foreground when there is nothing managed to close.
+            // This is especially important while a game is running: a missed B-button
+            // release must not bring Playnite to the front after the overlay has already
+            // been closed by its own input handler.
+            if (entries.Count == 0)
+            {
+                logger?.Debug(
+                    "[AnikiHelper][WindowManager] Emergency close ignored because no tracked window is open; foreground left unchanged.");
+                return false;
+            }
+
+            windows.Clear();
+            secondaryMusicWindows.Clear();
+
+            foreach (var entry in entries)
+            {
+                entry.IsClosing = true;
+                var window = entry.Window;
+
+                try
+                {
+                    if (window.IsVisible)
+                    {
+                        window.Hide();
+                    }
+
+                    window.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            window.Close();
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // The window was already closed between the request and this callback.
+                        }
+                        catch (Exception ex)
+                        {
+                            logger?.Warn(ex,
+                                $"[AnikiHelper][WindowManager] Emergency close failed for {DescribeWindow(window)}");
+                        }
+                    }), DispatcherPriority.Background);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Already closed.
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex,
+                        $"[AnikiHelper][WindowManager] Emergency hide/close scheduling failed for {DescribeWindow(window)}");
+                }
+            }
+
+            NotifyOpenWindowStateChanged();
+
+            var playniteWindow = playniteApi.Dialogs.GetCurrentAppWindow();
+            if (playniteWindow != null && playniteWindow.IsVisible)
+            {
+                playniteWindow.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        playniteWindow.Activate();
+                        playniteWindow.Focus();
+
+                        logger?.Debug(
+                            "[AnikiHelper][WindowManager] Emergency close completed; Playnite focus restored.");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex,
+                            "[AnikiHelper][WindowManager] Failed to restore Playnite focus after emergency close.");
+                    }
+                }), DispatcherPriority.ApplicationIdle);
+            }
+
+            return entries.Count > 0;
         }
 
         public bool IsTopWindowActive()
@@ -251,7 +836,7 @@ namespace AnikiHelper.Services
             if (!windows.Any())
                 return false;
 
-            var top = windows.Peek();
+            var top = windows.Peek()?.Window;
             return top != null && top.IsActive;
         }
 
@@ -259,6 +844,12 @@ namespace AnikiHelper.Services
         {
             if (string.IsNullOrWhiteSpace(styleKey))
                 return;
+
+            logger?.Debug(
+                $"[AnikiHelper][WindowManager] OPEN requested. Style={styleKey}, " +
+                $"Type={(forceChild ? "Child" : "Main")}, FocusTarget={focusTargetName ?? "<none>"}, " +
+                $"FocusFirst={focusFirst}, RefocusAfterClick={refocusAfterClick}, NoDim={noDim}, " +
+                $"SecondaryMusic={secondaryMusic}, StackCount={windows.Count}");
 
             // Reserve custom pages and the in-game overlay as mutually exclusive UI layers.
             // This first check blocks immediately when the overlay shortcut has already queued an opening.
@@ -290,13 +881,17 @@ namespace AnikiHelper.Services
                     return;
                 }
 
-                var existingWindow = windows.FirstOrDefault(w =>
-                    w != null &&
-                    w.IsVisible &&
-                    string.Equals(w.Tag as string, styleKey, StringComparison.OrdinalIgnoreCase));
+                var existingEntry = windows.FirstOrDefault(entry =>
+                    entry?.Window != null &&
+                    entry.Window.IsVisible &&
+                    string.Equals(entry.StyleKey, styleKey, StringComparison.OrdinalIgnoreCase));
+                var existingWindow = existingEntry?.Window;
 
                 if (existingWindow != null)
                 {
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] Existing visible window reused. {DescribeTrackedWindow(existingEntry)}, " +
+                        $"StackCount={windows.Count}");
                     if (secondaryMusic)
                     {
                         secondaryMusicWindows.Add(existingWindow);
@@ -326,6 +921,10 @@ namespace AnikiHelper.Services
                     {
                         ShowMinimizeButton = false
                     });
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Window instance created. Style={styleKey}, " +
+                    $"Type={(forceChild ? "Child" : "Main")}, RawWindowType={window?.GetType().FullName ?? "<null>"}");
 
                 window.Tag = styleKey;
                 window.ShowInTaskbar = false;
@@ -368,47 +967,94 @@ namespace AnikiHelper.Services
                 }
 
                 var style = Application.Current.TryFindResource(styleKey) as Style;
-                if (style != null)
+                if (style == null)
                 {
-                    window.Content = new Viewbox
+                    logger?.Error(
+                        $"[AnikiHelper][WindowManager] Window style not found. Opening cancelled. " +
+                        $"Style={styleKey}, Type={(forceChild ? "Child" : "Main")}, StackCount={windows.Count}");
+
+                    try
                     {
-                        Stretch = Stretch.Uniform,
-                        Child = new Grid
-                        {
-                            Width = 1920,
-                            Height = 1080,
-                            Children =
-                            {
-                                new ContentControl
-                                {
-                                    Focusable = false,
-                                    Style = style
-                                }
-                            }
-                        }
-                    };
+                        window.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Debug(ex,
+                            $"[AnikiHelper][WindowManager] Failed to close unopened window after missing style. Style={styleKey}");
+                    }
+
+                    return;
                 }
 
-                if (forceChild && windows.Any())
+                window.Content = new Viewbox
                 {
-                    window.Owner = windows.Peek();
+                    Stretch = Stretch.Uniform,
+                    Child = new Grid
+                    {
+                        Width = 1920,
+                        Height = 1080,
+                        Children =
+                        {
+                            new ContentControl
+                            {
+                                Focusable = false,
+                                Style = style
+                            }
+                        }
+                    }
+                };
+
+                if (forceChild)
+                {
+                    // A child window can be opened from a window owned by another plugin
+                    // (for example PlayniteAchievements' game-details window). In that case,
+                    // the top Aniki-managed window is not the real visual parent.
+                    var activeWindow = Application.Current.Windows
+                        .OfType<Window>()
+                        .FirstOrDefault(candidate =>
+                            !ReferenceEquals(candidate, window) &&
+                            candidate.IsVisible &&
+                            candidate.IsActive);
+
+                    if (activeWindow != null)
+                    {
+                        window.Owner = activeWindow;
+                    }
+                    else if (windows.Any())
+                    {
+                        window.Owner = windows.Peek().Window;
+                    }
+                    else if (parent != null)
+                    {
+                        window.Owner = parent;
+                    }
                 }
                 else if (parent != null)
                 {
                     window.Owner = parent;
                 }
 
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Owner selected. Window={styleKey}, " +
+                    $"Owner={DescribeWindow(window.Owner)}, StackCount={windows.Count}");
+
                 window.PreviewKeyDown += (s, e) =>
                 {
-                    if (e.Key == Key.Escape)
+                    if (e.Key == Key.Escape || e.Key == Key.Back)
                     {
-                        e.Handled = true;
-                        CloseTopWindow();
+                        if (HandleCancelRequest("Window.PreviewKeyDown"))
+                        {
+                            e.Handled = true;
+                        }
                     }
                 };
 
                 window.Closed += (s, e) =>
                 {
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] CLOSED event received. {DescribeWindow(window)}, " +
+                        $"StackCountBeforeRemove={windows.Count}");
+
                     RemoveWindow(window);
                 };
 
@@ -429,16 +1075,42 @@ namespace AnikiHelper.Services
                     return;
                 }
 
-                windows.Push(window);
+                var trackedWindow = new TrackedWindow
+                {
+                    Window = window,
+                    StyleKey = styleKey,
+                    Parent = window.Owner,
+                    IsChild = forceChild,
+                    IsClosing = false
+                };
+
+                windows.Push(trackedWindow);
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Window pushed to stack. {DescribeTrackedWindow(trackedWindow)}, " +
+                    $"StackCount={windows.Count}");
 
                 if (secondaryMusic)
                 {
                     secondaryMusicWindows.Add(window);
                 }
 
+                // Publish the opening state before Show() can deactivate Playnite.
+                // Without this, Main.xaml briefly sees IsActive=False while both
+                // IsAnikiWindowOpen and IsSecondaryMusicWindowOpen are still false,
+                // which can pause the Hub music before its fade-out starts.
+                NotifyWindowOpeningState(secondaryMusic);
+
                 window.Show();
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Window shown. {DescribeWindow(window)}, StackCount={windows.Count}");
+
                 window.Activate();
                 window.Focus();
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Window activation requested. {DescribeWindow(window)}, " +
+                    $"KeyboardFocus={DescribeFocusedElement()}");
 
                 NotifyOpenWindowStateChanged();
 
@@ -449,9 +1121,17 @@ namespace AnikiHelper.Services
 
                 if (!string.IsNullOrWhiteSpace(focusTargetName) || focusFirst)
                 {
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] Initial focus queued. Window={styleKey}, " +
+                        $"Target={focusTargetName ?? "<first focusable>"}, FocusFirst={focusFirst}");
+
                     window.Dispatcher.BeginInvoke(new Action(() =>
                     {
                         ApplyInitialFocus(window, focusTargetName, focusFirst);
+
+                        logger?.Debug(
+                            $"[AnikiHelper][WindowManager] Initial focus pass completed. Window={styleKey}, " +
+                            $"KeyboardFocus={DescribeFocusedElement()}");
                     }), DispatcherPriority.ApplicationIdle);
                 }
             });
@@ -548,6 +1228,16 @@ namespace AnikiHelper.Services
                 return;
             }
 
+            if (!target.Focusable || (target is Control targetControl && !targetControl.IsTabStop))
+            {
+                target = FindSelectedFocusableElement(target) ?? FindFirstFocusableElement(target);
+            }
+
+            if (target == null)
+            {
+                return;
+            }
+
             target.Focus();
             Keyboard.Focus(target);
 
@@ -556,6 +1246,66 @@ namespace AnikiHelper.Services
             if (focusScope != null)
             {
                 FocusManager.SetFocusedElement(focusScope, target);
+            }
+        }
+
+
+        private static FrameworkElement FindSelectedFocusableElement(DependencyObject parent)
+        {
+            if (parent == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                var element = child as FrameworkElement;
+
+                if (element != null &&
+                    element.Focusable &&
+                    element.IsEnabled &&
+                    element.IsVisible)
+                {
+                    var control = element as Control;
+                    var canReceiveFocus = control == null || control.IsTabStop;
+
+                    if (canReceiveFocus && IsSelectedDataContext(element.DataContext))
+                    {
+                        return element;
+                    }
+                }
+
+                var result = FindSelectedFocusableElement(child);
+
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool IsSelectedDataContext(object dataContext)
+        {
+            if (dataContext == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var property = dataContext.GetType().GetProperty("IsSelected");
+
+                return property != null &&
+                       property.PropertyType == typeof(bool) &&
+                       property.GetValue(dataContext, null) is bool selected &&
+                       selected;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -774,27 +1524,60 @@ namespace AnikiHelper.Services
                 return;
 
             var windowsToClose = windows
-                .Where(w =>
-                    w != null &&
-                    w.IsVisible &&
-                    string.Equals(w.Tag as string, styleKey, StringComparison.OrdinalIgnoreCase))
+                .Where(entry =>
+                    entry?.Window != null &&
+                    string.Equals(entry.StyleKey, styleKey, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            foreach (var window in windowsToClose)
+            foreach (var entry in windowsToClose)
             {
-                // Important :
-                // Hide() retire la fenêtre tout de suite sans bloquer l’ouverture de la prochaine.
-                // Close() est repoussé à l'idle pour éviter que WPF détruise tout le visual tree
-                // du Quick Access avant d'afficher Profile / Store / etc.
-                window.Hide();
+                var window = entry.Window;
+                entry.IsClosing = true;
 
-                window.Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
-                    if (window != null)
+                    // Hide() removes the old page immediately so the destination can appear without
+                    // waiting. Close() must still run quickly: a hidden Playnite dialog can keep the
+                    // main window dimmed for as long as the dialog object remains alive.
+                    if (window.IsVisible)
+                    {
+                        window.Hide();
+                    }
+
+                    window.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            window.Close();
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Already closed.
+                        }
+                        catch (Exception ex)
+                        {
+                            logger?.Warn(ex,
+                                $"[AnikiHelper][WindowManager] Style window deferred close failed. Style={styleKey}, {DescribeWindow(window)}");
+                        }
+                    }), DispatcherPriority.Background);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Already closed.
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex,
+                        $"[AnikiHelper][WindowManager] Failed to hide or schedule style window close. Style={styleKey}, {DescribeWindow(window)}");
+
+                    try
                     {
                         window.Close();
                     }
-                }), DispatcherPriority.ApplicationIdle);
+                    catch
+                    {
+                    }
+                }
             }
 
             NotifyOpenWindowStateChanged();
@@ -805,28 +1588,106 @@ namespace AnikiHelper.Services
             if (window == null)
                 return;
 
-            secondaryMusicWindows.Remove(window);
+            logger?.Debug(
+                $"[AnikiHelper][WindowManager] Removing window from tracking. {DescribeWindow(window)}, " +
+                $"StackCountBefore={windows.Count}");
 
-            if (!windows.Contains(window))
+            secondaryMusicWindows.Remove(window);
+            var suppressFinalFocusRestore = suppressFinalFocusRestoreWindows.Remove(window);
+
+            var wasStillTracked = windows.Any(entry => ReferenceEquals(entry.Window, window));
+
+            if (wasStillTracked)
             {
-                NotifyOpenWindowStateChanged();
+                var rebuilt = windows.Reverse()
+                    .Where(entry => !ReferenceEquals(entry.Window, window))
+                    .ToList();
+
+                windows.Clear();
+
+                foreach (var item in rebuilt)
+                    windows.Push(item);
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Window tracking updated. Removed={window.Tag as string ?? "<no tag>"}, " +
+                    $"StackCountAfter={windows.Count}, NewTop={DescribeTrackedWindow(windows.Any() ? windows.Peek() : null)}");
+            }
+            else
+            {
+                // CloseTopWindow removes the entry before calling Close(). The Closed event still has to
+                // perform the final Playnite restoration; returning here was the Alt+F4 regression.
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Closed window was already popped from tracking. " +
+                    $"StackCount={windows.Count}, Window={DescribeWindow(window)}");
+            }
+
+            NotifyOpenWindowStateChanged();
+
+            if (!windows.Any())
+            {
+                if (suppressFinalFocusRestore)
+                {
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] Final Playnite focus restoration suppressed for external handoff. " +
+                        $"Window={DescribeWindow(window)}");
+                }
+                else
+                {
+                    RestorePlayniteForegroundAfterFinalClose();
+                }
+            }
+        }
+
+        private void RestorePlayniteForegroundAfterFinalClose()
+        {
+            var playniteWindow = playniteApi.Dialogs.GetCurrentAppWindow();
+
+            if (playniteWindow == null || !playniteWindow.IsVisible)
+            {
                 return;
             }
 
-            var rebuilt = windows.Reverse().Where(w => !ReferenceEquals(w, window)).ToList();
+            playniteWindow.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] Final window fully closed; restoring Playnite foreground. " +
+                        $"Target={DescribeWindow(playniteWindow)}");
 
-            windows.Clear();
+                    if (playniteWindow.WindowState == WindowState.Minimized)
+                    {
+                        playniteWindow.WindowState = WindowState.Normal;
+                    }
 
-            foreach (var item in rebuilt)
-                windows.Push(item);
+                    playniteWindow.Activate();
+                    playniteWindow.Focus();
 
-            NotifyOpenWindowStateChanged();
+                    var handle = new WindowInteropHelper(playniteWindow).Handle;
+                    if (handle != IntPtr.Zero)
+                    {
+                        SetForegroundWindow(handle);
+                    }
+
+                    logger?.Debug(
+                        $"[AnikiHelper][WindowManager] Playnite foreground restoration completed. " +
+                        $"Target={DescribeWindow(playniteWindow)}, KeyboardFocus={DescribeFocusedElement()}");
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex,
+                        "[AnikiHelper][WindowManager] Failed to restore Playnite foreground after final close.");
+                }
+            }), DispatcherPriority.ApplicationIdle);
         }
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         private void CleanupClosedWindows()
         {
             var opened = windows.Reverse()
-                .Where(w => w != null && w.IsVisible)
+                .Where(entry => entry?.Window != null && entry.Window.IsVisible)
                 .ToList();
 
             windows.Clear();
@@ -837,24 +1698,47 @@ namespace AnikiHelper.Services
             secondaryMusicWindows.RemoveWhere(window =>
                 window == null ||
                 !window.IsVisible ||
-                !windows.Contains(window));
+                !windows.Any(entry => ReferenceEquals(entry.Window, window)));
         }
 
         private bool HasVisibleSecondaryMusicWindow()
         {
-            return windows.Any(window =>
-                window != null &&
-                window.IsVisible &&
-                secondaryMusicWindows.Contains(window));
+            return windows.Any(entry =>
+                entry?.Window != null &&
+                entry.Window.IsVisible &&
+                secondaryMusicWindows.Contains(entry.Window));
+        }
+
+        private void NotifyWindowOpeningState(bool secondaryMusic)
+        {
+            try
+            {
+                if (!lastReportedOpenWindowState)
+                {
+                    lastReportedOpenWindowState = true;
+                    OpenWindowStateChanged?.Invoke(true);
+                }
+
+                if (secondaryMusic && !lastReportedSecondaryMusicState)
+                {
+                    lastReportedSecondaryMusicState = true;
+                    SecondaryMusicStateChanged?.Invoke(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Informational state only: never prevent a window from opening.
+                logger?.Debug(ex, "[AnikiHelper][WindowManager] Failed to publish pre-show window state.");
+            }
         }
 
         private void NotifyOpenWindowStateChanged()
         {
             try
             {
-                bool hasVisibleWindow = windows.Any(window =>
-                    window != null &&
-                    window.IsVisible);
+                bool hasVisibleWindow = windows.Any(entry =>
+                    entry?.Window != null &&
+                    entry.Window.IsVisible);
 
                 if (lastReportedOpenWindowState != hasVisibleWindow)
                 {
@@ -876,19 +1760,115 @@ namespace AnikiHelper.Services
             }
         }
 
+
+        private void FocusAfterClosing(TrackedWindow closingEntry)
+        {
+            var owner = closingEntry?.Parent;
+
+            if (owner != null && owner.IsVisible)
+            {
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Restoring focus to the actual owner of the closing window. " +
+                    $"Closing={DescribeTrackedWindow(closingEntry)}, Owner={DescribeWindow(owner)}");
+
+                owner.Activate();
+                owner.Focus();
+                return;
+            }
+
+            FocusTopWindow();
+        }
+
         private void FocusTopWindow()
         {
             CleanupClosedWindows();
 
             if (windows.Any())
             {
-                var top = windows.Peek();
+                var topEntry = windows.Peek();
+                var top = topEntry.Window;
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] Restoring focus to top tracked window. {DescribeTrackedWindow(topEntry)}, " +
+                    $"StackCount={windows.Count}");
+
                 top.Activate();
                 top.Focus();
             }
             else
             {
-                playniteApi.Dialogs.GetCurrentAppWindow()?.Activate();
+                var playniteWindow = playniteApi.Dialogs.GetCurrentAppWindow();
+
+                logger?.Debug(
+                    $"[AnikiHelper][WindowManager] No tracked parent remains; returning focus to Playnite. " +
+                    $"PlayniteWindow={DescribeWindow(playniteWindow)}");
+
+                playniteWindow?.Activate();
+            }
+        }
+
+        private static string DescribeTrackedWindow(TrackedWindow entry)
+        {
+            if (entry == null)
+            {
+                return "TrackedWindow=<null>";
+            }
+
+            return $"Style={entry.StyleKey ?? "<none>"}, IsChild={entry.IsChild}, " +
+                   $"IsClosing={entry.IsClosing}, Parent={DescribeWindow(entry.Parent)}, " +
+                   DescribeWindow(entry.Window);
+        }
+
+        private static string DescribeWindow(Window window)
+        {
+            if (window == null)
+            {
+                return "Window=<null>";
+            }
+
+            string tag;
+
+            try
+            {
+                tag = window.Tag as string ?? "<no tag>";
+            }
+            catch
+            {
+                tag = "<unavailable>";
+            }
+
+            try
+            {
+                return $"Window={tag}, Type={window.GetType().Name}, " +
+                       $"Visible={window.IsVisible}, Active={window.IsActive}, Loaded={window.IsLoaded}";
+            }
+            catch
+            {
+                return $"Window={tag}, Type={window.GetType().Name}, State=<unavailable>";
+            }
+        }
+
+        private static string DescribeFocusedElement()
+        {
+            try
+            {
+                var focused = Keyboard.FocusedElement;
+
+                if (focused == null)
+                {
+                    return "<none>";
+                }
+
+                var frameworkElement = focused as FrameworkElement;
+                var name = frameworkElement?.Name;
+
+                return string.IsNullOrWhiteSpace(name)
+                    ? focused.GetType().Name
+                    : $"{focused.GetType().Name}:{name}";
+            }
+            catch
+            {
+                return "<unavailable>";
             }
         }
     }

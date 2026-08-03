@@ -1,4 +1,5 @@
 ﻿using AnikiHelper.Services.MediaGallery;
+using AnikiHelper.Services.UI;
 using Playnite.SDK;
 using Playnite.SDK.Events;
 using System;
@@ -31,6 +32,7 @@ namespace AnikiHelper.Services.InGameOverlay
         private const string IconMusic = "\uE189";
         private const string IconUniPlaySong = "\uE7F3";
         private const string IconTrophy = "\uE7C1";
+        private const string IconKeyboard = "\uE765";
 
         private enum OverlaySection
         {
@@ -115,6 +117,9 @@ namespace AnikiHelper.Services.InGameOverlay
         private Button uniPlaySongButton;
         private Button musicButton;
         private Button achievementsSectionButton;
+        private Button keyboardButton;
+        private AnikiVirtualKeyboardView virtualKeyboardView;
+        private bool virtualKeyboardOpenedDirectly;
 
         private Button returnButton;
         private TextBlock returnButtonIconText;
@@ -148,6 +153,7 @@ namespace AnikiHelper.Services.InGameOverlay
         private int lastControllerNavigationDirection = 0;
         private DateTime lastControllerActionTime = DateTime.MinValue;
         private DateTime lastDirectOverlayControllerInputTime = DateTime.MinValue;
+        private DateTime lastNativeOverlayNavigationUtc = DateTime.MinValue;
         private DateTime lastCapturePreviewClosedTime = DateTime.MinValue;
         private DispatcherTimer sessionTimer;
         private bool isHiding;
@@ -161,7 +167,8 @@ namespace AnikiHelper.Services.InGameOverlay
                    isLastCapturesVisible ||
                    isCapturePreviewVisible ||
                    isAppsVisible ||
-                   isAchievementsVisible;
+                   isAchievementsVisible ||
+                   (virtualKeyboardView != null && virtualKeyboardView.IsOpen);
         }
 
 
@@ -189,7 +196,15 @@ namespace AnikiHelper.Services.InGameOverlay
             Loaded += (s, e) =>
             {
                 Activate();
-                FocusOverlayButton();
+
+                if (virtualKeyboardView != null && virtualKeyboardView.IsOpen)
+                {
+                    Focus();
+                }
+                else
+                {
+                    FocusOverlayButton();
+                }
             };
 
             Closed += (s, e) =>
@@ -378,26 +393,7 @@ namespace AnikiHelper.Services.InGameOverlay
                     {
                         try
                         {
-                            Uri uri;
-                            if (avatarPath.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ||
-                                avatarPath.StartsWith("http:", StringComparison.OrdinalIgnoreCase) ||
-                                avatarPath.StartsWith("https:", StringComparison.OrdinalIgnoreCase))
-                            {
-                                uri = new Uri(avatarPath, UriKind.Absolute);
-                            }
-                            else
-                            {
-                                uri = new Uri(Path.GetFullPath(avatarPath), UriKind.Absolute);
-                            }
-
-                            var bitmap = new BitmapImage();
-                            bitmap.BeginInit();
-                            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                            bitmap.UriSource = uri;
-                            bitmap.EndInit();
-                            bitmap.Freeze();
-
-                            userAvatarImage.Source = bitmap;
+                            userAvatarImage.Source = ImageMemoryCache.GetOrLoad(avatarPath, 256);
                         }
                         catch
                         {
@@ -478,12 +474,11 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.UriSource = new Uri(coverPath, UriKind.Absolute);
-                bitmap.EndInit();
-                bitmap.Freeze();
+                var bitmap = ImageMemoryCache.GetOrLoad(coverPath, 340);
+                if (bitmap == null)
+                {
+                    throw new InvalidOperationException("Unable to load the game cover image.");
+                }
 
                 var maxWidth = 170.0;
                 var maxHeight = 118.0;
@@ -567,12 +562,11 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.UriSource = new Uri(backgroundPath, UriKind.Absolute);
-                bitmap.EndInit();
-                bitmap.Freeze();
+                var bitmap = ImageMemoryCache.GetOrLoad(backgroundPath, 1920);
+                if (bitmap == null)
+                {
+                    throw new InvalidOperationException("Unable to load the game background image.");
+                }
 
                 sectionBackgroundImage.Source = bitmap;
                 sectionBackgroundImage.Visibility = Visibility.Visible;
@@ -604,6 +598,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 ? new[]
                 {
                     returnButton,
+                    keyboardButton,
                     achievementsSectionButton,
                     friendsButton,
                     mediaSectionButton,
@@ -622,6 +617,7 @@ namespace AnikiHelper.Services.InGameOverlay
                     friendsButton,
                     mediaSectionButton,
                     returnButton,
+                    keyboardButton,
                     achievementsSectionButton,
                     quitButton
                 };
@@ -656,6 +652,7 @@ namespace AnikiHelper.Services.InGameOverlay
             SetSectionButtonEnabled(appsButton, true);
             SetSectionButtonEnabled(uniPlaySongButton, service.IsUniPlaySongInstalled);
             SetSectionButtonEnabled(musicButton, true);
+            SetSectionButtonEnabled(keyboardButton, true);
             SetSectionButtonEnabled(achievementsSectionButton, isRunning && service.IsPlayniteAchievementsInstalled);
 
             if (quitButton != null)
@@ -863,12 +860,11 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     try
                     {
-                        var bitmap = new BitmapImage();
-                        bitmap.BeginInit();
-                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                        bitmap.UriSource = new Uri(iconPath, UriKind.Absolute);
-                        bitmap.EndInit();
-                        bitmap.Freeze();
+                        var bitmap = ImageMemoryCache.GetOrLoad(iconPath, 256);
+                        if (bitmap == null)
+                        {
+                            throw new InvalidOperationException("Unable to load the latest achievement icon.");
+                        }
 
                         latestAchievementIconImage.Source = bitmap;
                         latestAchievementIconImage.Visibility = Visibility.Visible;
@@ -1163,6 +1159,7 @@ namespace AnikiHelper.Services.InGameOverlay
             contentGrid.Children.Add(overlayButtonStack);
 
             returnButton = CreateButton(IconHome, Loc("LOCInGameOverlayPlaynite", "Playnite"), service.ReturnToPlaynite);
+            keyboardButton = CreateButton(IconKeyboard, Loc("LOCInGameOverlayVirtualKeyboard", "Virtual Keyboard"), ShowVirtualKeyboard);
             mediaSectionButton = CreateButton(IconMedia, Loc("LOCInGameOverlayLastCaptures", "Last Captures"), service.OpenLastCapturesWindow);
             audioSectionButton = CreateButton(IconAudio, Loc("LOCInGameOverlayAudio", "Audio Switcher"), service.OpenAudioSwitcherWindow);
             friendsButton = CreateButton(IconFriends, Loc("LOCInGameOverlayFriends", "Friends"), service.OpenFriendsWindow);
@@ -1360,6 +1357,10 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             System.Windows.Controls.Panel.SetZIndex(bottomHintHost, 12);
             root.Children.Add(bottomHintHost);
+
+            virtualKeyboardView = new AnikiVirtualKeyboardView(Loc, service.GetVirtualKeyboardLayout, OnVirtualKeyboardSubmit, OnVirtualKeyboardClosed);
+            System.Windows.Controls.Panel.SetZIndex(virtualKeyboardView, 300);
+            root.Children.Add(virtualKeyboardView);
 
             RefreshSectionVisibility();
             Refresh();
@@ -2448,6 +2449,7 @@ namespace AnikiHelper.Services.InGameOverlay
             UpdateButtonVisualState(appsButton);
             UpdateButtonVisualState(uniPlaySongButton);
             UpdateButtonVisualState(musicButton);
+            UpdateButtonVisualState(keyboardButton);
             UpdateButtonVisualState(achievementsSectionButton);
             UpdateButtonVisualState(quitButton);
             UpdateButtonVisualState(cancelQuitButton);
@@ -2536,6 +2538,12 @@ namespace AnikiHelper.Services.InGameOverlay
                 isLastCapturesVisible = false;
                 isAppsVisible = false;
                 isAchievementsVisible = false;
+
+                if (virtualKeyboardView != null)
+                {
+                    virtualKeyboardView.Visibility = Visibility.Collapsed;
+                }
+
                 controllerFocusedFriendsElement = null;
                 controllerFocusedLastCapturesElement = null;
                 controllerFocusedAppsElement = null;
@@ -2639,6 +2647,12 @@ namespace AnikiHelper.Services.InGameOverlay
                 isUniPlaySongVisible = false;
                 isAppsVisible = false;
                 isAchievementsVisible = false;
+
+                if (virtualKeyboardView != null)
+                {
+                    virtualKeyboardView.Visibility = Visibility.Collapsed;
+                }
+
                 controllerFocusedAppsElement = null;
                 controllerFocusedAchievementsElement = null;
 
@@ -4021,6 +4035,116 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             catch
             {
+            }
+        }
+
+        private void ShowVirtualKeyboard()
+        {
+            if (service.IsWindowsVirtualKeyboardSelected)
+            {
+                service.OpenWindowsVirtualKeyboardFromOverlay();
+                return;
+            }
+
+            ShowVirtualKeyboardCore(openedDirectly: false);
+        }
+
+        public void ShowVirtualKeyboardDirect()
+        {
+            ShowVirtualKeyboardCore(openedDirectly: true);
+        }
+
+        private void ShowVirtualKeyboardCore(bool openedDirectly)
+        {
+            try
+            {
+                if (virtualKeyboardView == null)
+                {
+                    return;
+                }
+
+                virtualKeyboardOpenedDirectly = openedDirectly;
+
+                HideMusicPlayer(false);
+                HideAudioSwitcher(false);
+                HideUniPlaySong(false);
+                HideFriends(false);
+                HideLastCaptures(false);
+                HideApps(false);
+                HideAchievements(false);
+
+                SetControlCenterChromeVisible(false);
+                virtualKeyboardView.Open();
+
+                // Direct opening can happen while the WPF window is still hidden and
+                // its constructor opacity is 0. Make only the keyboard visible before Show().
+                BeginAnimation(Window.OpacityProperty, null);
+                Opacity = 1;
+
+                Activate();
+                Focus();
+            }
+            catch
+            {
+                virtualKeyboardOpenedDirectly = false;
+            }
+        }
+
+        private void HideVirtualKeyboard(bool restoreControlCenterChrome = true)
+        {
+            try
+            {
+                if (virtualKeyboardView == null || !virtualKeyboardView.IsOpen)
+                {
+                    return;
+                }
+
+                if (!restoreControlCenterChrome)
+                {
+                    virtualKeyboardView.Visibility = Visibility.Collapsed;
+                    return;
+                }
+
+                virtualKeyboardView.Close();
+            }
+            catch
+            {
+            }
+        }
+
+        private void OnVirtualKeyboardClosed()
+        {
+            try
+            {
+                if (virtualKeyboardOpenedDirectly)
+                {
+                    virtualKeyboardOpenedDirectly = false;
+                    service.CloseDirectVirtualKeyboard();
+                    return;
+                }
+
+                SetControlCenterChromeVisible(true);
+                controllerFocusedButton = keyboardButton ?? firstButton;
+                useControllerFocusVisual = true;
+                FocusSelectedButtonWithoutTraversal();
+                UpdateAllButtonVisualStates();
+            }
+            catch
+            {
+            }
+        }
+
+        private void OnVirtualKeyboardSubmit(string text, bool pressEnter)
+        {
+            try
+            {
+                virtualKeyboardOpenedDirectly = false;
+                service.SendVirtualKeyboardText(text ?? string.Empty, pressEnter);
+            }
+            catch
+            {
+                virtualKeyboardOpenedDirectly = false;
+                SetControlCenterChromeVisible(true);
             }
         }
 
@@ -5969,9 +6093,37 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
+        public void HandleOverlayDPadFallback(ControllerInput button, DateTime requestedUtc)
+        {
+            if (button != ControllerInput.DPadLeft &&
+                button != ControllerInput.DPadRight &&
+                button != ControllerInput.DPadUp &&
+                button != ControllerInput.DPadDown)
+            {
+                HandleOverlayControllerInput(button);
+                return;
+            }
+
+            // If WPF/Playnite already translated this physical D-pad press into an arrow
+            // key after the SDL callback was raised, native navigation has already happened.
+            // Do not move a second time.
+            if (lastNativeOverlayNavigationUtc >= requestedUtc.AddMilliseconds(-100))
+            {
+                return;
+            }
+
+            HandleOverlayControllerInput(button);
+        }
+
         public void HandleOverlayControllerInput(ControllerInput button)
         {
             System.Diagnostics.Debug.WriteLine("[AnikiHelper][OverlayWindow] Received: " + button);
+
+            if (virtualKeyboardView != null && virtualKeyboardView.HandleControllerInput(button))
+            {
+                lastDirectOverlayControllerInputTime = DateTime.Now;
+                return;
+            }
 
             if (HandleCapturePreviewControllerInput(button))
             {
@@ -6117,6 +6269,12 @@ namespace AnikiHelper.Services.InGameOverlay
         {
             if (args == null || args.State != ControllerInputState.Pressed)
             {
+                return;
+            }
+
+            if (virtualKeyboardView != null && virtualKeyboardView.HandleControllerInput(args.Button))
+            {
+                lastDirectOverlayControllerInputTime = DateTime.Now;
                 return;
             }
 
@@ -6378,11 +6536,12 @@ namespace AnikiHelper.Services.InGameOverlay
 
             if (service.IsGameRunning)
             {
-                return new[] { returnButton, achievementsSectionButton, friendsButton, mediaSectionButton, musicButton, uniPlaySongButton, audioSectionButton, appsButton, quitButton }
+                return new[] { returnButton, keyboardButton, achievementsSectionButton, friendsButton, mediaSectionButton, musicButton, uniPlaySongButton, audioSectionButton, appsButton, quitButton }
                     .WhereButtonCanReceiveControllerFocus();
             }
 
-            return new[] { musicButton, uniPlaySongButton, audioSectionButton, appsButton, friendsButton, mediaSectionButton }.WhereButtonCanReceiveControllerFocus();
+            return new[] { musicButton, uniPlaySongButton, audioSectionButton, appsButton, friendsButton, mediaSectionButton, keyboardButton }
+                .WhereButtonCanReceiveControllerFocus();
         }
 
         private void ClickForcedControllerFocusedButton()
@@ -6488,6 +6647,12 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
+                if (button == keyboardButton)
+                {
+                    ShowVirtualKeyboard();
+                    return;
+                }
+
                 if (button == quitButton)
                 {
                     service.RequestQuitGame();
@@ -6588,6 +6753,16 @@ namespace AnikiHelper.Services.InGameOverlay
                     e.Handled = true;
                     return;
                 }
+            }
+
+            if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
+            {
+                lastNativeOverlayNavigationUtc = DateTime.UtcNow;
+            }
+
+            if (virtualKeyboardView != null && virtualKeyboardView.HandlePreviewKeyDown(e))
+            {
+                return;
             }
 
             if (HandleCapturePreviewKeyDown(e))

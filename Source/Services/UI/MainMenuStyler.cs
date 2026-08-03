@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -9,7 +11,10 @@ namespace AnikiHelper.Services.UI
 {
     internal static class MainMenuStyler
     {
+        private const int WatchIntervalMs = 500;
+
         private static DispatcherTimer timer;
+        private static readonly HashSet<Window> trackedWindows = new HashSet<Window>();
 
         public static void Start()
         {
@@ -20,19 +25,32 @@ namespace AnikiHelper.Services.UI
 
             timer = new DispatcherTimer(DispatcherPriority.Background)
             {
-                Interval = TimeSpan.FromMilliseconds(250)
+                Interval = TimeSpan.FromMilliseconds(WatchIntervalMs)
             };
 
             timer.Tick += Tick;
             timer.Start();
+
+            // Apply immediately if the menu is already open.
+            Tick(null, EventArgs.Empty);
 
             Application.Current.Exit += (_, __) => Stop();
         }
 
         public static void Stop()
         {
-            try { timer?.Stop(); } catch { }
+            try
+            {
+                if (timer != null)
+                {
+                    timer.Tick -= Tick;
+                    timer.Stop();
+                }
+            }
+            catch { }
+
             timer = null;
+            trackedWindows.Clear();
         }
 
         private static void Tick(object sender, EventArgs e)
@@ -44,24 +62,69 @@ namespace AnikiHelper.Services.UI
                     return;
                 }
 
-                var mainMenuWindow = Application.Current.Windows
+                foreach (var mainMenuWindow in Application.Current.Windows
                     .OfType<Window>()
-                    .FirstOrDefault(w =>
-                    {
-                        var t = w.GetType().FullName ?? "";
-                        return t.IndexOf("Playnite.FullscreenApp.Windows.MainMenuWindow", StringComparison.Ordinal) >= 0;
-                    });
-
-                if (mainMenuWindow == null)
+                    .Where(IsMainMenuWindow)
+                    .ToArray())
                 {
-                    return;
-                }
+                    if (!mainMenuWindow.IsLoaded || !trackedWindows.Add(mainMenuWindow))
+                    {
+                        continue;
+                    }
 
-                HideMainMenuPowerButtons(mainMenuWindow);
+                    mainMenuWindow.Closed += OnMainMenuWindowClosed;
+                    ApplyTemporaryPassesAsync(mainMenuWindow);
+                }
             }
             catch
             {
                 // best-effort
+            }
+        }
+
+        private static bool IsMainMenuWindow(Window window)
+        {
+            var typeName = window?.GetType().FullName ?? string.Empty;
+            return typeName.IndexOf(
+                "Playnite.FullscreenApp.Windows.MainMenuWindow",
+                StringComparison.Ordinal) >= 0;
+        }
+
+        private static void OnMainMenuWindowClosed(object sender, EventArgs e)
+        {
+            if (sender is Window window)
+            {
+                window.Closed -= OnMainMenuWindowClosed;
+                trackedWindows.Remove(window);
+            }
+        }
+
+        private static async void ApplyTemporaryPassesAsync(Window window)
+        {
+            // A few short-lived passes cover controls generated after Loaded,
+            // without traversing the visual tree every 250 ms for the whole session.
+            var delays = new[] { 0, 150, 400, 800 };
+
+            foreach (var delay in delays)
+            {
+                if (delay > 0)
+                {
+                    await Task.Delay(delay).ConfigureAwait(true);
+                }
+
+                if (!trackedWindows.Contains(window) || !window.IsLoaded)
+                {
+                    return;
+                }
+
+                try
+                {
+                    HideMainMenuPowerButtons(window);
+                }
+                catch
+                {
+                    // best-effort visual patch
+                }
             }
         }
 

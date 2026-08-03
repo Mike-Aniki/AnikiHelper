@@ -134,6 +134,7 @@ namespace AnikiHelper.Services.SplashScreen
 
             Closed += (_, __) =>
             {
+                StopSlowZoomAnimation(false);
                 StopAndCloseVideo();
             };
         }
@@ -386,12 +387,39 @@ namespace AnikiHelper.Services.SplashScreen
                 To = 1.05,
                 Duration = TimeSpan.FromMilliseconds(6000),
                 AutoReverse = true,
-                FillBehavior = FillBehavior.Stop,
+                RepeatBehavior = RepeatBehavior.Forever,
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
             };
 
             backgroundScale.BeginAnimation(ScaleTransform.ScaleXProperty, zoom);
             backgroundScale.BeginAnimation(ScaleTransform.ScaleYProperty, zoom);
+        }
+
+        private void StopSlowZoomAnimation(bool preserveCurrentScale)
+        {
+            try
+            {
+                var currentScaleX = backgroundScale.ScaleX;
+                var currentScaleY = backgroundScale.ScaleY;
+
+                backgroundScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                backgroundScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+
+                if (preserveCurrentScale)
+                {
+                    // Keep the current zoom level during the splash fade-out to avoid a visible snap.
+                    backgroundScale.ScaleX = currentScaleX;
+                    backgroundScale.ScaleY = currentScaleY;
+                }
+                else
+                {
+                    backgroundScale.ScaleX = 1.0;
+                    backgroundScale.ScaleY = 1.0;
+                }
+            }
+            catch
+            {
+            }
         }
 
         private void FadeOutEndedVideo()
@@ -455,6 +483,10 @@ namespace AnikiHelper.Services.SplashScreen
             {
                 try
                 {
+                    // Stop the infinite zoom as soon as the splash starts disappearing.
+                    // The current scale is preserved during the fade-out to avoid a visual jump.
+                    StopSlowZoomAnimation(true);
+
                     var fadeOut = new DoubleAnimation
                     {
                         To = 0,

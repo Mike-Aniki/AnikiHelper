@@ -1,6 +1,7 @@
 ﻿using Playnite.SDK;
 using Playnite.SDK.Plugins;
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -18,6 +19,20 @@ namespace AnikiHelper.Services.UI
         private readonly Action<int> setHubCurrentPage;
         private readonly Func<bool> isHubAppsPageVisible;
         private bool started;
+
+        // Cache named visual elements per window/root. A full visual-tree scan is done
+        // only on the first lookup (or when a cached element becomes invalid), instead
+        // of repeating one recursive scan for every directional key press.
+        private readonly Dictionary<DependencyObject, NamedVisualCache> namedVisualCaches =
+            new Dictionary<DependencyObject, NamedVisualCache>();
+
+        private sealed class NamedVisualCache
+        {
+            public readonly Dictionary<string, WeakReference> Elements =
+                new Dictionary<string, WeakReference>(StringComparer.Ordinal);
+
+            public DateTime LastScanUtc;
+        }
 
         public NavigationFixService(
             IPlayniteAPI api,
@@ -60,6 +75,7 @@ namespace AnikiHelper.Services.UI
                 }
             }
 
+            namedVisualCaches.Clear();
             started = false;
         }
 
@@ -112,7 +128,7 @@ namespace AnikiHelper.Services.UI
                     return;
                 }
 
-                var hubRoot = FindVisualChildByName<FrameworkElement>(root, "HubRoot");
+                var hubRoot = FindCachedVisualChildByName<FrameworkElement>(root, "HubRoot");
                 if (hubRoot?.IsVisible == true)
                 {
                     HandleHubNavigation(e, root, focused);
@@ -129,7 +145,7 @@ namespace AnikiHelper.Services.UI
 
         private bool HandleSteamStoreNavigation(KeyEventArgs e, DependencyObject root, object focused)
         {
-            var overlay = FindVisualChildByName<FrameworkElement>(root, "SteamStoreOverlay");
+            var overlay = FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreOverlay");
 
             if (overlay?.IsVisible != true)
             {
@@ -142,8 +158,8 @@ namespace AnikiHelper.Services.UI
                 return false;
             }
 
-            var heroButton = FindVisualChildByName<FrameworkElement>(overlay, "SteamStoreHeroButton");
-            var itemsList = FindVisualChildByName<ListBox>(overlay, "StoreItemsList");
+            var heroButton = FindCachedVisualChildByName<FrameworkElement>(overlay, "SteamStoreHeroButton");
+            var itemsList = FindCachedVisualChildByName<ListBox>(overlay, "StoreItemsList");
             var storeListHasFocus = IsFocusInsideStoreItems(itemsList, focusedElement);
 
             // Strong Store comfort fix:
@@ -247,28 +263,28 @@ namespace AnikiHelper.Services.UI
             return false;
         }
 
-        private static bool IsSteamStoreTabFocusWithin(DependencyObject root)
+        private bool IsSteamStoreTabFocusWithin(DependencyObject root)
         {
             return
-                FindVisualChildByName<FrameworkElement>(root, "SteamStoreTabDealsButton")?.IsKeyboardFocusWithin == true ||
-                FindVisualChildByName<FrameworkElement>(root, "SteamStoreTabRecommendedButton")?.IsKeyboardFocusWithin == true ||
-                FindVisualChildByName<FrameworkElement>(root, "SteamStoreTabMyWishlistButton")?.IsKeyboardFocusWithin == true ||
-                FindVisualChildByName<FrameworkElement>(root, "SteamStoreTabNewButton")?.IsKeyboardFocusWithin == true ||
-                FindVisualChildByName<FrameworkElement>(root, "SteamStoreTabPopularButton")?.IsKeyboardFocusWithin == true ||
-                FindVisualChildByName<FrameworkElement>(root, "SteamStoreTabWishlistedButton")?.IsKeyboardFocusWithin == true ||
-                FindVisualChildByName<FrameworkElement>(root, "SteamStoreTabUpcomingButton")?.IsKeyboardFocusWithin == true;
+                FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreTabDealsButton")?.IsKeyboardFocusWithin == true ||
+                FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreTabRecommendedButton")?.IsKeyboardFocusWithin == true ||
+                FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreTabMyWishlistButton")?.IsKeyboardFocusWithin == true ||
+                FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreTabNewButton")?.IsKeyboardFocusWithin == true ||
+                FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreTabPopularButton")?.IsKeyboardFocusWithin == true ||
+                FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreTabWishlistedButton")?.IsKeyboardFocusWithin == true ||
+                FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreTabUpcomingButton")?.IsKeyboardFocusWithin == true;
         }
 
         private void HandleMainNavigation(KeyEventArgs e, DependencyObject root, object focused)
         {
-            var list = FindVisualChildByName<ListBox>(root, "PART_ListGameItems");
-            var changeViewButton = FindVisualChildByName<ToggleButton>(root, "ChangeViewButton");
-            var filters = FindVisualChildByName<FrameworkElement>(root, "ItemsFilterPresets");
-            var topBar = FindVisualChildByName<FrameworkElement>(root, "TopMenu");
-            var mainButtons = FindVisualChildByName<FrameworkElement>(root, "MainButton");
-            var quickAccess = FindVisualChildByName<FrameworkElement>(root, "QuickAccessButton");
-            var rightTopButtons = FindVisualChildByName<FrameworkElement>(root, "RightTopButtons");
-            var bottomBar = FindVisualChildByName<FrameworkElement>(root, "BottomBar");
+            var list = FindCachedVisualChildByName<ListBox>(root, "PART_ListGameItems");
+            var changeViewButton = FindCachedVisualChildByName<ToggleButton>(root, "ChangeViewButton");
+            var filters = FindCachedVisualChildByName<FrameworkElement>(root, "ItemsFilterPresets");
+            var topBar = FindCachedVisualChildByName<FrameworkElement>(root, "TopMenu");
+            var mainButtons = FindCachedVisualChildByName<FrameworkElement>(root, "MainButton");
+            var quickAccess = FindCachedVisualChildByName<FrameworkElement>(root, "QuickAccessButton");
+            var rightTopButtons = FindCachedVisualChildByName<FrameworkElement>(root, "RightTopButtons");
+            var bottomBar = FindCachedVisualChildByName<FrameworkElement>(root, "BottomBar");
 
             if (topBar?.IsKeyboardFocusWithin == true)
             {
@@ -447,7 +463,7 @@ namespace AnikiHelper.Services.UI
                 return false;
             }
 
-            var hubRoot = FindVisualChildByName<FrameworkElement>(root, "HubRoot");
+            var hubRoot = FindCachedVisualChildByName<FrameworkElement>(root, "HubRoot");
 
             if (hubRoot?.IsVisible != true)
             {
@@ -477,8 +493,8 @@ namespace AnikiHelper.Services.UI
 
         private void HandleHubNavigation(KeyEventArgs e, DependencyObject root, object focused)
         {
-            var hubTopBar = FindVisualChildByName<FrameworkElement>(root, "HubTopBarBackground");
-            var hubFirstCard = FindVisualChildByName<FrameworkElement>(root, "ProfileCard");
+            var hubTopBar = FindCachedVisualChildByName<FrameworkElement>(root, "HubTopBarBackground");
+            var hubFirstCard = FindCachedVisualChildByName<FrameworkElement>(root, "ProfileCard");
 
             if (e.Key == Key.Up && hubFirstCard?.IsKeyboardFocusWithin == true)
             {
@@ -554,20 +570,14 @@ namespace AnikiHelper.Services.UI
                 return false;
             }
 
-            var hubRoot = FindVisualChildByName<FrameworkElement>(root, "HubRoot");
+            var hubRoot = FindCachedVisualChildByName<FrameworkElement>(root, "HubRoot");
             if (hubRoot?.IsVisible != true)
             {
                 return false;
             }
 
-            var hubTopBar = FindVisualChildByName<FrameworkElement>(root, "HubTopBarBackground");
+            var hubTopBar = FindCachedVisualChildByName<FrameworkElement>(root, "HubTopBarBackground");
             if (hubTopBar?.IsKeyboardFocusWithin == true)
-            {
-                return false;
-            }
-
-            var focusedElement = focused as UIElement;
-            if (focusedElement == null)
             {
                 return false;
             }
@@ -578,9 +588,25 @@ namespace AnikiHelper.Services.UI
                 return false;
             }
 
-            if (!IsDescendantOf(focusedElement, pageScope))
+            var focusedElement = focused as UIElement;
+
+            // A lazy Hub page can temporarily contain no cards (notably the Store pages
+            // before their first load). WPF then keeps focus on a collapsed card from the
+            // previous page or drops it completely. In that state, allow Left/Right to keep
+            // changing pages instead of trapping controller navigation on the empty page.
+            if (focusedElement == null || !IsDescendantOf(focusedElement, pageScope))
             {
-                return false;
+                var currentPageWithoutFocus = Math.Max(1, Math.Min(10, getHubCurrentPage()));
+                var nextPageWithoutFocus = Math.Max(1, Math.Min(10, currentPageWithoutFocus + direction));
+
+                if (nextPageWithoutFocus == currentPageWithoutFocus)
+                {
+                    return true;
+                }
+
+                setHubCurrentPage(nextPageWithoutFocus);
+                ScheduleFocusCurrentHubPage(root, direction);
+                return true;
             }
 
             if (FocusFocusableOnSameRowInDirection(pageScope, focusedElement, direction))
@@ -642,7 +668,7 @@ namespace AnikiHelper.Services.UI
                     break;
             }
 
-            return FindVisualChildByName<FrameworkElement>(root, name);
+            return FindCachedVisualChildByName<FrameworkElement>(root, name);
         }
 
         private void ScheduleFocusCurrentHubPage(DependencyObject root, int direction)
@@ -1068,6 +1094,99 @@ namespace AnikiHelper.Services.UI
             }
 
             return false;
+        }
+
+        private T FindCachedVisualChildByName<T>(DependencyObject root, string name) where T : FrameworkElement
+        {
+            if (root == null || string.IsNullOrEmpty(name))
+            {
+                return null;
+            }
+
+            NamedVisualCache cache;
+            if (!namedVisualCaches.TryGetValue(root, out cache))
+            {
+                cache = new NamedVisualCache();
+                namedVisualCaches[root] = cache;
+                RebuildNamedVisualCache(root, cache);
+            }
+
+            var cached = GetValidCachedElement<T>(root, cache, name);
+            if (cached != null)
+            {
+                return cached;
+            }
+
+            // Missing or stale controls may be created again by DataTemplates/page changes.
+            // Throttle rebuilds so a missing optional element cannot cause a full scan for
+            // every key-repeat event.
+            if ((DateTime.UtcNow - cache.LastScanUtc).TotalMilliseconds >= 250)
+            {
+                RebuildNamedVisualCache(root, cache);
+                cached = GetValidCachedElement<T>(root, cache, name);
+            }
+
+            return cached;
+        }
+
+        private static T GetValidCachedElement<T>(DependencyObject root, NamedVisualCache cache, string name)
+            where T : FrameworkElement
+        {
+            WeakReference reference;
+            if (!cache.Elements.TryGetValue(name, out reference))
+            {
+                return null;
+            }
+
+            var element = reference.Target as T;
+            if (element == null || !element.IsLoaded || !IsDescendantOf(element, root))
+            {
+                cache.Elements.Remove(name);
+                return null;
+            }
+
+            return element;
+        }
+
+        private static void RebuildNamedVisualCache(DependencyObject root, NamedVisualCache cache)
+        {
+            cache.Elements.Clear();
+            CollectNamedVisualElements(root, cache.Elements);
+            cache.LastScanUtc = DateTime.UtcNow;
+        }
+
+        private static void CollectNamedVisualElements(
+            DependencyObject root,
+            Dictionary<string, WeakReference> elements)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            var frameworkElement = root as FrameworkElement;
+            if (frameworkElement != null && !string.IsNullOrEmpty(frameworkElement.Name))
+            {
+                if (!elements.ContainsKey(frameworkElement.Name))
+                {
+                    elements[frameworkElement.Name] = new WeakReference(frameworkElement);
+                }
+            }
+
+            int count;
+            try
+            {
+                count = VisualTreeHelper.GetChildrenCount(root);
+            }
+            catch
+            {
+                return;
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                CollectNamedVisualElements(VisualTreeHelper.GetChild(root, i), elements);
+            }
         }
 
         private static T FindVisualChildByName<T>(DependencyObject parent, string name) where T : FrameworkElement

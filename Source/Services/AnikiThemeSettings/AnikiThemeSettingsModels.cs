@@ -475,6 +475,29 @@ namespace AnikiHelper.Services.AnikiThemeSettings
     {
         public int SchemaVersion { get; set; } = 1;
 
+        public int? InitialSetupVersion { get; set; }
+
+        public int? InitialSetupOfferVersion { get; set; }
+
+        public bool? InitialSetupAutomaticRequired { get; set; }
+
+        public Dictionary<string, string> Values { get; set; }
+            = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<string, string> SelectedPresets { get; set; }
+            = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public class AnikiThemeConfigurationBackupFile
+    {
+        public int FormatVersion { get; set; } = 1;
+
+        public int ThemeSettingsSchemaVersion { get; set; } = 1;
+
+        public string ThemeId { get; set; }
+
+        public DateTime ExportedAtUtc { get; set; }
+
         public Dictionary<string, string> Values { get; set; }
             = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 

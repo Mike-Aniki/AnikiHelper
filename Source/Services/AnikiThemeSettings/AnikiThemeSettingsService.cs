@@ -54,9 +54,15 @@ namespace AnikiHelper.Services.AnikiThemeSettings
         private readonly Dictionary<string, ResourceDictionary> resourceCache =
             new Dictionary<string, ResourceDictionary>(StringComparer.OrdinalIgnoreCase);
 
-        private const int ThemeSettingsSchemaVersion = 1;
+        private const int ThemeSettingsSchemaVersion = 3;
+        public const int CurrentInitialSetupVersion = 1;
+        public const int CurrentInitialSetupOfferVersion = 1;
 
         private bool pendingRestartPrompt;
+        private int initialSetupVersion;
+        private int initialSetupOfferVersion;
+        private bool initialSetupAutomaticRequired;
+        private bool initialSetupStateLoaded;
         private string currentThemePath;
         private AnikiThemeSettingsFile currentFile;
         private Action restartRequiredAction;
@@ -76,6 +82,26 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             this.pluginUserDataPath = pluginUserDataPath;
             themeSettingsFilePath = Path.Combine(pluginUserDataPath, "ThemeSettings.json");
         }
+
+        public bool ShouldShowInitialSetup =>
+            initialSetupStateLoaded &&
+            initialSetupAutomaticRequired &&
+            initialSetupVersion < CurrentInitialSetupVersion;
+
+        public bool ShouldOfferInitialSetup =>
+            initialSetupStateLoaded &&
+            !initialSetupAutomaticRequired &&
+            initialSetupVersion < CurrentInitialSetupVersion &&
+            initialSetupOfferVersion < CurrentInitialSetupOfferVersion;
+
+        public bool HasPendingInitialSetupExperience =>
+            ShouldShowInitialSetup || ShouldOfferInitialSetup;
+
+        public int InitialSetupVersion => initialSetupVersion;
+
+        public int InitialSetupOfferVersion => initialSetupOfferVersion;
+
+        public string CurrentThemePath => currentThemePath ?? string.Empty;
 
         public void SetRestartRequiredAction(Action action)
         {
@@ -482,6 +508,267 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             }
         }
 
+        public IReadOnlyList<AnikiPresetItem> GetPresetItems(string groupId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(groupId) ||
+                    currentFile?.Presets == null ||
+                    !currentFile.Presets.TryGetValue(groupId, out var group) ||
+                    group?.Items == null)
+                {
+                    return new List<AnikiPresetItem>();
+                }
+
+                return group.Items.ToList();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, $"[AnikiHelper] Failed to read Aniki preset items: {groupId}");
+                return new List<AnikiPresetItem>();
+            }
+        }
+
+        public string ResolveThemeFilePath(string relativePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(relativePath))
+                {
+                    return string.Empty;
+                }
+
+                if (Path.IsPathRooted(relativePath))
+                {
+                    return relativePath;
+                }
+
+                if (string.IsNullOrWhiteSpace(currentThemePath))
+                {
+                    return relativePath;
+                }
+
+                var normalized = relativePath
+                    .Replace('\\', Path.DirectorySeparatorChar)
+                    .Replace('/', Path.DirectorySeparatorChar);
+
+                return Path.Combine(currentThemePath, normalized);
+            }
+            catch
+            {
+                return relativePath ?? string.Empty;
+            }
+        }
+
+        public object GetDefaultOptionValue(string key)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(key) ||
+                    currentFile?.Variables == null ||
+                    !currentFile.Variables.TryGetValue(key, out var variable) ||
+                    variable == null)
+                {
+                    return false;
+                }
+
+                return ConvertValue(variable.Type, variable.Default ?? variable.Value);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, $"[AnikiHelper] Failed to read Aniki theme default value: {key}");
+                return false;
+            }
+        }
+
+        public Dictionary<string, object> GetAllDefaultOptionValues()
+        {
+            var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                if (currentFile?.Variables == null)
+                {
+                    return result;
+                }
+
+                foreach (var pair in currentFile.Variables)
+                {
+                    var key = pair.Key;
+                    var variable = pair.Value;
+
+                    if (string.IsNullOrWhiteSpace(key) ||
+                        variable == null ||
+                        string.Equals(variable.Type, "Header", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    result[key] = ConvertValue(
+                        variable.Type,
+                        variable.Default ?? variable.Value);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to read all Aniki theme default option values.");
+            }
+
+            return result;
+        }
+
+        public Dictionary<string, string> GetAllDefaultPresetSelections()
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                if (currentFile?.Presets == null)
+                {
+                    return result;
+                }
+
+                foreach (var pair in currentFile.Presets)
+                {
+                    var groupId = pair.Key;
+                    var defaultPresetKey = GetDefaultPresetKey(pair.Value);
+
+                    if (!string.IsNullOrWhiteSpace(groupId) &&
+                        !string.IsNullOrWhiteSpace(defaultPresetKey))
+                    {
+                        result[groupId] = defaultPresetKey;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to read all Aniki theme default preset selections.");
+            }
+
+            return result;
+        }
+
+        public bool ApplyInitialSetupConfiguration(
+            IDictionary<string, object> optionValues,
+            IDictionary<string, string> presetSelections,
+            bool suppressRestartPrompt = false)
+        {
+            var restartRequired = false;
+
+            try
+            {
+                EnsureThemeSettingsDictionaries();
+
+                if (optionValues != null)
+                {
+                    foreach (var pair in optionValues)
+                    {
+                        if (string.IsNullOrWhiteSpace(pair.Key) ||
+                            currentFile?.Variables == null ||
+                            !currentFile.Variables.TryGetValue(pair.Key, out var variable) ||
+                            variable == null ||
+                            string.Equals(variable.Type, "Header", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        var finalValue = pair.Value?.ToString() ?? string.Empty;
+
+                        if (settings.AnikiThemeSettingsValues.TryGetValue(pair.Key, out var currentValue) &&
+                            string.Equals(currentValue, finalValue, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        if (variable.NeedRestart)
+                        {
+                            restartRequired = true;
+                        }
+
+                        settings.AnikiThemeSettingsValues[pair.Key] = finalValue;
+                    }
+                }
+
+                ApplyOptionDependenciesToStorage();
+
+                if (presetSelections != null)
+                {
+                    foreach (var pair in presetSelections)
+                    {
+                        if (string.IsNullOrWhiteSpace(pair.Key) ||
+                            string.IsNullOrWhiteSpace(pair.Value) ||
+                            currentFile?.Presets == null ||
+                            !currentFile.Presets.TryGetValue(pair.Key, out var group) ||
+                            group?.Items == null ||
+                            !group.Items.Any(item =>
+                                string.Equals(item.Key, pair.Value, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            continue;
+                        }
+
+                        if (settings.AnikiThemeSettingsSelectedPresets.TryGetValue(pair.Key, out var currentPreset) &&
+                            string.Equals(currentPreset, pair.Value, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (DoesPresetNeedRestart(pair.Key, pair.Value))
+                        {
+                            restartRequired = true;
+                        }
+
+                        settings.AnikiThemeSettingsSelectedPresets[pair.Key] = pair.Value;
+                    }
+                }
+
+                if (restartRequired && !suppressRestartPrompt)
+                {
+                    MarkRestartRequired();
+                }
+
+                SaveSettings();
+                Apply();
+
+                return restartRequired;
+            }
+            catch (Exception ex)
+            {
+                logger?.Error(ex, "[AnikiHelper] Failed to apply the initial Aniki setup configuration.");
+                return restartRequired;
+            }
+        }
+
+        public void MarkInitialSetupCompleted()
+        {
+            try
+            {
+                initialSetupVersion = CurrentInitialSetupVersion;
+                initialSetupOfferVersion = CurrentInitialSetupOfferVersion;
+                initialSetupAutomaticRequired = false;
+                initialSetupStateLoaded = true;
+                SaveThemeSettingsFile();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to mark the initial setup as completed.");
+            }
+        }
+
+        public void MarkInitialSetupOfferSeen()
+        {
+            try
+            {
+                initialSetupOfferVersion = CurrentInitialSetupOfferVersion;
+                initialSetupAutomaticRequired = false;
+                initialSetupStateLoaded = true;
+                SaveThemeSettingsFile();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to mark the initial setup offer as seen.");
+            }
+        }
+
         public void ShowPreview(string presetId)
         {
             try
@@ -511,6 +798,176 @@ namespace AnikiHelper.Services.AnikiThemeSettings
         {
             resourceCache.Clear();
             LoadAndApply();
+        }
+
+        public void ExportThemeConfiguration(string exportFilePath)
+        {
+            if (string.IsNullOrWhiteSpace(exportFilePath))
+            {
+                throw new ArgumentException("The export file path is empty.", nameof(exportFilePath));
+            }
+
+            try
+            {
+                if (!File.Exists(themeSettingsFilePath))
+                {
+                    throw new FileNotFoundException(
+                        "ThemeSettings.json was not found. Open the compatible Fullscreen theme once so its configuration can be created.",
+                        themeSettingsFilePath);
+                }
+
+                var directory = Path.GetDirectoryName(exportFilePath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var sourcePath = Path.GetFullPath(themeSettingsFilePath);
+                var destinationPath = Path.GetFullPath(exportFilePath);
+
+                if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(sourcePath, destinationPath, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to export ThemeSettings.json.");
+                throw;
+            }
+        }
+
+        public void ImportThemeConfiguration(string importFilePath)
+        {
+            if (string.IsNullOrWhiteSpace(importFilePath))
+            {
+                throw new ArgumentException("The import file path is empty.", nameof(importFilePath));
+            }
+
+            if (!File.Exists(importFilePath))
+            {
+                throw new FileNotFoundException("The theme configuration file was not found.", importFilePath);
+            }
+
+            try
+            {
+                // Validate the selected file before replacing the plugin's stored configuration.
+                var importedStorage = Serialization.FromJsonFile<AnikiThemeSettingsStorageFile>(importFilePath);
+
+                if (importedStorage == null ||
+                    importedStorage.Values == null ||
+                    importedStorage.SelectedPresets == null)
+                {
+                    throw new InvalidDataException("The selected file is not a valid ThemeSettings.json configuration.");
+                }
+
+                Directory.CreateDirectory(pluginUserDataPath);
+
+                var sourcePath = Path.GetFullPath(importFilePath);
+                var destinationPath = Path.GetFullPath(themeSettingsFilePath);
+
+                if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    var temporaryPath = destinationPath + ".import.tmp";
+
+                    try
+                    {
+                        File.Copy(sourcePath, temporaryPath, true);
+                        File.Copy(temporaryPath, destinationPath, true);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (File.Exists(temporaryPath))
+                            {
+                                File.Delete(temporaryPath);
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+
+                // Keep the in-memory storage synchronized so a later save cannot restore
+                // the values that were loaded before the import.
+                settings.AnikiThemeSettingsValues = CopyDictionary(importedStorage.Values);
+                settings.AnikiThemeSettingsSelectedPresets = CopyDictionary(importedStorage.SelectedPresets);
+
+                initialSetupVersion = importedStorage.InitialSetupVersion ?? 0;
+                initialSetupOfferVersion = importedStorage.InitialSetupOfferVersion ?? 0;
+                initialSetupAutomaticRequired = importedStorage.InitialSetupAutomaticRequired ?? false;
+                initialSetupStateLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to import ThemeSettings.json.");
+                throw;
+            }
+        }
+
+        private bool ImportedConfigurationRequiresRestart(
+            Dictionary<string, string> previousValues,
+            Dictionary<string, string> previousPresets)
+        {
+            try
+            {
+                if (currentFile?.Variables != null)
+                {
+                    foreach (var pair in currentFile.Variables)
+                    {
+                        var key = pair.Key;
+                        var variable = pair.Value;
+
+                        if (string.IsNullOrWhiteSpace(key) || variable == null || !variable.NeedRestart)
+                        {
+                            continue;
+                        }
+
+                        string previousValue = null;
+                        string currentValue = null;
+
+                        previousValues?.TryGetValue(key, out previousValue);
+                        settings.AnikiThemeSettingsValues?.TryGetValue(key, out currentValue);
+
+                        if (!string.Equals(previousValue ?? string.Empty, currentValue ?? string.Empty, StringComparison.Ordinal))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                if (currentFile?.Presets != null)
+                {
+                    foreach (var pair in currentFile.Presets)
+                    {
+                        var groupId = pair.Key;
+
+                        string previousPreset = null;
+                        string currentPreset = null;
+
+                        previousPresets?.TryGetValue(groupId, out previousPreset);
+                        settings.AnikiThemeSettingsSelectedPresets?.TryGetValue(groupId, out currentPreset);
+
+                        if (string.Equals(previousPreset ?? string.Empty, currentPreset ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (DoesPresetNeedRestart(groupId, currentPreset))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to determine whether imported theme settings require a restart.");
+            }
+
+            return false;
         }
 
         public void SetOptionFromParameter(string parameter)
@@ -598,6 +1055,8 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
         private void LoadThemeSettingsStorage()
         {
+            var corruptedStorageRecovered = false;
+
             try
             {
                 EnsureThemeSettingsDictionaries();
@@ -611,14 +1070,39 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                         settings.AnikiThemeSettingsValues = CopyDictionary(storage?.Values);
                         settings.AnikiThemeSettingsSelectedPresets = CopyDictionary(storage?.SelectedPresets);
 
+                        if (storage?.InitialSetupVersion != null)
+                        {
+                            // A stored setup version means this installation already knows about the
+                            // onboarding system. Version 0 without the newer offer fields is treated as
+                            // a genuine first-install setup that still needs to open automatically.
+                            initialSetupVersion = storage.InitialSetupVersion.Value;
+                            initialSetupOfferVersion = storage.InitialSetupOfferVersion
+                                ?? CurrentInitialSetupOfferVersion;
+                            initialSetupAutomaticRequired = storage.InitialSetupAutomaticRequired
+                                ?? (!storage.InitialSetupOfferVersion.HasValue &&
+                                    initialSetupVersion < CurrentInitialSetupVersion);
+                        }
+                        else
+                        {
+                            // The file predates the onboarding system. Offer the assistant once, but
+                            // never force the full wizard on an existing user.
+                            initialSetupVersion = 0;
+                            initialSetupOfferVersion = 0;
+                            initialSetupAutomaticRequired = false;
+                        }
+
+                        initialSetupStateLoaded = true;
+
                         if (settings?.EnableDebugLogs == true)
                         {
                             DebugLog($"[AnikiHelper] Loaded ThemeSettings.json: {themeSettingsFilePath}");
                         }
+
                         return;
                     }
                     catch (Exception ex)
                     {
+                        corruptedStorageRecovered = true;
                         logger?.Warn(ex, "[AnikiHelper] Failed to load ThemeSettings.json. A backup will be created and defaults will be rebuilt.");
 
                         try
@@ -638,7 +1122,26 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 // First version using the separated file:
                 // migrate once from old config.json if possible.
-                MigrateThemeSettingsFromLegacyConfig();
+                var migratedLegacySettings = MigrateThemeSettingsFromLegacyConfig();
+
+                if (corruptedStorageRecovered || migratedLegacySettings)
+                {
+                    // This is an existing installation. Offer the assistant once, but keep all
+                    // current settings untouched unless the user explicitly completes it.
+                    initialSetupVersion = 0;
+                    initialSetupOfferVersion = 0;
+                    initialSetupAutomaticRequired = false;
+                }
+                else
+                {
+                    // No separated storage and no legacy theme values means a genuine first install.
+                    // Open the full assistant automatically and do not show the legacy-user offer.
+                    initialSetupVersion = 0;
+                    initialSetupOfferVersion = CurrentInitialSetupOfferVersion;
+                    initialSetupAutomaticRequired = true;
+                }
+
+                initialSetupStateLoaded = true;
 
                 if (settings?.EnableDebugLogs == true)
                 {
@@ -651,10 +1154,14 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 settings.AnikiThemeSettingsValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 settings.AnikiThemeSettingsSelectedPresets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                initialSetupVersion = CurrentInitialSetupVersion;
+                initialSetupOfferVersion = CurrentInitialSetupOfferVersion;
+                initialSetupAutomaticRequired = false;
+                initialSetupStateLoaded = true;
             }
         }
 
-        private void MigrateThemeSettingsFromLegacyConfig()
+        private bool MigrateThemeSettingsFromLegacyConfig()
         {
             try
             {
@@ -662,7 +1169,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 if (!File.Exists(legacyConfigPath))
                 {
-                    return;
+                    return false;
                 }
 
                 var legacy = Serialization.FromJsonFile<AnikiThemeSettingsLegacyConfigFile>(legacyConfigPath);
@@ -672,17 +1179,19 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 if (legacyValues.Count == 0 && legacyPresets.Count == 0)
                 {
-                    return;
+                    return false;
                 }
 
                 settings.AnikiThemeSettingsValues = legacyValues;
                 settings.AnikiThemeSettingsSelectedPresets = legacyPresets;
 
                 DebugLog("[AnikiHelper] Migrated Aniki Theme Settings values from old config.json to ThemeSettings.json.");
+                return true;
             }
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[AnikiHelper] Failed to migrate Aniki Theme Settings from old config.json.");
+                return false;
             }
         }
 
@@ -851,6 +1360,9 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                 var storage = new AnikiThemeSettingsStorageFile
                 {
                     SchemaVersion = ThemeSettingsSchemaVersion,
+                    InitialSetupVersion = initialSetupVersion,
+                    InitialSetupOfferVersion = initialSetupOfferVersion,
+                    InitialSetupAutomaticRequired = initialSetupAutomaticRequired,
                     Values = CopyDictionary(settings.AnikiThemeSettingsValues),
                     SelectedPresets = CopyDictionary(settings.AnikiThemeSettingsSelectedPresets)
                 };

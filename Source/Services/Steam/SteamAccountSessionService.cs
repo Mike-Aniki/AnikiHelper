@@ -21,6 +21,7 @@ namespace AnikiHelper.Services
         public string Error { get; set; }
 
         public bool HasSteamId => !string.IsNullOrWhiteSpace(SteamId64);
+        public bool HasWebApiToken => !string.IsNullOrWhiteSpace(WebApiToken);
         public bool IsConnected => HasSteamId && HasSteamSessionCookies;
 
         public static SteamAccountSessionInfo Empty(string error = null)
@@ -69,9 +70,9 @@ namespace AnikiHelper.Services
     }
 
     /// <summary>
-    /// Steam Store account session based on Playnite WebView/CEF cookies.
-    /// This is intentionally separate from the Steam Web API key: the key can load friends data,
-    /// while the CEF session can load personalized Store pages such as /recommender/.
+    /// Unified Steam account session based on Playnite WebView/CEF cookies.
+    /// The Store-domain cookies power personalized Store pages, while the authenticated
+    /// webapi_token is resolved only during explicit connection checks for friends and player data.
     /// </summary>
     public sealed class SteamAccountSessionService
     {
@@ -82,7 +83,9 @@ namespace AnikiHelper.Services
         private readonly SemaphoreSlim storeWebViewGate = new SemaphoreSlim(1, 1);
 
         private const string StoreHost = "store.steampowered.com";
+        private const string CommunityHost = "steamcommunity.com";
         private const string StoreAccountUrl = "https://store.steampowered.com/account/";
+        private const string CommunityTokenUrl = "https://steamcommunity.com/my/edit/info";
         private const string StoreRecommendedBaseUrl = "https://store.steampowered.com/recommender/";
         private const string StoreRecommendedFeedBaseUrl = "https://store.steampowered.com/recommended/";
         private const string StoreWishlistProfileBaseUrl = "https://store.steampowered.com/wishlist/profiles/";
@@ -135,7 +138,7 @@ namespace AnikiHelper.Services
                             logger?.Info(
                                 $"[SteamAccount] Store probe | connected={session.IsConnected} | " +
                                 $"hasStoreLoginCookie={session.HasSteamSessionCookies} | " +
-                                $"hasSteamId={session.HasSteamId} | finalUrl={finalUrl}"
+                                $"hasSteamId={session.HasSteamId} | hasWebApiToken={session.HasWebApiToken} | finalUrl={finalUrl}"
                             );
 
                             return session;
@@ -158,11 +161,72 @@ namespace AnikiHelper.Services
             }
         }
 
+        /// <summary>
+        /// Performs an explicit Steam services check. Unlike the lightweight startup probe,
+        /// this method also visits Steam Community in the same offscreen WebView to resolve
+        /// the authenticated web API token used by friends and player-data services.
+        /// It is intentionally called only from user-driven connection/check actions.
+        /// </summary>
+        public async Task<SteamAccountSessionInfo> ProbeForServicesAsync(CancellationToken ct)
+        {
+            await storeWebViewGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                return await InvokeOnUiAsync(async () =>
+                {
+                    try
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        using (var view = api.WebViews.CreateOffscreenView())
+                        {
+                            await NavigateAndWaitAsync(view, StoreAccountUrl, 15000).ConfigureAwait(true);
+                            await Task.Delay(700, ct).ConfigureAwait(true);
+
+                            var finalUrl = SafeGetCurrentAddress(view);
+                            var session = ResolveFromView(view, StoreHost);
+                            session.FinalUrl = finalUrl;
+
+                            if (IsLoginPageUrl(finalUrl) || !IsStoreDomainUrl(finalUrl))
+                            {
+                                session.HasSteamSessionCookies = false;
+                            }
+
+                            if (session.IsConnected && !session.HasWebApiToken)
+                            {
+                                session = await EnsureWebApiTokenAsync(view, session, ct).ConfigureAwait(true);
+                            }
+
+                            logger?.Info(
+                                $"[SteamAccount] Services probe | connected={session.IsConnected} | " +
+                                $"hasStoreLoginCookie={session.HasSteamSessionCookies} | " +
+                                $"hasSteamId={session.HasSteamId} | hasWebApiToken={session.HasWebApiToken}"
+                            );
+
+                            return session;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex, "[SteamAccount] Steam services probe failed.");
+                        return SteamAccountSessionInfo.Empty("Failed to check Steam services.");
+                    }
+                }).ConfigureAwait(false);
+            }
+            finally
+            {
+                storeWebViewGate.Release();
+            }
+        }
+
         public async Task<SteamAccountSessionInfo> AuthenticateInteractiveAsync(CancellationToken ct)
         {
             try
             {
-                var existing = await ProbeAsync(ct).ConfigureAwait(false);
+                var existing = await ProbeForServicesAsync(ct).ConfigureAwait(false);
                 if (existing?.IsConnected == true)
                 {
                     return existing;
@@ -173,35 +237,79 @@ namespace AnikiHelper.Services
                 // Continue with interactive login.
             }
 
-            var tcs = new TaskCompletionSource<SteamAccountSessionInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
-
             var dispatcher = api?.MainView?.UIDispatcher;
             if (dispatcher == null)
             {
                 return SteamAccountSessionInfo.Empty("Playnite UI dispatcher is not available.");
             }
 
-            _ = dispatcher.BeginInvoke(new Action(() =>
+            SteamAccountSessionInfo loginResult;
+            await storeWebViewGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                // Prevent personalized Store refreshes from opening another CEF view while
+                // the official Steam login dialog is active. The gate is released before the
+                // post-login Community token probe, so there is no nested WebView or deadlock.
+                var tcs = new TaskCompletionSource<SteamAccountSessionInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                _ = dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (api?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen)
+                        {
+                            StartInteractiveLoginNonModal(tcs);
+                        }
+                        else
+                        {
+                            var result = LoginInteractively();
+                            tcs.TrySetResult(result ?? SteamAccountSessionInfo.Empty("Steam login was cancelled."));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }));
+
+                var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromMinutes(3), ct)).ConfigureAwait(false);
+                if (completed != tcs.Task)
+                {
+                    CloseInteractiveLoginView();
+                    return SteamAccountSessionInfo.Empty("Steam login timed out.");
+                }
+
+                loginResult = await tcs.Task.ConfigureAwait(false);
+            }
+            finally
+            {
+                storeWebViewGate.Release();
+            }
+
+            // The visible login dialog closes as soon as the Store session is valid.
+            // Resolve the API token afterwards, using a single normal offscreen probe.
+            // This avoids overlapping WebViews and keeps the login window user-friendly.
+            if (loginResult?.IsConnected == true && !loginResult.HasWebApiToken)
             {
                 try
                 {
-                    var result = LoginInteractively();
-                    tcs.TrySetResult(result ?? SteamAccountSessionInfo.Empty("Steam login was cancelled."));
+                    var enriched = await ProbeForServicesAsync(ct).ConfigureAwait(false);
+                    if (enriched?.IsConnected == true)
+                    {
+                        loginResult = enriched;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
-                    tcs.TrySetException(ex);
+                    logger?.Warn(ex, "[SteamAccount] Login succeeded but the Steam web API token could not be resolved.");
                 }
-            }));
-
-            var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromMinutes(3), ct)).ConfigureAwait(false);
-            if (completed != tcs.Task)
-            {
-                CloseInteractiveLoginView();
-                return SteamAccountSessionInfo.Empty("Steam login timed out.");
             }
 
-            return await tcs.Task.ConfigureAwait(false);
+            return loginResult;
         }
 
         public Task<SteamRecommendedPageResult> GetRecommendedPageHtmlAsync(string language, string countryCode, CancellationToken ct)
@@ -460,6 +568,65 @@ namespace AnikiHelper.Services
             }
         }
 
+        /// <summary>
+        /// Fullscreen-safe login window.
+        ///
+        /// Playnite's modal WebView dialog can be created over the Fullscreen settings
+        /// window but remain visually black on some systems. A normal non-modal WebView
+        /// owns its own render loop and remains visible above Fullscreen.
+        /// </summary>
+        private void StartInteractiveLoginNonModal(
+            TaskCompletionSource<SteamAccountSessionInfo> completion)
+        {
+            interactiveLoginResult = null;
+
+            var view = api.WebViews.CreateView(1000, 800);
+            interactiveLoginView = view;
+
+            EventHandler closedHandler = null;
+            closedHandler = (sender, args) =>
+            {
+                try
+                {
+                    view.LoadingChanged -= CloseWhenLoggedIn;
+
+                    if (view.WindowHost != null)
+                    {
+                        view.WindowHost.Closed -= closedHandler;
+                    }
+
+                    if (ReferenceEquals(interactiveLoginView, view))
+                    {
+                        interactiveLoginView = null;
+                    }
+
+                    completion.TrySetResult(
+                        interactiveLoginResult ??
+                        SteamAccountSessionInfo.Empty("Steam login was cancelled."));
+                }
+                catch (Exception ex)
+                {
+                    completion.TrySetException(ex);
+                }
+                finally
+                {
+                    try { view.Dispose(); } catch { }
+                }
+            };
+
+            view.LoadingChanged += CloseWhenLoggedIn;
+
+            if (view.WindowHost != null)
+            {
+                view.WindowHost.Closed += closedHandler;
+            }
+
+            // Open the CEF window first, then navigate. This is more reliable when
+            // Playnite is currently rendering its Fullscreen settings window.
+            view.Open();
+            view.Navigate(StoreAccountUrl);
+        }
+
         private SteamAccountSessionInfo LoginInteractively()
         {
             interactiveLoginResult = null;
@@ -530,6 +697,121 @@ namespace AnikiHelper.Services
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[SteamAccount] Failed to check interactive login status.");
+            }
+        }
+
+        private async Task<SteamAccountSessionInfo> EnsureWebApiTokenAsync(
+            IWebView view,
+            SteamAccountSessionInfo session,
+            CancellationToken ct)
+        {
+            if (view == null || session == null || !session.IsConnected || session.HasWebApiToken)
+            {
+                return session ?? SteamAccountSessionInfo.Empty();
+            }
+
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                await NavigateAndWaitAsync(view, CommunityTokenUrl, 15000).ConfigureAwait(true);
+                await Task.Delay(500, ct).ConfigureAwait(true);
+
+                var communitySession = ResolveFromView(view, CommunityHost);
+                if (!string.IsNullOrWhiteSpace(communitySession.SteamId64))
+                {
+                    session.SteamId64 = communitySession.SteamId64;
+                }
+
+                if (!string.IsNullOrWhiteSpace(communitySession.WebApiToken))
+                {
+                    session.WebApiToken = communitySession.WebApiToken;
+
+                    var validation = await ValidateWebApiTokenAsync(session.WebApiToken, ct).ConfigureAwait(true);
+                    if (validation.IsRejected)
+                    {
+                        session.WebApiToken = string.Empty;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(validation.SteamId64))
+                    {
+                        session.SteamId64 = validation.SteamId64;
+                    }
+                }
+
+                // The Store-domain login was already proven before this navigation.
+                session.HasSteamSessionCookies = session.HasSteamSessionCookies || communitySession.HasSteamSessionCookies;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Keep the valid Store session. The UI will explain that a reconnect/check
+                // is needed if the token is still unavailable.
+                logger?.Warn(ex, "[SteamAccount] Failed to resolve webapi_token from the Steam Community page.");
+            }
+
+            return session;
+        }
+
+        private sealed class SteamWebApiTokenValidationResult
+        {
+            public bool IsRejected { get; set; }
+            public string SteamId64 { get; set; } = string.Empty;
+        }
+
+        private async Task<SteamWebApiTokenValidationResult> ValidateWebApiTokenAsync(string accessToken, CancellationToken ct)
+        {
+            var result = new SteamWebApiTokenValidationResult();
+            if (string.IsNullOrWhiteSpace(accessToken))
+            {
+                result.IsRejected = true;
+                return result;
+            }
+
+            try
+            {
+                var url = "https://api.steampowered.com/ISteamUserOAuth/GetTokenDetails/v1/?access_token=" +
+                    Uri.EscapeDataString(accessToken);
+
+                using (var response = await WishlistHttpClient.GetAsync(url, ct).ConfigureAwait(true))
+                {
+                    if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                        response.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        logger?.Info("[SteamAccount] The resolved Steam web API token was rejected.");
+                        result.IsRejected = true;
+                        return result;
+                    }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        // A temporary service failure must not discard a token extracted from
+                        // the authenticated Steam page. The first data request will validate it.
+                        logger?.Info($"[SteamAccount] Token validation unavailable | status={(int)response.StatusCode}");
+                        return result;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
+                    var root = JObject.Parse(json);
+                    var steamId = root["response"]?["steamid"]?.ToString()
+                        ?? root["steamid"]?.ToString()
+                        ?? string.Empty;
+
+                    result.SteamId64 = NormalizeSteamId64(steamId) ?? string.Empty;
+                    return result;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // Do not log or expose exception details here: some HTTP implementations
+                // can include the token-bearing request URI in the exception text.
+                logger?.Warn("[SteamAccount] Steam web API token validation failed.");
+                return result;
             }
         }
 

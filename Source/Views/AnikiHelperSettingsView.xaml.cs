@@ -19,7 +19,6 @@ namespace AnikiHelper
             LoadLocaleFromCurrentUICulture();
 
             Loaded += AnikiHelperSettingsView_Loaded;
-            DataContextChanged += (s, e) => SyncSteamApiKeyPasswordBox();
         }
 
         private void AnikiHelperSettingsView_Loaded(object sender, RoutedEventArgs e)
@@ -29,8 +28,8 @@ namespace AnikiHelper
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     var vm = DataContext as AnikiHelperSettingsViewModel;
+                    vm?.RefreshHomeDashboard();
                     vm?.Settings?.LoadOverlayApps();
-                    SyncSteamApiKeyPasswordBox();
                 }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             }
             catch
@@ -38,50 +37,49 @@ namespace AnikiHelper
             }
         }
 
-        private bool isUpdatingSteamApiKeyPasswordBox;
 
-        private void SyncSteamApiKeyPasswordBox()
+        private void ConfigureThemeFeatures_Click(object sender, RoutedEventArgs e)
         {
-            if (SteamApiKeyPasswordBox == null)
+            if (MainSettingsTabs != null)
             {
-                return;
-            }
-
-            var vm = DataContext as AnikiHelperSettingsViewModel;
-            var apiKey = vm?.Settings?.SteamApiKey ?? string.Empty;
-
-            if (SteamApiKeyPasswordBox.Password == apiKey)
-            {
-                return;
-            }
-
-            try
-            {
-                isUpdatingSteamApiKeyPasswordBox = true;
-                SteamApiKeyPasswordBox.Password = apiKey;
-            }
-            finally
-            {
-                isUpdatingSteamApiKeyPasswordBox = false;
+                MainSettingsTabs.SelectedIndex = 1;
             }
         }
 
-        private void SteamApiKeyPasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
+        private void ConfigureSteam_Click(object sender, RoutedEventArgs e)
         {
-            if (isUpdatingSteamApiKeyPasswordBox)
+            if (MainSettingsTabs != null)
             {
-                return;
+                MainSettingsTabs.SelectedIndex = 2;
             }
+        }
 
-            var vm = DataContext as AnikiHelperSettingsViewModel;
-            var passwordBox = sender as PasswordBox;
-
-            if (vm?.Settings == null || passwordBox == null)
+        private void ConfigureFullscreenTools_Click(object sender, RoutedEventArgs e)
+        {
+            if (MainSettingsTabs != null)
             {
-                return;
+                MainSettingsTabs.SelectedIndex = 3;
             }
+        }
 
-            vm.Settings.SteamApiKey = passwordBox.Password ?? string.Empty;
+        private void InstallPlayniteAchievements_Click(object sender, RoutedEventArgs e)
+        {
+            (DataContext as AnikiHelperSettingsViewModel)?.InstallPlayniteAchievements();
+        }
+
+        private void InstallUniPlaySong_Click(object sender, RoutedEventArgs e)
+        {
+            (DataContext as AnikiHelperSettingsViewModel)?.InstallUniPlaySong();
+        }
+
+        private void ChooseScreenshotProvider_Click(object sender, RoutedEventArgs e)
+        {
+            (DataContext as AnikiHelperSettingsViewModel)?.ChooseAndInstallScreenshotProvider();
+        }
+
+        private void InstallScreenshotUtilitiesLocalProvider_Click(object sender, RoutedEventArgs e)
+        {
+            (DataContext as AnikiHelperSettingsViewModel)?.InstallScreenshotUtilitiesLocalProvider();
         }
 
         private void HubAppsToolComboBox_DropDownOpened(object sender, EventArgs e)
@@ -136,9 +134,41 @@ namespace AnikiHelper
             }
         }
 
-        private void ResetSnapshot_Click(object sender, RoutedEventArgs e)
+        private void DeleteAllMonthlyStats_Click(object sender, RoutedEventArgs e)
         {
-            (DataContext as AnikiHelperSettingsViewModel)?.ResetMonthlySnapshot();
+            try
+            {
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                if (vm == null)
+                {
+                    return;
+                }
+
+                var confirmText = GetResourceText(
+                    "MonthlyDeleteAll_Confirm",
+                    "Are you sure you want to permanently delete all Monthly Stats data? Tracking for the current month will restart from now. This action cannot be undone unless you exported a backup.");
+
+                var result = vm.Api != null
+                    ? vm.Api.Dialogs.ShowMessage(confirmText, "Aniki Helper", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                    : MessageBox.Show(confirmText, "Aniki Helper", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+                if (result != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
+                vm.DeleteAllMonthlyStats();
+
+                ShowInformation(GetResourceText(
+                    "MonthlyDeleteAll_Success",
+                    "All Monthly Stats data has been deleted. Tracking restarts from now."));
+            }
+            catch (Exception ex)
+            {
+                ShowError(
+                    GetResourceText("MonthlyDeleteAll_Error", "Error while deleting Monthly Stats data:") +
+                    "\n" + ex.Message);
+            }
         }
 
         private void ExportMonthlyBackup_Click(object sender, RoutedEventArgs e)
@@ -224,6 +254,132 @@ namespace AnikiHelper
                 {
                     MessageBox.Show("Error while importing monthly backup:\n" + ex.Message, "Aniki Helper");
                 }
+            }
+        }
+
+        private void ExportThemeConfiguration_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                if (vm == null)
+                {
+                    return;
+                }
+
+                var dlg = new SaveFileDialog
+                {
+                    Title = GetResourceText("ThemeConfiguration_ExportDialogTitle", "Export theme configuration"),
+                    Filter = "JSON file (*.json)|*.json",
+                    FileName = $"AnikiHelper_ThemeConfiguration_{DateTime.Now:yyyy-MM-dd}.json",
+                    DefaultExt = ".json",
+                    AddExtension = true
+                };
+
+                if (dlg.ShowDialog() != true)
+                {
+                    return;
+                }
+
+                vm.ExportThemeConfiguration(dlg.FileName);
+
+                ShowInformation(
+                    GetResourceText("ThemeConfiguration_ExportSuccess", "Theme configuration exported successfully."));
+            }
+            catch (Exception ex)
+            {
+                ShowError(
+                    GetResourceText("ThemeConfiguration_ExportError", "Error while exporting the theme configuration:") +
+                    "\n" + ex.Message);
+            }
+        }
+
+        private void ImportThemeConfiguration_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var vm = DataContext as AnikiHelperSettingsViewModel;
+                if (vm == null)
+                {
+                    return;
+                }
+
+                var dlg = new OpenFileDialog
+                {
+                    Title = GetResourceText("ThemeConfiguration_ImportDialogTitle", "Import theme configuration"),
+                    Filter = "JSON file (*.json)|*.json",
+                    DefaultExt = ".json",
+                    CheckFileExists = true
+                };
+
+                if (dlg.ShowDialog() != true)
+                {
+                    return;
+                }
+
+                var confirmText = GetResourceText(
+                    "ThemeConfiguration_ImportConfirm",
+                    "Importing this file will replace the current theme customization options and presets. Continue?");
+
+                var result = vm.Api != null
+                    ? vm.Api.Dialogs.ShowMessage(confirmText, "Aniki Helper", MessageBoxButton.YesNo, MessageBoxImage.Question)
+                    : MessageBox.Show(confirmText, "Aniki Helper", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+                if (result != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
+                vm.ImportThemeConfiguration(dlg.FileName);
+
+                ShowInformation(
+                    GetResourceText("ThemeConfiguration_ImportSuccess", "Theme configuration imported successfully."));
+            }
+            catch (Exception ex)
+            {
+                ShowError(
+                    GetResourceText("ThemeConfiguration_ImportError", "Error while importing the theme configuration:") +
+                    "\n" + ex.Message);
+            }
+        }
+
+        private string GetResourceText(string key, string fallback)
+        {
+            try
+            {
+                return Application.Current?.TryFindResource(key) as string ?? fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private void ShowInformation(string message)
+        {
+            var api = (DataContext as AnikiHelperSettingsViewModel)?.Api;
+
+            if (api != null)
+            {
+                api.Dialogs.ShowMessage(message, "Aniki Helper", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(message, "Aniki Helper", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private void ShowError(string message)
+        {
+            var api = (DataContext as AnikiHelperSettingsViewModel)?.Api;
+
+            if (api != null)
+            {
+                api.Dialogs.ShowErrorMessage(message, "Aniki Helper");
+            }
+            else
+            {
+                MessageBox.Show(message, "Aniki Helper", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

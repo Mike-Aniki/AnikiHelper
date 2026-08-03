@@ -12,7 +12,7 @@ namespace AnikiHelper
 {
     internal static class FullscreenShutdownVideoHook
     {
-        private const int MainMenuScanIntervalMs = 250;
+        private const int MainMenuScanIntervalMs = 500;
 
         private static DispatcherTimer timer;
         private static readonly HashSet<int> hookedButtons = new HashSet<int>();
@@ -96,6 +96,9 @@ namespace AnikiHelper
                     continue;
                 }
 
+                win.Closed -= OnTrackedWindowClosed;
+                win.Closed += OnTrackedWindowClosed;
+
                 win.Dispatcher.InvokeAsync(
                     () =>
                     {
@@ -113,6 +116,19 @@ namespace AnikiHelper
                     },
                     DispatcherPriority.Loaded);
             }
+        }
+
+
+        private static void OnTrackedWindowClosed(object sender, EventArgs e)
+        {
+            if (!(sender is Window window))
+            {
+                return;
+            }
+
+            window.Closed -= OnTrackedWindowClosed;
+            scannedWindows.Remove(window);
+            pendingWindows.Remove(window);
         }
 
         private static bool ScanWindow(Window win)

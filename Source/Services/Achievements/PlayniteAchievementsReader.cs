@@ -15,6 +15,9 @@ namespace AnikiHelper.Services.Achievements
 
         private readonly IPlayniteAPI playniteApi;
         private readonly ILogger logger;
+        private readonly object databasePathCacheLock = new object();
+        private string cachedDatabasePath;
+        private string cachedExtensionsDataRoot;
 
         public PlayniteAchievementsReader(IPlayniteAPI playniteApi, ILogger logger)
         {
@@ -621,7 +624,16 @@ namespace AnikiHelper.Services.Achievements
             var oldBg = item.GameBackgroundPath;
 
             item.GameName = GetGameNameFromPlaynite(item.GameId);
-            item.GameBackgroundPath = GetGameBackgroundPath(item.GameId);
+
+            // Only the four memories selected for the Hub use the freshness resolver.
+            // Rebuilding the full 5,000-item cache still uses Playnite's direct paths,
+            // so no mass file checks or copies are introduced.
+            var refreshedBackgroundPath = global::AnikiHelper.AnikiHelper.Instance
+                ?.ResolveHubBackgroundPathForGame(item.GameId);
+
+            item.GameBackgroundPath = !string.IsNullOrWhiteSpace(refreshedBackgroundPath)
+                ? refreshedBackgroundPath
+                : GetGameBackgroundPath(item.GameId);
 
             // This refresh can run several times during fullscreen startup because
             // multiple achievement widgets bind the same memory items. Keep it silent
@@ -673,18 +685,33 @@ namespace AnikiHelper.Services.Achievements
                     return null;
                 }
 
-                var candidates = Directory
-                    .EnumerateFiles(root, "*.db", SearchOption.AllDirectories)
-                    .Where(x =>
-                        x.IndexOf(PlayniteAchievementsPluginId, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        x.IndexOf("Achievements", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        x.IndexOf("achievement", StringComparison.OrdinalIgnoreCase) >= 0)
-                    .ToList();
+                lock (databasePathCacheLock)
+                {
+                    if (string.Equals(cachedExtensionsDataRoot, root, StringComparison.OrdinalIgnoreCase) &&
+                        !string.IsNullOrWhiteSpace(cachedDatabasePath) &&
+                        File.Exists(cachedDatabasePath))
+                    {
+                        return cachedDatabasePath;
+                    }
 
-                return candidates.FirstOrDefault();
+                    cachedExtensionsDataRoot = root;
+                    cachedDatabasePath = Directory
+                        .EnumerateFiles(root, "*.db", SearchOption.AllDirectories)
+                        .FirstOrDefault(x =>
+                            x.IndexOf(PlayniteAchievementsPluginId, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            x.IndexOf("Achievements", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            x.IndexOf("achievement", StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    return cachedDatabasePath;
+                }
             }
             catch (Exception ex)
             {
+                lock (databasePathCacheLock)
+                {
+                    cachedDatabasePath = null;
+                }
+
                 logger?.Warn(ex, "[AnikiHelper] Failed to search PlayniteAchievements database.");
                 return null;
             }

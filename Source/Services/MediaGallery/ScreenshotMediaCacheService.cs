@@ -88,8 +88,60 @@ namespace AnikiHelper.Services.MediaGallery
                     return new List<AnikiMediaGameItem>();
                 }
 
-                var items = Serialization.FromJsonFile<List<AnikiMediaGameItem>>(GamesCachePath);
-                return items ?? new List<AnikiMediaGameItem>();
+                var items = Serialization.FromJsonFile<List<AnikiMediaGameItem>>(GamesCachePath)
+                    ?? new List<AnikiMediaGameItem>();
+
+                var cacheChanged = false;
+
+                foreach (var item in items.Where(x => x != null && x.GameId != Guid.Empty))
+                {
+                    var game = GetGame(item.GameId);
+                    if (game == null)
+                    {
+                        continue;
+                    }
+
+                    var currentCoverPath = GetGameCoverPath(game) ?? string.Empty;
+                    var currentGameName = game.Name ?? string.Empty;
+
+                    if (!string.Equals(item.CoverPath ?? string.Empty, currentCoverPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        logger?.Debug(
+                            $"[AnikiHelper][MediaGallery] Cover refreshed | Game={currentGameName} | " +
+                            $"Old={item.CoverPath ?? string.Empty} | New={currentCoverPath}");
+
+                        item.CoverPath = currentCoverPath;
+                        cacheChanged = true;
+                    }
+
+                    if (!string.Equals(item.GameName ?? string.Empty, currentGameName, StringComparison.Ordinal))
+                    {
+                        item.GameName = currentGameName;
+                        cacheChanged = true;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(currentCoverPath))
+                    {
+                        logger?.Debug(
+                            $"[AnikiHelper][MediaGallery] No valid cover/background/icon found | " +
+                            $"Game={currentGameName} | GameId={item.GameId}");
+                    }
+                }
+
+                if (cacheChanged)
+                {
+                    try
+                    {
+                        var json = Serialization.ToJson(items, true);
+                        File.WriteAllText(GamesCachePath, json);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex, "[AnikiHelper] Failed to persist refreshed media games covers.");
+                    }
+                }
+
+                return items;
             }
             catch (Exception ex)
             {

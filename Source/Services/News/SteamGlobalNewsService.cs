@@ -37,6 +37,7 @@ namespace AnikiHelper
 
     public class SteamGlobalNewsService
     {
+        private static readonly HttpClient HttpClient = CreateHttpClient();
         // Default URL 
         private const string DefaultNewsSourceAUrl = "https://gameinformer.com/news.xml";
         private const string DefaultNewsSourceBUrl = "https://gameinformer.com/reviews.xml";
@@ -242,9 +243,8 @@ namespace AnikiHelper
                 }
 
                 // Raw download 
-                using (var http = CreateHttpClient())
                 {
-                    var bytes = await http.GetByteArrayAsync(imageUrl).ConfigureAwait(false);
+                    var bytes = await HttpClient.GetByteArrayAsync(imageUrl).ConfigureAwait(false);
 
                     if (bytes == null || bytes.Length == 0)
                     {
@@ -578,7 +578,7 @@ namespace AnikiHelper
 
 
 
-        private HttpClient CreateHttpClient()
+        private static HttpClient CreateHttpClient()
         {
             var http = new HttpClient();
 
@@ -600,9 +600,8 @@ namespace AnikiHelper
         {
             try
             {
-                using (var http = CreateHttpClient())
                 {
-                    var xml = await http.GetStringAsync(feedUrl).ConfigureAwait(false);
+                    var xml = await HttpClient.GetStringAsync(feedUrl).ConfigureAwait(false);
                     var doc = XDocument.Parse(xml);
 
                     var nowUtc = DateTime.UtcNow;

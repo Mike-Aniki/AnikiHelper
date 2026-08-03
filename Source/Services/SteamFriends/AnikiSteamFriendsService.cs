@@ -22,10 +22,13 @@ namespace AnikiHelper.Services.SteamFriends
 {
     public class AnikiSteamFriendsService : IDisposable
     {
+        private const int FriendsWhoPlayedDisplayLimit = 7;
+
         private readonly IPlayniteAPI playniteApi;
         private readonly AnikiHelperSettings settings;
         private readonly string pluginUserDataPath;
         private readonly ILogger logger;
+        private readonly AnikiWindowManager anikiWindowManager;
 
         private void DebugLog(string message)
         {
@@ -64,6 +67,17 @@ namespace AnikiHelper.Services.SteamFriends
         private bool isRefreshing;
         private DateTime lastSuccessUtc = DateTime.MinValue;
 
+        private const string PresenceSummaryCacheFileName = "presence_summary.json";
+        private readonly object presenceSummaryCacheLock = new object();
+        private string lastPresenceSummaryCacheSignature;
+        private DateTime lastPresenceSummaryCacheWriteUtc = DateTime.MinValue;
+        private readonly object startupPresenceSnapshotLock = new object();
+        private List<SteamPlayerSummary> startupPresencePlayers;
+        private string startupPresenceSteamId64;
+        private DateTime startupPresenceFetchedUtc = DateTime.MinValue;
+        private static readonly TimeSpan StartupPresenceSnapshotTtl = TimeSpan.FromSeconds(15);
+        private string PresenceSummaryCachePath => Path.Combine(steamFriendCacheDir, PresenceSummaryCacheFileName);
+
         private readonly SteamFriendsWebApiClient steamClient;
         private Window selfStatusWindow;
         private Window friendProfileWindow;
@@ -75,7 +89,9 @@ namespace AnikiHelper.Services.SteamFriends
         private const int FixedMaxOfflineShown = 40;
 
         private DateTime pausedUntilUtc = DateTime.MinValue;
-        private static readonly TimeSpan PauseOnGameStart = TimeSpan.FromMinutes(10);
+        private volatile bool gameSessionActive;
+        private int gameResumeGeneration;
+        private static readonly TimeSpan PostGameRefreshDelay = TimeSpan.FromSeconds(3);
 
         private List<string> cachedFriendIds;
         private DateTime friendIdsLastFetchUtc = DateTime.MinValue;
@@ -158,7 +174,8 @@ namespace AnikiHelper.Services.SteamFriends
             ILogger logger,
             Action<string> debugLog,
             Func<bool> isAnikiThemeActive,
-            Action saveSettings)
+            Action saveSettings,
+            AnikiWindowManager anikiWindowManager)
         {
             this.playniteApi = playniteApi;
             this.settings = settings;
@@ -167,6 +184,7 @@ namespace AnikiHelper.Services.SteamFriends
             this.debugLog = debugLog;
             this.isAnikiThemeActive = isAnikiThemeActive;
             this.saveSettings = saveSettings;
+            this.anikiWindowManager = anikiWindowManager;
 
             steamClient = new SteamFriendsWebApiClient();
 
@@ -191,6 +209,7 @@ namespace AnikiHelper.Services.SteamFriends
                 gameImageResolver);
 
             settings?.EnsureSteamFriendsRuntimeCollections();
+            LoadPresenceSummaryCacheFromDisk();
             LoadFriendsPlayedGamesCacheFromDisk();
             UpdateFriendsPlayedGamesCacheStatus();
             BindCommands();
@@ -368,11 +387,17 @@ namespace AnikiHelper.Services.SteamFriends
             });
         }
 
-        public void Start()
+        public void Start(bool refreshImmediately = true)
         {
             if (!ShouldRunTimer())
             {
                 Stop();
+                return;
+            }
+
+            if (gameSessionActive)
+            {
+                try { refreshTimer?.Stop(); } catch { }
                 return;
             }
 
@@ -384,7 +409,11 @@ namespace AnikiHelper.Services.SteamFriends
                     refreshTimer.Start();
                 }
 
-                _ = RefreshSteamPresenceAsync();
+                if (refreshImmediately)
+                {
+                    _ = RefreshSteamPresenceAsync();
+                }
+
                 ScheduleDeferredFriendsPlayedGamesRefreshIfNeeded();
                 return;
             }
@@ -393,7 +422,11 @@ namespace AnikiHelper.Services.SteamFriends
             refreshTimer.Tick += (s, e) => { _ = RefreshSteamPresenceAsync(); };
             refreshTimer.Start();
 
-            _ = RefreshSteamPresenceAsync();
+            if (refreshImmediately)
+            {
+                _ = RefreshSteamPresenceAsync();
+            }
+
             ScheduleDeferredFriendsPlayedGamesRefreshIfNeeded();
         }
 
@@ -416,24 +449,64 @@ namespace AnikiHelper.Services.SteamFriends
 
         public void OnGameStarted()
         {
-            if (!ShouldRunTimer())
+            gameSessionActive = true;
+            pausedUntilUtc = DateTime.MaxValue;
+            Interlocked.Increment(ref gameResumeGeneration);
+
+            try { refreshTimer?.Stop(); } catch { }
+
+            DebugLog("[AnikiHelper][SteamFriends][GameQuietMode] Presence timer suspended while a game is running.");
+        }
+
+        public void OnGameStopped(bool refreshAfterDelay = true)
+        {
+            gameSessionActive = false;
+            pausedUntilUtc = DateTime.MinValue;
+            hasBaseline = false;
+
+            var generation = Interlocked.Increment(ref gameResumeGeneration);
+
+            if (refreshAfterDelay)
             {
+                _ = ResumeAfterGameAsync(generation);
                 return;
             }
 
-            pausedUntilUtc = DateTime.UtcNow.Add(PauseOnGameStart);
+            InvokeOnUi(() => Start(refreshImmediately: false));
+            _ = RefreshSteamPresenceAsync();
+            DebugLog("[AnikiHelper][SteamFriends][GameQuietMode] Presence refresh resumed after the global quiet-mode delay.");
         }
 
-        public void OnGameStopped()
+        private async Task ResumeAfterGameAsync(int generation)
         {
-            pausedUntilUtc = DateTime.MinValue;
-            hasBaseline = false;
-            Start();
+            try
+            {
+                await Task.Delay(PostGameRefreshDelay).ConfigureAwait(false);
+
+                if (generation != Volatile.Read(ref gameResumeGeneration) || gameSessionActive)
+                {
+                    return;
+                }
+
+                InvokeOnUi(() => Start(refreshImmediately: false));
+
+                if (!ShouldRunTimer() || gameSessionActive)
+                {
+                    return;
+                }
+
+                await RefreshSteamPresenceAsync().ConfigureAwait(false);
+                DebugLog("[AnikiHelper][SteamFriends][GameQuietMode] Presence refresh resumed after game stop.");
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex, "[AnikiHelper][SteamFriends][GameQuietMode] Failed to resume after game stop.");
+            }
         }
 
         public void ForceRefresh()
         {
-            if (ShouldRunTimer())
+            if (!gameSessionActive && ShouldRunTimer())
             {
                 _ = RefreshSteamPresenceAsync();
             }
@@ -441,7 +514,7 @@ namespace AnikiHelper.Services.SteamFriends
 
         public async Task ForceRefreshAndWaitAsync(int timeoutMs = 10000)
         {
-            if (!ShouldRunTimer())
+            if (gameSessionActive || !ShouldRunTimer())
             {
                 return;
             }
@@ -454,6 +527,134 @@ namespace AnikiHelper.Services.SteamFriends
             }
 
             await RefreshSteamPresenceAsync().ConfigureAwait(false);
+        }
+
+        public void LoadCachedSelfAvatar()
+        {
+            try
+            {
+                if (settings == null)
+                {
+                    return;
+                }
+
+                var steamId64 = GetEffectiveSteamIdInput();
+                if (string.IsNullOrWhiteSpace(steamId64))
+                {
+                    return;
+                }
+
+                var localPath = GetAvatarFilePath(steamId64);
+                if (IsUsableImageFile(localPath))
+                {
+                    var cachedAvatar = ToFileUri(localPath);
+                    InvokeOnUi(() => settings.SelfAvatar = cachedAvatar);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex, "[AnikiHelper][SteamFriends][Startup] Failed to load cached self avatar.");
+            }
+        }
+
+        public async Task RefreshCountsOnlyAsync()
+        {
+            if (gameSessionActive || isRefreshing || !ShouldRunTimer())
+            {
+                return;
+            }
+
+            if (DateTime.UtcNow < pausedUntilUtc)
+            {
+                return;
+            }
+
+            var accessToken = settings.SteamWebApiToken?.Trim();
+            var steamIdInput = GetEffectiveSteamIdInput();
+            var steamId64 = await ResolveSteamId64Async(steamIdInput).ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(steamId64))
+            {
+                ApplyMissingConfigurationState();
+                try { friendActivityHubService?.ClearUnavailable(); } catch { }
+                return;
+            }
+
+            isRefreshing = true;
+            var startedUtc = DateTime.UtcNow;
+
+            try
+            {
+                var steamRunning = IsSteamClientRunning();
+                InvokeOnUi(() => settings.IsSteamRunning = steamRunning);
+
+                var nowUtc = DateTime.UtcNow;
+                var shouldRefreshFriendIds = cachedFriendIds == null || cachedFriendIds.Count == 0 ||
+                    (nowUtc - friendIdsLastFetchUtc) > friendIdsCacheTtl;
+
+                if (shouldRefreshFriendIds)
+                {
+                    var ids = await steamClient.GetFriendSteamIdsAsync(accessToken, steamId64).ConfigureAwait(false);
+                    cachedFriendIds = ids != null ? ids.ToList() : new List<string>();
+                    friendIdsLastFetchUtc = nowUtc;
+                }
+
+                if (cachedFriendIds == null || cachedFriendIds.Count == 0)
+                {
+                    SavePresenceSummaryCache(steamId64, 0, 0, 0, nowUtc);
+                    InvokeOnUi(() =>
+                    {
+                        settings.OnlineCount = 0;
+                        settings.InGameCount = 0;
+                        settings.OfflineCount = 0;
+                        settings.LastError = null;
+                        settings.LastUpdateUtc = nowUtc;
+                    });
+
+                    lastSuccessUtc = nowUtc;
+                    return;
+                }
+
+                var idsForSummaries = cachedFriendIds.ToList();
+                if (!idsForSummaries.Contains(steamId64))
+                {
+                    idsForSummaries.Add(steamId64);
+                }
+
+                var players = await steamClient.GetPlayerSummariesAsync(accessToken, idsForSummaries).ConfigureAwait(false);
+                StoreStartupPresenceSnapshot(steamId64, players);
+
+                var friendPlayers = players?.Where(player => player != null && player.SteamId != steamId64).ToList()
+                    ?? new List<SteamPlayerSummary>();
+
+                var onlineCount = friendPlayers.Count(player => MapState(player) != "offline");
+                var inGameCount = friendPlayers.Count(player => MapState(player) == "ingame");
+                var offlineCount = friendPlayers.Count(player => MapState(player) == "offline");
+
+                SavePresenceSummaryCache(steamId64, onlineCount, inGameCount, offlineCount, nowUtc);
+                InvokeOnUi(() =>
+                {
+                    settings.OnlineCount = onlineCount;
+                    settings.InGameCount = inGameCount;
+                    settings.OfflineCount = offlineCount;
+                    settings.LastError = null;
+                    settings.LastUpdateUtc = nowUtc;
+                });
+
+                lastSuccessUtc = nowUtc;
+                DebugLog(
+                    $"[AnikiHelper][SteamFriends][Startup] lightweight counts ready | " +
+                    $"online={onlineCount} | ingame={inGameCount} | offline={offlineCount} | " +
+                    $"elapsedMs={(DateTime.UtcNow - startedUtc).TotalMilliseconds:0}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][SteamFriends][Startup] Lightweight presence refresh failed.");
+            }
+            finally
+            {
+                isRefreshing = false;
+            }
         }
 
         public bool HandleControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
@@ -506,6 +707,160 @@ namespace AnikiHelper.Services.SteamFriends
             return false;
         }
 
+        private void StoreStartupPresenceSnapshot(string steamId64, IList<SteamPlayerSummary> players)
+        {
+            if (string.IsNullOrWhiteSpace(steamId64) || players == null || players.Count == 0)
+            {
+                return;
+            }
+
+            lock (startupPresenceSnapshotLock)
+            {
+                startupPresenceSteamId64 = steamId64.Trim();
+                startupPresencePlayers = players.Where(player => player != null).ToList();
+                startupPresenceFetchedUtc = DateTime.UtcNow;
+            }
+        }
+
+        private List<SteamPlayerSummary> TakeStartupPresenceSnapshot(string steamId64)
+        {
+            lock (startupPresenceSnapshotLock)
+            {
+                if (string.IsNullOrWhiteSpace(steamId64) ||
+                    string.IsNullOrWhiteSpace(startupPresenceSteamId64) ||
+                    !string.Equals(startupPresenceSteamId64, steamId64.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                    startupPresencePlayers == null ||
+                    DateTime.UtcNow - startupPresenceFetchedUtc > StartupPresenceSnapshotTtl)
+                {
+                    startupPresencePlayers = null;
+                    startupPresenceSteamId64 = null;
+                    startupPresenceFetchedUtc = DateTime.MinValue;
+                    return null;
+                }
+
+                var snapshot = startupPresencePlayers.ToList();
+                startupPresencePlayers = null;
+                startupPresenceSteamId64 = null;
+                startupPresenceFetchedUtc = DateTime.MinValue;
+                return snapshot;
+            }
+        }
+
+        private void LoadPresenceSummaryCacheFromDisk()
+        {
+            try
+            {
+                var currentSteamId64 = settings?.SteamAccountSteamId64?.Trim();
+                if (string.IsNullOrWhiteSpace(currentSteamId64) || !File.Exists(PresenceSummaryCachePath))
+                {
+                    return;
+                }
+
+                SteamPresenceSummaryCache cache;
+                lock (presenceSummaryCacheLock)
+                {
+                    var json = File.ReadAllText(PresenceSummaryCachePath);
+                    cache = Serialization.FromJson<SteamPresenceSummaryCache>(json);
+                }
+
+                if (cache == null ||
+                    !string.Equals(cache.steamId64, currentSteamId64, StringComparison.OrdinalIgnoreCase) ||
+                    cache.updatedUtc == DateTime.MinValue ||
+                    DateTime.UtcNow - cache.updatedUtc > TimeSpan.FromDays(7))
+                {
+                    return;
+                }
+
+                lastPresenceSummaryCacheSignature = BuildPresenceSummarySignature(
+                    cache.steamId64,
+                    cache.onlineCount,
+                    cache.inGameCount,
+                    cache.offlineCount);
+                lastPresenceSummaryCacheWriteUtc = cache.updatedUtc;
+
+                InvokeOnUi(() =>
+                {
+                    settings.OnlineCount = Math.Max(0, cache.onlineCount);
+                    settings.InGameCount = Math.Max(0, cache.inGameCount);
+                    settings.OfflineCount = Math.Max(0, cache.offlineCount);
+                    settings.LastUpdateUtc = cache.updatedUtc;
+                });
+
+                DebugLog(
+                    $"[AnikiHelper][SteamFriends][Startup] cached counts loaded | " +
+                    $"online={cache.onlineCount} | ingame={cache.inGameCount} | offline={cache.offlineCount}");
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex, "[AnikiHelper][SteamFriends][Startup] Failed to load cached presence summary.");
+            }
+        }
+
+        private string BuildPresenceSummarySignature(
+            string steamId64,
+            int onlineCount,
+            int inGameCount,
+            int offlineCount)
+        {
+            return string.Concat(
+                steamId64?.Trim() ?? string.Empty,
+                "|", Math.Max(0, onlineCount),
+                "|", Math.Max(0, inGameCount),
+                "|", Math.Max(0, offlineCount));
+        }
+
+        private void SavePresenceSummaryCache(
+            string steamId64,
+            int onlineCount,
+            int inGameCount,
+            int offlineCount,
+            DateTime updatedUtc)
+        {
+            if (string.IsNullOrWhiteSpace(steamId64))
+            {
+                return;
+            }
+
+            try
+            {
+                var signature = BuildPresenceSummarySignature(
+                    steamId64,
+                    onlineCount,
+                    inGameCount,
+                    offlineCount);
+
+                lock (presenceSummaryCacheLock)
+                {
+                    if (string.Equals(signature, lastPresenceSummaryCacheSignature, StringComparison.Ordinal) &&
+                        DateTime.UtcNow - lastPresenceSummaryCacheWriteUtc < TimeSpan.FromMinutes(10))
+                    {
+                        return;
+                    }
+                }
+
+                var cache = new SteamPresenceSummaryCache
+                {
+                    steamId64 = steamId64.Trim(),
+                    onlineCount = Math.Max(0, onlineCount),
+                    inGameCount = Math.Max(0, inGameCount),
+                    offlineCount = Math.Max(0, offlineCount),
+                    updatedUtc = updatedUtc == DateTime.MinValue ? DateTime.UtcNow : updatedUtc
+                };
+
+                lock (presenceSummaryCacheLock)
+                {
+                    Directory.CreateDirectory(steamFriendCacheDir);
+                    File.WriteAllText(PresenceSummaryCachePath, Serialization.ToJson(cache));
+                    lastPresenceSummaryCacheSignature = signature;
+                    lastPresenceSummaryCacheWriteUtc = cache.updatedUtc;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex, "[AnikiHelper][SteamFriends] Failed to save presence summary cache.");
+            }
+        }
+
         private bool ShouldRunTimer()
         {
             if (settings == null || settings.SteamFriendsEnabled != true)
@@ -552,9 +907,11 @@ namespace AnikiHelper.Services.SteamFriends
                 settings.SteamFriendsPlayingCurrentGameCount = 0;
                 settings.SteamFriendsPlayingCurrentGameSummary = string.Empty;
                 settings.SteamFriendsWhoPlayedCurrentGame?.Clear();
+                settings.SteamFriendsWhoPlayedCurrentGameVisible?.Clear();
                 settings.SteamFriendsWhoPlayedAvailable = false;
                 settings.SteamFriendsWhoPlayedLoading = false;
                 settings.SteamFriendsWhoPlayedCount = 0;
+                settings.SteamFriendsWhoPlayedRemainingCount = 0;
                 settings.SteamFriendsWhoPlayedSummary = string.Empty;
                 settings.SteamFriendsWhoPlayedError = settings.SteamFriendsSetupMessage;
                 settings.ToastIsVisible = false;
@@ -590,8 +947,10 @@ namespace AnikiHelper.Services.SteamFriends
                 settings.SteamFriendsPlayingCurrentGameCount = 0;
                 settings.SteamFriendsPlayingCurrentGameSummary = string.Empty;
                 settings.SteamFriendsWhoPlayedCurrentGame?.Clear();
+                settings.SteamFriendsWhoPlayedCurrentGameVisible?.Clear();
                 settings.SteamFriendsWhoPlayedAvailable = false;
                 settings.SteamFriendsWhoPlayedCount = 0;
+                settings.SteamFriendsWhoPlayedRemainingCount = 0;
                 settings.SteamFriendsWhoPlayedSummary = string.Empty;
                 settings.SteamFriendsWhoPlayedError = string.Empty;
                 settings.ToastIsVisible = false;
@@ -711,6 +1070,7 @@ namespace AnikiHelper.Services.SteamFriends
 
                 friendProfileWindow = window;
                 window.Show();
+                anikiWindowManager?.RegisterExternalWindow(window, "FriendsStyleProfil", true);
                 window.Activate();
                 window.Focus();
             });
@@ -777,6 +1137,7 @@ namespace AnikiHelper.Services.SteamFriends
                 friendActionsOpenedUtc = DateTime.UtcNow;
                 friendActionsWindow = window;
                 window.Show();
+                anikiWindowManager?.RegisterExternalWindow(window, "FriendsActionStyle", true);
                 window.Activate();
                 window.Focus();
             });
@@ -835,6 +1196,7 @@ namespace AnikiHelper.Services.SteamFriends
 
                 selfStatusWindow = window;
                 window.Show();
+                anikiWindowManager?.RegisterExternalWindow(window, "FriendsSelfStatusStyle", true);
                 window.Activate();
                 window.Focus();
             });
@@ -1038,9 +1400,11 @@ namespace AnikiHelper.Services.SteamFriends
                 settings.SteamFriendsPlayingCurrentGameSummary = string.Empty;
 
                 settings.SteamFriendsWhoPlayedCurrentGame?.Clear();
+                settings.SteamFriendsWhoPlayedCurrentGameVisible?.Clear();
                 settings.SteamFriendsWhoPlayedAvailable = false;
                 settings.SteamFriendsWhoPlayedLoading = false;
                 settings.SteamFriendsWhoPlayedCount = 0;
+                settings.SteamFriendsWhoPlayedRemainingCount = 0;
                 settings.SteamFriendsWhoPlayedSummary = string.Empty;
                 settings.SteamFriendsWhoPlayedError = string.Empty;
             });
@@ -1158,13 +1522,20 @@ namespace AnikiHelper.Services.SteamFriends
             {
                 settings.EnsureSteamFriendsRuntimeCollections();
                 settings.SteamFriendsWhoPlayedCurrentGame.Clear();
+                settings.SteamFriendsWhoPlayedCurrentGameVisible.Clear();
 
                 foreach (var item in matches)
                 {
                     settings.SteamFriendsWhoPlayedCurrentGame.Add(item);
                 }
 
+                foreach (var item in matches.Take(FriendsWhoPlayedDisplayLimit))
+                {
+                    settings.SteamFriendsWhoPlayedCurrentGameVisible.Add(item);
+                }
+
                 settings.SteamFriendsWhoPlayedCount = matches.Count;
+                settings.SteamFriendsWhoPlayedRemainingCount = Math.Max(0, matches.Count - FriendsWhoPlayedDisplayLimit);
                 settings.SteamFriendsWhoPlayedAvailable = matches.Count > 0;
                 settings.SteamFriendsWhoPlayedSummary = BuildAlreadyPlayedSummary(matches);
                 settings.SteamFriendsWhoPlayedError = string.Empty;
@@ -1284,15 +1655,15 @@ namespace AnikiHelper.Services.SteamFriends
 
             try
             {
-                var apiKey = settings.SteamApiKey?.Trim();
+                var accessToken = settings.SteamWebApiToken?.Trim();
                 var steamIdInput = GetEffectiveSteamIdInput();
-                var steamId64 = await ResolveSteamId64Async(apiKey, steamIdInput).ConfigureAwait(false);
+                var steamId64 = await ResolveSteamId64Async(steamIdInput).ConfigureAwait(false);
 
-                if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(steamId64))
+                if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(steamId64))
                 {
                     InvokeOnUi(() =>
                     {
-                        settings.SteamFriendsPlayedGamesCacheStatus = GetStringSafe("LOCSteamFriends_PlayedCache_MissingConfig", "Missing Steam API key or Steam account.");
+                        settings.SteamFriendsPlayedGamesCacheStatus = GetStringSafe("LOCSteamFriends_PlayedCache_MissingConfig", "Connect your Steam account in Aniki Helper settings.");
                         settings.SteamFriendsPlayedGamesCacheRefreshing = false;
                         settings.SteamFriendsWhoPlayedLoading = false;
                         settings.SteamFriendsWhoPlayedError = settings.SteamFriendsPlayedGamesCacheStatus;
@@ -1307,7 +1678,7 @@ namespace AnikiHelper.Services.SteamFriends
                     settings.SteamFriendsPlayedGamesCacheStatus = GetStringSafe("LOCSteamFriends_PlayedCache_Preparing", "Preparing friends played games refresh...");
                 });
 
-                var friends = await GetExtendedFriendsAsync(apiKey, steamId64).ConfigureAwait(false);
+                var friends = await GetExtendedFriendsAsync(accessToken, steamId64).ConfigureAwait(false);
                 var friendIds = friends?
                     .Where(f => f != null && !string.IsNullOrWhiteSpace(f.SteamId))
                     .Select(f => f.SteamId)
@@ -1318,14 +1689,14 @@ namespace AnikiHelper.Services.SteamFriends
                 {
                     InvokeOnUi(() =>
                     {
-                        settings.SteamFriendsPlayedGamesCacheStatus = GetStringSafe("LOCSteamFriends_PlayedCache_NoFriends", "No Steam friends returned by Steam API.");
+                        settings.SteamFriendsPlayedGamesCacheStatus = GetStringSafe("LOCSteamFriends_PlayedCache_NoFriends", "No Steam friends were returned by the connected Steam session.");
                         settings.SteamFriendsPlayedGamesCacheRefreshing = false;
                         settings.SteamFriendsWhoPlayedLoading = false;
                     });
                     return;
                 }
 
-                var summaries = await steamClient.GetPlayerSummariesAsync(apiKey, friendIds).ConfigureAwait(false);
+                var summaries = await steamClient.GetPlayerSummariesAsync(accessToken, friendIds).ConfigureAwait(false);
                 var summariesById = summaries?
                     .Where(s => s != null && !string.IsNullOrWhiteSpace(s.SteamId))
                     .GroupBy(s => s.SteamId, StringComparer.OrdinalIgnoreCase)
@@ -1350,7 +1721,7 @@ namespace AnikiHelper.Services.SteamFriends
                         settings.SteamFriendsPlayedGamesCacheStatus = string.Format(tpl, processed, friendIds.Count);
                     });
 
-                    var ownedGames = await steamClient.GetOwnedGamesAsync(apiKey, friendId).ConfigureAwait(false);
+                    var ownedGames = await steamClient.GetOwnedGamesAsync(accessToken, friendId).ConfigureAwait(false);
                     if (ownedGames == null || ownedGames.Count == 0)
                     {
                         await Task.Delay(120).ConfigureAwait(false);
@@ -1417,12 +1788,17 @@ namespace AnikiHelper.Services.SteamFriends
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper][SteamFriends] Failed to refresh friends played games cache.");
+                var authenticatedError = ex as SteamAuthenticatedApiException;
+                var userMessage = authenticatedError?.RequiresReconnect == true
+                    ? "Your Steam session has expired. Reconnect Steam in Aniki Helper settings."
+                    : (authenticatedError?.Message ?? GetStringSafe("LOCSteamFriends_PlayedCache_Error", "Failed to refresh friends played games."));
+
                 InvokeOnUi(() =>
                 {
-                    settings.SteamFriendsPlayedGamesCacheStatus = GetStringSafe("LOCSteamFriends_PlayedCache_Error", "Failed to refresh friends played games.");
+                    settings.SteamFriendsPlayedGamesCacheStatus = userMessage;
                     settings.SteamFriendsPlayedGamesCacheRefreshing = false;
                     settings.SteamFriendsWhoPlayedLoading = false;
-                    settings.SteamFriendsWhoPlayedError = settings.SteamFriendsPlayedGamesCacheStatus;
+                    settings.SteamFriendsWhoPlayedError = userMessage;
                 });
             }
             finally
@@ -1685,7 +2061,7 @@ namespace AnikiHelper.Services.SteamFriends
 
         private async Task RefreshSteamPresenceAsync()
         {
-            if (isRefreshing || !ShouldRunTimer())
+            if (gameSessionActive || isRefreshing || !ShouldRunTimer())
             {
                 return;
             }
@@ -1698,11 +2074,11 @@ namespace AnikiHelper.Services.SteamFriends
             var steamRunning = IsSteamClientRunning();
             InvokeOnUi(() => settings.IsSteamRunning = steamRunning);
 
-            var apiKey = settings.SteamApiKey?.Trim();
+            var accessToken = settings.SteamWebApiToken?.Trim();
             var steamIdInput = GetEffectiveSteamIdInput();
-            var steamId64 = await ResolveSteamId64Async(apiKey, steamIdInput).ConfigureAwait(false);
+            var steamId64 = await ResolveSteamId64Async(steamIdInput).ConfigureAwait(false);
 
-            if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(steamId64))
+            if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(steamId64))
             {
                 ApplyMissingConfigurationState();
 
@@ -1721,7 +2097,7 @@ namespace AnikiHelper.Services.SteamFriends
                 var shouldRefreshFriendIds = cachedFriendIds == null || cachedFriendIds.Count == 0 || (nowUtc - friendIdsLastFetchUtc) > friendIdsCacheTtl;
                 if (shouldRefreshFriendIds)
                 {
-                    var ids = await steamClient.GetFriendSteamIdsAsync(apiKey, steamId64).ConfigureAwait(false);
+                    var ids = await steamClient.GetFriendSteamIdsAsync(accessToken, steamId64).ConfigureAwait(false);
                     cachedFriendIds = ids != null ? ids.ToList() : new List<string>();
                     friendIdsLastFetchUtc = nowUtc;
                 }
@@ -1734,7 +2110,7 @@ namespace AnikiHelper.Services.SteamFriends
                         settings.InGameCount = 0;
                         settings.OfflineCount = 0;
                         settings.Friends.Clear();
-                        settings.LastError = "No friends returned by Steam API.";
+                        settings.LastError = "No Steam friends were returned by the connected Steam session.";
                         settings.LastUpdateUtc = DateTime.MinValue;
                     });
 
@@ -1750,7 +2126,16 @@ namespace AnikiHelper.Services.SteamFriends
                     idsForSummaries.Add(steamId64);
                 }
 
-                var players = await steamClient.GetPlayerSummariesAsync(apiKey, idsForSummaries).ConfigureAwait(false);
+                var players = TakeStartupPresenceSnapshot(steamId64);
+                if (players == null)
+                {
+                    players = await steamClient.GetPlayerSummariesAsync(accessToken, idsForSummaries).ConfigureAwait(false);
+                }
+                else
+                {
+                    DebugLog("[AnikiHelper][SteamFriends][Startup] reused lightweight presence snapshot for full Hub refresh");
+                }
+
                 var self = players?.FirstOrDefault(p => p.SteamId == steamId64);
                 var friendPlayers = players?.Where(p => p.SteamId != steamId64).ToList() ?? new List<SteamPlayerSummary>();
 
@@ -1802,9 +2187,11 @@ namespace AnikiHelper.Services.SteamFriends
                 var inGameCount = dtos.Count(d => d.state == "ingame");
                 var offlineCount = dtos.Count(d => d.state == "offline");
 
+                SavePresenceSummaryCache(steamId64, onlineCount, inGameCount, offlineCount, nowUtc);
+
                 try
                 {
-                    friendActivityHubService?.UpdateAfterPresenceRefresh(apiKey, steamId64, cachedFriendIds, dtos);
+                    friendActivityHubService?.UpdateAfterPresenceRefresh(accessToken, steamId64, cachedFriendIds, dtos);
                 }
                 catch
                 {
@@ -1875,6 +2262,11 @@ namespace AnikiHelper.Services.SteamFriends
             {
                 logger.Error(ex, "[AnikiHelper][SteamFriends] Failed to refresh Steam friends presence.");
 
+                var authenticatedError = ex as SteamAuthenticatedApiException;
+                var userMessage = authenticatedError?.RequiresReconnect == true
+                    ? "Your Steam session has expired. Reconnect Steam in Aniki Helper settings."
+                    : (authenticatedError?.Message ?? "Steam session error. Check or reconnect your Steam account.");
+
                 if (DateTime.UtcNow - lastSuccessUtc > TimeSpan.FromMinutes(10))
                 {
                     InvokeOnUi(() =>
@@ -1884,7 +2276,7 @@ namespace AnikiHelper.Services.SteamFriends
                         settings.OfflineCount = 0;
                         settings.Friends.Clear();
                         settings.LastUpdateUtc = DateTime.MinValue;
-                        settings.LastError = "Steam API error.";
+                        settings.LastError = userMessage;
                     });
 
                     lastUiSignature = null;
@@ -1898,7 +2290,7 @@ namespace AnikiHelper.Services.SteamFriends
 
         public async Task RefreshSelfAvatarOnlyAsync()
         {
-            if (settings == null ||
+            if (gameSessionActive || settings == null ||
                 !await selfAvatarRefreshGate.WaitAsync(0).ConfigureAwait(false))
             {
                 return;
@@ -1906,9 +2298,9 @@ namespace AnikiHelper.Services.SteamFriends
 
             try
             {
-                var apiKey = settings.SteamApiKey?.Trim();
+                var accessToken = settings.SteamWebApiToken?.Trim();
                 var steamIdInput = GetEffectiveSteamIdInput();
-                var steamId64 = await ResolveSteamId64Async(apiKey, steamIdInput).ConfigureAwait(false);
+                var steamId64 = await ResolveSteamId64Async(steamIdInput).ConfigureAwait(false);
 
                 if (string.IsNullOrWhiteSpace(steamId64))
                 {
@@ -1927,13 +2319,13 @@ namespace AnikiHelper.Services.SteamFriends
                     InvokeOnUi(() => settings.SelfAvatar = null);
                 }
 
-                if (string.IsNullOrWhiteSpace(apiKey))
+                if (string.IsNullOrWhiteSpace(accessToken))
                 {
                     return;
                 }
 
                 var players = await steamClient
-                    .GetPlayerSummariesAsync(apiKey, new[] { steamId64 })
+                    .GetPlayerSummariesAsync(accessToken, new[] { steamId64 })
                     .ConfigureAwait(false);
 
                 var self = players?.FirstOrDefault(player =>
@@ -2025,18 +2417,18 @@ namespace AnikiHelper.Services.SteamFriends
                 return;
             }
 
-            var apiKey = settings.SteamApiKey?.Trim();
+            var accessToken = settings.SteamWebApiToken?.Trim();
             var steamIdInput = GetEffectiveSteamIdInput();
-            var selfSteamId64 = await ResolveSteamId64Async(apiKey, steamIdInput).ConfigureAwait(false);
+            var selfSteamId64 = await ResolveSteamId64Async(steamIdInput).ConfigureAwait(false);
 
-            if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(selfSteamId64))
+            if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(selfSteamId64))
             {
                 InvokeOnUi(() =>
                 {
                     settings.IsFriendProfileOpen = true;
                     settings.SelectedFriendSteamId = friendSteamId;
                     settings.SelectedFriendProfile = null;
-                    settings.FriendProfileError = "Missing Steam API key or Steam account.";
+                    settings.FriendProfileError = "Connect your Steam account in Aniki Helper settings.";
                     settings.IsFriendProfileLoading = false;
                 });
                 return;
@@ -2074,11 +2466,11 @@ namespace AnikiHelper.Services.SteamFriends
                     }
                 }
 
-                var summaryTask = steamClient.GetPlayerSummariesAsync(apiKey, new[] { friendSteamId });
-                var allRecentGamesTask = steamClient.GetAllRecentlyPlayedGamesAsync(apiKey, friendSteamId);
-                var friendsTask = GetExtendedFriendsAsync(apiKey, selfSteamId64);
-                var steamLevelTask = steamClient.GetSteamLevelAsync(apiKey, friendSteamId);
-                var badgesTask = steamClient.GetBadgesAsync(apiKey, friendSteamId);
+                var summaryTask = steamClient.GetPlayerSummariesAsync(accessToken, new[] { friendSteamId });
+                var allRecentGamesTask = steamClient.GetAllRecentlyPlayedGamesAsync(accessToken, friendSteamId);
+                var friendsTask = GetExtendedFriendsAsync(accessToken, selfSteamId64);
+                var steamLevelTask = steamClient.GetSteamLevelAsync(accessToken, friendSteamId);
+                var badgesTask = steamClient.GetBadgesAsync(accessToken, friendSteamId);
 
                 await Task.WhenAll(summaryTask, allRecentGamesTask, friendsTask, steamLevelTask, badgesTask).ConfigureAwait(false);
 
@@ -2156,13 +2548,17 @@ namespace AnikiHelper.Services.SteamFriends
             catch (Exception ex)
             {
                 logger.Error(ex, $"[AnikiHelper][SteamFriends] Failed to open friend profile for '{friendSteamId}'.");
+                var authenticatedError = ex as SteamAuthenticatedApiException;
+                var userMessage = authenticatedError?.RequiresReconnect == true
+                    ? "Your Steam session has expired. Reconnect Steam in Aniki Helper settings."
+                    : (authenticatedError?.Message ?? "Failed to load friend profile.");
 
                 InvokeOnUi(() =>
                 {
                     if (settings.SelectedFriendSteamId == friendSteamId)
                     {
                         settings.SelectedFriendProfile = null;
-                        settings.FriendProfileError = "Failed to load friend profile.";
+                        settings.FriendProfileError = userMessage;
                     }
 
                     settings.IsFriendProfileLoading = false;
@@ -2211,7 +2607,7 @@ namespace AnikiHelper.Services.SteamFriends
             profile.recentAchievements = LoadRecentFriendAchievements(friendSteamId);
         }
 
-        private async Task<List<SteamFriend>> GetExtendedFriendsAsync(string apiKey, string steamId64)
+        private async Task<List<SteamFriend>> GetExtendedFriendsAsync(string accessToken, string steamId64)
         {
             var nowUtc = DateTime.UtcNow;
             if (cachedFriendsExtended != null && cachedFriendsExtended.Count > 0 && (nowUtc - cachedFriendsExtendedLastFetchUtc) < cachedFriendsExtendedTtl)
@@ -2219,29 +2615,23 @@ namespace AnikiHelper.Services.SteamFriends
                 return cachedFriendsExtended;
             }
 
-            var friends = await steamClient.GetFriendsAsync(apiKey, steamId64).ConfigureAwait(false);
+            var friends = await steamClient.GetFriendsAsync(accessToken, steamId64).ConfigureAwait(false);
             cachedFriendsExtended = friends ?? new List<SteamFriend>();
             cachedFriendsExtendedLastFetchUtc = nowUtc;
             return cachedFriendsExtended;
         }
 
-        private async Task<string> ResolveSteamId64Async(string apiKey, string userInput)
+        private Task<string> ResolveSteamId64Async(string userInput)
         {
             if (string.IsNullOrWhiteSpace(userInput))
             {
-                return null;
+                return Task.FromResult<string>(null);
             }
 
             var input = userInput.Trim();
             if (input.Length == 17 && input.All(char.IsDigit))
             {
-                return input;
-            }
-
-            var nowUtc = DateTime.UtcNow;
-            if (cachedSteamIdInput == input && !string.IsNullOrWhiteSpace(cachedResolvedSteamId64) && (nowUtc - steamIdResolveLastUtc) < steamIdResolveTtl)
-            {
-                return cachedResolvedSteamId64;
+                return Task.FromResult(input);
             }
 
             var profilesMarker = "/profiles/";
@@ -2250,46 +2640,15 @@ namespace AnikiHelper.Services.SteamFriends
             {
                 var after = input.Substring(idxProfiles + profilesMarker.Length);
                 var digits = new string(after.TakeWhile(char.IsDigit).ToArray());
-                if (!string.IsNullOrWhiteSpace(digits))
+                if (digits.Length == 17)
                 {
-                    cachedSteamIdInput = input;
-                    cachedResolvedSteamId64 = digits;
-                    steamIdResolveLastUtc = nowUtc;
-                    return digits;
+                    return Task.FromResult(digits);
                 }
             }
 
-            var idMarker = "/id/";
-            var idxId = input.IndexOf(idMarker, StringComparison.OrdinalIgnoreCase);
-            string vanity = null;
-
-            if (idxId >= 0)
-            {
-                var after = input.Substring(idxId + idMarker.Length);
-                vanity = new string(after.TakeWhile(c => char.IsLetterOrDigit(c) || c == '_' || c == '-').ToArray());
-            }
-            else
-            {
-                vanity = input;
-            }
-
-            if (string.IsNullOrWhiteSpace(vanity) || string.IsNullOrWhiteSpace(apiKey))
-            {
-                return null;
-            }
-
-            try
-            {
-                var resolved = await steamClient.ResolveVanityUrlAsync(apiKey, vanity).ConfigureAwait(false);
-                cachedSteamIdInput = input;
-                cachedResolvedSteamId64 = resolved;
-                steamIdResolveLastUtc = nowUtc;
-                return resolved;
-            }
-            catch
-            {
-                return null;
-            }
+            // WebLogin always provides the authenticated SteamID64. Vanity URL resolution
+            // is intentionally not used because it would require a user-created API key.
+            return Task.FromResult<string>(null);
         }
 
         private void SetSteamStatus(string status)
@@ -2958,6 +3317,15 @@ namespace AnikiHelper.Services.SteamFriends
         {
             if (unixSeconds <= 0) return null;
             try { return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime; } catch { return null; }
+        }
+
+        private sealed class SteamPresenceSummaryCache
+        {
+            public string steamId64 { get; set; }
+            public int onlineCount { get; set; }
+            public int inGameCount { get; set; }
+            public int offlineCount { get; set; }
+            public DateTime updatedUtc { get; set; }
         }
 
         private void InvokeOnUi(Action action)

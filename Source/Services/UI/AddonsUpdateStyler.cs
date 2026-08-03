@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -10,66 +11,105 @@ namespace AnikiHelper
 {
     internal static class AddonsUpdateStyler
     {
+        private const int WatchIntervalMs = 500;
+
         private static DispatcherTimer timer;
-        private static readonly HashSet<IntPtr> hooked = new HashSet<IntPtr>();
+        private static readonly HashSet<Window> trackedWindows = new HashSet<Window>();
 
         public static void Start()
         {
             if (timer != null)
                 return;
 
-            Application.Current.Exit += (_, __) =>
-            {
-                timer?.Stop();
-                timer = null;
-                hooked.Clear();
-            };
+            Application.Current.Exit += (_, __) => Stop();
 
             timer = new DispatcherTimer(DispatcherPriority.Background)
             {
-                Interval = TimeSpan.FromMilliseconds(250)
+                Interval = TimeSpan.FromMilliseconds(WatchIntervalMs)
             };
 
             timer.Tick += Tick;
             timer.Start();
+
+            // Apply immediately if the window is already present.
+            Tick(null, EventArgs.Empty);
+        }
+
+        private static void Stop()
+        {
+            try
+            {
+                if (timer != null)
+                {
+                    timer.Tick -= Tick;
+                    timer.Stop();
+                }
+            }
+            catch { }
+
+            timer = null;
+            trackedWindows.Clear();
         }
 
         private static void Tick(object sender, EventArgs e)
         {
             var app = Application.Current;
-            if (app == null)
+            if (app == null || !IsAnikiThemeActive())
                 return;
 
-            // Only apply this visual patch when the Aniki theme is active.
-            if (!IsAnikiThemeActive())
-                return;
-
-            foreach (Window w in app.Windows)
+            foreach (var window in app.Windows
+                .OfType<Window>()
+                .Where(IsAddonsUpdateWindow)
+                .ToArray())
             {
-                if (!string.Equals(
-                        w.GetType().FullName,
-                        "Playnite.FullscreenApp.Windows.AddonsUpdateWindow",
-                        StringComparison.Ordinal))
-                {
+                if (!window.IsLoaded || !trackedWindows.Add(window))
                     continue;
-                }
 
-                var handle = new System.Windows.Interop.WindowInteropHelper(w).Handle;
+                window.Closed += OnWindowClosed;
+                ApplyTemporaryPassesAsync(window);
+            }
+        }
 
-                if (handle != IntPtr.Zero && !hooked.Contains(handle))
+        private static bool IsAddonsUpdateWindow(Window window)
+        {
+            return string.Equals(
+                window?.GetType().FullName,
+                "Playnite.FullscreenApp.Windows.AddonsUpdateWindow",
+                StringComparison.Ordinal);
+        }
+
+        private static void OnWindowClosed(object sender, EventArgs e)
+        {
+            if (sender is Window window)
+            {
+                window.Closed -= OnWindowClosed;
+                trackedWindows.Remove(window);
+            }
+        }
+
+        private static async void ApplyTemporaryPassesAsync(Window window)
+        {
+            // DataTemplates are sometimes created shortly after Loaded.
+            // These finite passes replace the previous permanent deep scan.
+            var delays = new[] { 0, 100, 300, 700, 1200 };
+
+            foreach (var delay in delays)
+            {
+                if (delay > 0)
+                    await Task.Delay(delay).ConfigureAwait(true);
+
+                if (!trackedWindows.Contains(window) || !window.IsLoaded)
+                    return;
+
+                try
                 {
-                    hooked.Add(handle);
-                    w.Closed += (_, __) => hooked.Remove(handle);
+                    ApplyToInternalBorders(window);
+                    ApplyToInternalControls(window);
                 }
-
-                // Important:
-                // Re-apply while the window is open because some controls from DataTemplates
-                // can be generated after the first Loaded pass.
-                w.Dispatcher.InvokeAsync(() =>
+                catch
                 {
-                    ApplyToInternalBorders(w);
-                    ApplyToInternalControls(w);
-                }, DispatcherPriority.ContextIdle);
+                    // Visual patch only.
+                }
             }
         }
 

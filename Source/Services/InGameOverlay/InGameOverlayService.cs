@@ -1,5 +1,6 @@
 ﻿using AnikiHelper.Services.Achievements;
 using AnikiHelper.Services.MediaGallery;
+using AnikiHelper.Services.WebBrowser;
 using Playnite.SDK;
 using Playnite.SDK.Data;
 using Playnite.SDK.Events;
@@ -7,10 +8,12 @@ using Playnite.SDK.Models;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -24,9 +27,12 @@ namespace AnikiHelper.Services.InGameOverlay
         private readonly AnikiHelperSettings settings;
         private readonly ILogger logger;
         private readonly Func<bool> hasOpenCustomWindow;
+        private readonly Func<bool> isWebBrowserActive;
+        private readonly Action<WebBrowserGamepadInputState> onWebBrowserInput;
 
         private InGameOverlayHotkeyService hotkeyService;
         private AnikiOverlayInputListener inputListener;
+        private GamepadMouseService gamepadMouseService;
         private AnikiInGameOverlayWindow overlayWindow;
         private bool overlayOpenedFromPlaynite;
 
@@ -35,6 +41,11 @@ namespace AnikiHelper.Services.InGameOverlay
         private volatile bool overlayOpenOrOpening;
         private DateTime lastOverlayToggleUtc = DateTime.MinValue;
         private const int OverlayToggleCooldownMs = 350;
+        private int overlayForegroundRecoveryGeneration;
+        private int controllerOverlayOpenGeneration;
+        private int controllerVirtualKeyboardOpenGeneration;
+        private const int ControllerShortcutFocusHandoffDelayMs = 140;
+        private const int OverlayDPadFallbackDelayMs = 65;
 
         private Game currentGame;
         private DateTime? currentSessionStartTime;
@@ -49,6 +60,12 @@ namespace AnikiHelper.Services.InGameOverlay
         private int? currentGameProcessId;
         private IntPtr lastForegroundWindow = IntPtr.Zero;
         private int? lastForegroundWindowProcessId;
+
+        // Dedicated target captured before the overlay takes focus. This is kept
+        // separate from the game-return target so the keyboard can safely type in
+        // Firefox, Notepad, Discord, Playnite, or any other foreground application.
+        private IntPtr virtualKeyboardTargetWindow = IntPtr.Zero;
+        private int? virtualKeyboardTargetProcessId;
 
         private readonly object gameSuspendLock = new object();
         private int? suspendedGameProcessId;
@@ -65,18 +82,35 @@ namespace AnikiHelper.Services.InGameOverlay
         public InGameOverlayService(
             IPlayniteAPI playniteApi,
             AnikiHelperSettings settings,
-            Func<bool> hasOpenCustomWindow = null)
+            Func<bool> hasOpenCustomWindow = null,
+            Func<bool> isWebBrowserActive = null,
+            Action<WebBrowserGamepadInputState> onWebBrowserInput = null)
         {
             this.playniteApi = playniteApi;
             this.settings = settings;
             this.hasOpenCustomWindow = hasOpenCustomWindow;
+            this.isWebBrowserActive = isWebBrowserActive;
+            this.onWebBrowserInput = onWebBrowserInput;
             logger = LogManager.GetLogger();
             playniteAchievementsReader = new PlayniteAchievementsReader(playniteApi, logger);
+            gamepadMouseService = new GamepadMouseService(logger);
         }
 
         public bool IsGameRunning
         {
             get { return currentGame != null; }
+        }
+
+        internal bool IsWindowsVirtualKeyboardSelected
+        {
+            get
+            {
+                return settings != null &&
+                       string.Equals(
+                           settings.InGameOverlayVirtualKeyboardProvider,
+                           "Windows",
+                           StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         public bool IsOverlayVisible
@@ -529,10 +563,17 @@ namespace AnikiHelper.Services.InGameOverlay
             inputListener = new AnikiOverlayInputListener(
                 settings,
                 logger,
-                ToggleOverlay,
+                QueueControllerOverlayOpen,
+                QueueControllerVirtualKeyboardOpen,
+                ToggleGamepadMouseMode,
+                () => gamepadMouseService?.IsActive == true,
+                state => gamepadMouseService?.ProcessInput(state),
+                () => gamepadMouseService?.SuspendInput(),
                 () => settings == null || settings.InGameOverlayEnabled,
                 () => overlayWindow != null && overlayWindow.IsVisible,
-                HandleOverlayControllerInput);
+                HandleOverlayControllerInput,
+                isWebBrowserActive,
+                onWebBrowserInput);
 
             inputListener.Start();
 
@@ -541,6 +582,8 @@ namespace AnikiHelper.Services.InGameOverlay
         public void Stop()
         {
             ResumeSuspendedGameProcess();
+            Interlocked.Increment(ref controllerOverlayOpenGeneration);
+            Interlocked.Increment(ref controllerVirtualKeyboardOpenGeneration);
 
             try
             {
@@ -562,6 +605,15 @@ namespace AnikiHelper.Services.InGameOverlay
 
             try
             {
+                gamepadMouseService?.Dispose();
+                gamepadMouseService = null;
+            }
+            catch
+            {
+            }
+
+            try
+            {
                 if (overlayWindow != null)
                 {
                     overlayWindow.Close();
@@ -570,6 +622,24 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             catch
             {
+            }
+        }
+
+
+        private void ToggleGamepadMouseMode()
+        {
+            try
+            {
+                if (gamepadMouseService == null)
+                {
+                    gamepadMouseService = new GamepadMouseService(logger);
+                }
+
+                gamepadMouseService.Toggle();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to toggle Gamepad Mouse mode.");
             }
         }
 
@@ -631,11 +701,529 @@ namespace AnikiHelper.Services.InGameOverlay
             OpenOverlayInternal(ignoreEnabledSetting: true, source: "ThemeButton");
         }
 
-        private void OpenOverlayInternal(bool ignoreEnabledSetting, string source)
+        private async void QueueControllerOverlayOpen()
+        {
+            if (settings != null && !settings.InGameOverlayEnabled)
+            {
+                return;
+            }
+
+            // Steam Big Picture uses the Guide button for its own navigation panel.
+            // Ignore Aniki's Guide shortcut while Big Picture is the foreground window
+            // so Steam can handle the same button normally. Other controller shortcuts
+            // remain available inside Big Picture.
+            if (IsSteamBigPictureGuideExclusionActive())
+            {
+                OverlayDebugLog(
+                    "[Overlay][ControllerShortcut] Guide shortcut ignored because Steam Big Picture is foreground.");
+                return;
+            }
+
+            // Capture the game before Guide can also be handled by Steam, Windows or
+            // Playnite. Opening a little later lets those handlers finish first, then
+            // Aniki Helper performs the final foreground handoff to the overlay.
+            var requestedFromGame = IsForegroundCurrentGame();
+
+            // Only replace the saved return target when the shortcut was pressed from
+            // the game itself. When the overlay is opened from Playnite, the existing
+            // lastForegroundWindow still points to the game that was minimized by
+            // ReturnToPlaynite. Overwriting it here with Playnite makes the
+            // "Return to game" button focus Playnite again instead of the game.
+            if (requestedFromGame)
+            {
+                CaptureCurrentForegroundGameWindow();
+            }
+
+            CaptureVirtualKeyboardTargetWindow();
+
+            var generation = Interlocked.Increment(ref controllerOverlayOpenGeneration);
+            OverlayDebugLog(
+                $"[Overlay][ControllerShortcut] Overlay handoff queued. " +
+                $"DelayMs={ControllerShortcutFocusHandoffDelayMs}, Target={lastForegroundWindow}");
+
+            try
+            {
+                await Task.Delay(ControllerShortcutFocusHandoffDelayMs).ConfigureAwait(false);
+
+                if (generation != Volatile.Read(ref controllerOverlayOpenGeneration))
+                {
+                    return;
+                }
+
+                var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (generation != Volatile.Read(ref controllerOverlayOpenGeneration))
+                    {
+                        return;
+                    }
+
+                    OpenOverlayInternal(
+                        ignoreEnabledSetting: false,
+                        source: "ControllerShortcutHandoff",
+                        preserveCapturedTarget: true,
+                        openedFromPlayniteOverride: !requestedFromGame);
+                }), System.Windows.Threading.DispatcherPriority.Send);
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper][Overlay] Controller overlay handoff failed.");
+            }
+        }
+
+        private async void QueueControllerVirtualKeyboardOpen()
+        {
+            if (settings != null && !settings.InGameOverlayEnabled)
+            {
+                return;
+            }
+
+            // L3/R3 (and the other controller keyboard chords) can also be observed by
+            // the game or Playnite. Keep the original target now, wait for that input
+            // frame to settle, then make the keyboard the final foreground window.
+            CaptureVirtualKeyboardTargetWindow();
+            CaptureCurrentForegroundGameWindow();
+
+            var generation = Interlocked.Increment(ref controllerVirtualKeyboardOpenGeneration);
+            OverlayDebugLog(
+                $"[Overlay][VirtualKeyboard] Controller handoff queued. " +
+                $"DelayMs={ControllerShortcutFocusHandoffDelayMs}, Target={virtualKeyboardTargetWindow}");
+
+            try
+            {
+                await Task.Delay(ControllerShortcutFocusHandoffDelayMs).ConfigureAwait(false);
+
+                if (generation != Volatile.Read(ref controllerVirtualKeyboardOpenGeneration))
+                {
+                    return;
+                }
+
+                var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (generation != Volatile.Read(ref controllerVirtualKeyboardOpenGeneration))
+                    {
+                        return;
+                    }
+
+                    OpenVirtualKeyboardDirectCore(captureTarget: false, source: "ControllerShortcutHandoff");
+                }), System.Windows.Threading.DispatcherPriority.Send);
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper][Overlay] Controller virtual-keyboard handoff failed.");
+            }
+        }
+
+        public void OpenVirtualKeyboardDirect()
+        {
+            OpenVirtualKeyboardDirectCore(captureTarget: true, source: "Direct");
+        }
+
+        public void OpenVirtualKeyboardForWebBrowser()
+        {
+            OpenVirtualKeyboardDirectCore(
+                captureTarget: true,
+                source: "WebBrowser",
+                ignoreEnabledSetting: true);
+        }
+
+        private void OpenVirtualKeyboardDirectCore(
+            bool captureTarget,
+            string source,
+            bool ignoreEnabledSetting = false)
         {
             if (!ignoreEnabledSetting && settings != null && !settings.InGameOverlayEnabled)
             {
                 return;
+            }
+
+            if (captureTarget)
+            {
+                // Capture the exact foreground window before the request reaches WPF
+                // and before the overlay can take focus.
+                CaptureVirtualKeyboardTargetWindow();
+            }
+
+            if (IsWindowsVirtualKeyboardSelected)
+            {
+                QueueWindowsVirtualKeyboardOpen(
+                    hideOverlay: overlayWindow != null && overlayWindow.IsVisible,
+                    source: source);
+                return;
+            }
+
+            lock (overlayToggleLock)
+            {
+                if (overlayToggleQueued)
+                {
+                    return;
+                }
+
+                overlayToggleQueued = true;
+                overlayOpenOrOpening = true;
+            }
+
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                lock (overlayToggleLock)
+                {
+                    overlayToggleQueued = false;
+                    overlayOpenOrOpening = false;
+                }
+
+                return;
+            }
+
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (HasOpenCustomWindow())
+                    {
+                        overlayOpenOrOpening = false;
+                        OverlayDebugLog("[Overlay][VirtualKeyboard] Direct open blocked because a custom window is already open.");
+                        return;
+                    }
+
+                    EnsureOverlayWindowCreated();
+
+                    if (overlayWindow == null)
+                    {
+                        overlayOpenOrOpening = false;
+                        return;
+                    }
+
+                    SyncOverlayMouseInputWithPlaynite();
+                    overlayWindow.Refresh();
+
+                    // Prepare the keyboard while the WPF window is still hidden.
+                    // This prevents the regular overlay menu from flashing first.
+                    overlayWindow.ShowVirtualKeyboardDirect();
+
+                    if (!overlayWindow.IsVisible)
+                    {
+                        overlayWindow.Show();
+                    }
+
+                    overlayWindow.Topmost = false;
+                    overlayWindow.Topmost = true;
+                    overlayWindow.Activate();
+                    overlayWindow.Focus();
+
+                    try
+                    {
+                        var overlayHandle = new System.Windows.Interop.WindowInteropHelper(overlayWindow).Handle;
+                        if (overlayHandle != IntPtr.Zero)
+                        {
+                            ForceFocusWindow(overlayHandle);
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    OverlayDebugLog($"[Overlay][VirtualKeyboard] Opened directly. Source={source}");
+                    QueueOverlayForegroundRecovery(
+                        overlayWindow,
+                        $"VirtualKeyboard:{source}",
+                        focusOverlayButton: false);
+                }
+                catch (Exception ex)
+                {
+                    overlayOpenOrOpening = false;
+                    logger?.Warn(ex, "[AnikiHelper] Failed to open the virtual keyboard directly.");
+                }
+                finally
+                {
+                    lock (overlayToggleLock)
+                    {
+                        overlayToggleQueued = false;
+
+                        if (overlayWindow == null || !overlayWindow.IsVisible)
+                        {
+                            overlayOpenOrOpening = false;
+                        }
+                    }
+                }
+            }));
+        }
+
+        public void OpenWindowsVirtualKeyboardFromOverlay()
+        {
+            QueueWindowsVirtualKeyboardOpen(hideOverlay: true, source: "OverlayButton");
+        }
+
+        private void QueueWindowsVirtualKeyboardOpen(bool hideOverlay, string source)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                logger?.Warn("[AnikiHelper] Windows virtual keyboard could not be opened because the UI dispatcher is unavailable.");
+                return;
+            }
+
+            dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try
+                {
+                    await OpenWindowsVirtualKeyboardAsync(hideOverlay, source);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to open the Windows virtual keyboard.");
+                }
+            }));
+        }
+
+        private async Task OpenWindowsVirtualKeyboardAsync(bool hideOverlay, string source)
+        {
+            IntPtr targetWindow;
+            int targetProcessId;
+
+            if (!TryResolveVirtualKeyboardTarget(out targetWindow, out targetProcessId))
+            {
+                if (hideOverlay)
+                {
+                    HideOverlayImmediate();
+                }
+
+                logger?.Warn("[AnikiHelper] Windows virtual keyboard could not resolve a valid target window.");
+                return;
+            }
+
+            if (hideOverlay)
+            {
+                HideOverlayImmediate();
+            }
+
+            var focused = await FocusVirtualKeyboardTargetWithRetriesAsync(
+                targetWindow,
+                targetProcessId,
+                "windowsVirtualKeyboard");
+
+            if (!focused)
+            {
+                logger?.Warn("[AnikiHelper] Windows virtual keyboard stopped because target focus could not be restored.");
+                return;
+            }
+
+            await Task.Delay(WindowsVirtualKeyboardAfterFocusDelayMs);
+
+            // Do not blindly call Toggle: if the touch keyboard is already visible,
+            // Toggle would close it instead of opening it.
+            if (IsWindowsInputPaneVisible())
+            {
+                OverlayDebugLog(
+                    $"[Overlay][VirtualKeyboard] Windows keyboard is already visible. " +
+                    $"Source={source}, PID={targetProcessId}, Window={targetWindow}");
+                return;
+            }
+
+            // Starting TabTip is kept only as a bootstrap step. On recent Windows
+            // builds it can start TextInputHost without actually showing the pane.
+            string tabTipPath;
+            if (TryResolveTabTipPath(out tabTipPath))
+            {
+                TryStartTabTipProcess(tabTipPath);
+                await Task.Delay(WindowsVirtualKeyboardTabTipBootstrapDelayMs);
+
+                if (IsWindowsInputPaneVisible())
+                {
+                    OverlayDebugLog(
+                        $"[Overlay][VirtualKeyboard] Windows keyboard became visible after TabTip bootstrap. " +
+                        $"Source={source}, PID={targetProcessId}, Window={targetWindow}");
+                    return;
+                }
+            }
+            else
+            {
+                OverlayDebugLog("[Overlay][VirtualKeyboard] TabTip.exe was not found; trying COM invocation directly.");
+            }
+
+            // ITipInvocation is the same shell COM path commonly used by desktop
+            // applications to request the touch keyboard. It is intentionally kept
+            // behind the experimental Windows keyboard provider.
+            if (!TryToggleWindowsInputPane())
+            {
+                logger?.Warn("[AnikiHelper] Windows touch keyboard COM invocation failed.");
+                return;
+            }
+
+            await Task.Delay(WindowsVirtualKeyboardVisibilityCheckDelayMs);
+
+            var isVisible = IsWindowsInputPaneVisible();
+            OverlayDebugLog(
+                $"[Overlay][VirtualKeyboard] Windows keyboard COM invocation completed. " +
+                $"Visible={isVisible}, Source={source}, PID={targetProcessId}, Window={targetWindow}");
+
+            if (!isVisible)
+            {
+                logger?.Warn(
+                    "[AnikiHelper] Windows touch keyboard was requested, but Windows did not report it as visible.");
+            }
+        }
+
+        private void TryStartTabTipProcess(string tabTipPath)
+        {
+            if (string.IsNullOrWhiteSpace(tabTipPath))
+            {
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = tabTipPath,
+                    WorkingDirectory = Path.GetDirectoryName(tabTipPath),
+                    UseShellExecute = true
+                });
+
+                OverlayDebugLog($"[Overlay][VirtualKeyboard] TabTip bootstrap requested. Path={tabTipPath}");
+            }
+            catch (Exception ex)
+            {
+                // COM invocation may still work, so do not abort here.
+                logger?.Warn(ex, "[AnikiHelper] Failed to start TabTip.exe; trying COM invocation.");
+            }
+        }
+
+        private bool IsWindowsInputPaneVisible()
+        {
+            object frameworkInputPaneObject = null;
+
+            try
+            {
+                frameworkInputPaneObject = new FrameworkInputPane();
+                var frameworkInputPane = (IFrameworkInputPane)frameworkInputPaneObject;
+
+                NativeRectangle location;
+                var result = frameworkInputPane.Location(out location);
+                if (result < 0)
+                {
+                    return false;
+                }
+
+                return location.Width > 0 && location.Height > 0;
+            }
+            catch (Exception ex)
+            {
+                OverlayDebugLog(
+                    $"[Overlay][VirtualKeyboard] Could not query Windows input pane visibility: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                ReleaseComObjectSafely(frameworkInputPaneObject);
+            }
+        }
+
+        private bool TryToggleWindowsInputPane()
+        {
+            object uiHostObject = null;
+
+            try
+            {
+                uiHostObject = new UIHostNoLaunch();
+                var invocation = (ITipInvocation)uiHostObject;
+                invocation.Toggle(GetDesktopWindow());
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] ITipInvocation.Toggle failed.");
+                return false;
+            }
+            finally
+            {
+                ReleaseComObjectSafely(uiHostObject);
+            }
+        }
+
+        private static void ReleaseComObjectSafely(object value)
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (Marshal.IsComObject(value))
+                {
+                    Marshal.ReleaseComObject(value);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool TryResolveTabTipPath(out string tabTipPath)
+        {
+            tabTipPath = null;
+
+            var candidates = new List<string>();
+            var commonProgramW6432 = Environment.GetEnvironmentVariable("CommonProgramW6432");
+            var commonProgramFiles = Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles);
+
+            if (!string.IsNullOrWhiteSpace(commonProgramW6432))
+            {
+                candidates.Add(Path.Combine(commonProgramW6432, "microsoft shared", "ink", "TabTip.exe"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(commonProgramFiles))
+            {
+                candidates.Add(Path.Combine(commonProgramFiles, "microsoft shared", "ink", "TabTip.exe"));
+            }
+
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (!string.IsNullOrWhiteSpace(programFiles))
+            {
+                candidates.Add(Path.Combine(programFiles, "Common Files", "microsoft shared", "ink", "TabTip.exe"));
+            }
+
+            foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (File.Exists(candidate))
+                {
+                    tabTipPath = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void OpenOverlayInternal(
+            bool ignoreEnabledSetting,
+            string source,
+            bool preserveCapturedTarget = false,
+            bool? openedFromPlayniteOverride = null)
+        {
+            if (!ignoreEnabledSetting && settings != null && !settings.InGameOverlayEnabled)
+            {
+                return;
+            }
+
+            // Capture the target immediately, before the request is queued on Playnite's
+            // UI thread and before the overlay can steal focus. Capturing later can return
+            // Playnite or the overlay instead of the application the user was typing in.
+            if (!preserveCapturedTarget && (overlayWindow == null || !overlayWindow.IsVisible))
+            {
+                CaptureVirtualKeyboardTargetWindow();
             }
 
             // A custom Aniki window and the in-game overlay must never be active at the same time.
@@ -684,7 +1272,9 @@ namespace AnikiHelper.Services.InGameOverlay
                     if (overlayWindow != null && overlayWindow.IsVisible)
                     {
                         overlayOpenOrOpening = true;
-                        overlayWindow.FocusOverlayButton();
+                        var visibleWindow = overlayWindow;
+                        TryBringOverlayToForeground(visibleWindow, $"AlreadyVisible:{source}", focusOverlayButton: true);
+                        QueueOverlayForegroundRecovery(visibleWindow, $"AlreadyVisible:{source}");
                         return;
                     }
 
@@ -698,7 +1288,7 @@ namespace AnikiHelper.Services.InGameOverlay
                     }
 
                     OverlayDebugLog($"[Overlay] Open requested. Source={source}, IgnoreEnabledSetting={ignoreEnabledSetting}");
-                    ShowOverlay();
+                    ShowOverlay(openedFromPlayniteOverride);
                 }
                 catch (Exception ex)
                 {
@@ -738,6 +1328,17 @@ namespace AnikiHelper.Services.InGameOverlay
         {
             OverlayDebugLog($"[OverlayInput] HandleOverlayControllerInput: {button}");
 
+            // The D-pad can reach the overlay twice: once as an SDL button and once as a
+            // native WPF/Playnite arrow key. Give the native path a very short opportunity
+            // to handle it first, then use SDL only as a fallback. This keeps joystick and
+            // D-pad navigation on the same focus path without losing compatibility in games
+            // that do not forward controller navigation to WPF.
+            if (IsDPadButton(button))
+            {
+                QueueOverlayDPadFallback(button);
+                return;
+            }
+
             if (!IsOverlayWindowForeground(button))
             {
                 if ((button == ControllerInput.B || button == ControllerInput.Back) &&
@@ -745,6 +1346,12 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     OverlayDebugLog($"[OverlayInput] Sent Escape to foreground Playnite window. Button={button}");
                     return;
+                }
+
+                var visibleWindow = overlayWindow;
+                if (visibleWindow != null && visibleWindow.IsVisible)
+                {
+                    QueueOverlayForegroundRecovery(visibleWindow, $"InputRecovery:{button}");
                 }
 
                 OverlayDebugLog($"[OverlayInput] Ignored because overlay is not foreground. Button={button}");
@@ -769,6 +1376,70 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             catch
             {
+            }
+        }
+
+        private static bool IsDPadButton(ControllerInput button)
+        {
+            return button == ControllerInput.DPadLeft ||
+                   button == ControllerInput.DPadRight ||
+                   button == ControllerInput.DPadUp ||
+                   button == ControllerInput.DPadDown;
+        }
+
+        private async void QueueOverlayDPadFallback(ControllerInput button)
+        {
+            var windowAtRequest = overlayWindow;
+            if (windowAtRequest == null || !windowAtRequest.IsVisible)
+            {
+                return;
+            }
+
+            var requestedUtc = DateTime.UtcNow;
+
+            try
+            {
+                if (!IsOverlayWindowForeground(button))
+                {
+                    // This callback runs on the SDL polling thread. Queue the WPF focus
+                    // recovery instead of touching the Window directly from this thread.
+                    QueueOverlayForegroundRecovery(windowAtRequest, $"DPadRecovery:{button}");
+                }
+
+                await Task.Delay(OverlayDPadFallbackDelayMs).ConfigureAwait(false);
+
+                var dispatcher = windowAtRequest.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (!ReferenceEquals(overlayWindow, windowAtRequest) ||
+                            !windowAtRequest.IsVisible)
+                        {
+                            return;
+                        }
+
+                        if (!windowAtRequest.IsActive || !windowAtRequest.IsKeyboardFocusWithin)
+                        {
+                            TryBringOverlayToForeground(windowAtRequest, $"DPadFallback:{button}", focusOverlayButton: true);
+                        }
+
+                        windowAtRequest.HandleOverlayDPadFallback(button, requestedUtc);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Debug(ex, "[AnikiHelper][OverlayInput] D-pad fallback failed.");
+                    }
+                }), System.Windows.Threading.DispatcherPriority.Input);
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper][OverlayInput] Failed to queue D-pad fallback.");
             }
         }
 
@@ -818,6 +1489,14 @@ namespace AnikiHelper.Services.InGameOverlay
 
         public bool HandleControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
         {
+            // SDL handles the browser controls. Swallow Playnite's native controller
+            // events while the browser owns focus so Start/Back/Y cannot open another
+            // Fullscreen menu underneath the Chromium window.
+            if (isWebBrowserActive?.Invoke() == true)
+            {
+                return true;
+            }
+
             if (settings != null && !settings.InGameOverlayEnabled && !IsOverlayVisible)
             {
                 return false;
@@ -974,6 +1653,7 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             finally
             {
+                Interlocked.Increment(ref overlayForegroundRecoveryGeneration);
                 closeOverlayShouldResumeSuspendedGame = true;
 
                 if (ReferenceEquals(overlayWindow, sender))
@@ -1107,7 +1787,6 @@ namespace AnikiHelper.Services.InGameOverlay
 
                     summary =
                         LoadPlayniteAchievementsSummary(gameAtOpen)
-                        ?? LoadSuccessStoryAchievementSummary(gameAtOpen)
                         ?? new AchievementOverlaySummary();
 
                     OverlayDebugLog("[OverlayCache] Async refresh END");
@@ -1210,10 +1889,11 @@ namespace AnikiHelper.Services.InGameOverlay
             });
         }
 
-        public void ShowOverlay()
+        public void ShowOverlay(bool? openedFromPlayniteOverride = null)
         {
             overlayOpenOrOpening = true;
-            overlayOpenedFromPlaynite = IsPlayniteCurrentlyForeground() || currentGame == null;
+            overlayOpenedFromPlaynite = openedFromPlayniteOverride ??
+                                         (IsPlayniteCurrentlyForeground() || currentGame == null);
 
             var shouldSuspendGameAfterOverlayIsVisible = currentGame != null && !overlayOpenedFromPlaynite;
             var gameIdAtOpen = currentGame != null ? currentGame.Id : Guid.Empty;
@@ -1224,8 +1904,10 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             else if (currentGame == null)
             {
-                lastForegroundWindow = IntPtr.Zero;
-                lastForegroundWindowProcessId = null;
+                // Outside a game, remember the application that was active before the
+                // overlay opened. The virtual keyboard can then restore that window and
+                // send its text to Firefox, Notepad, Discord, or any other text field.
+                CaptureCurrentForegroundGameWindow();
             }
 
             EnsureOverlayWindowCreated();
@@ -1288,6 +1970,7 @@ namespace AnikiHelper.Services.InGameOverlay
             overlayWindow.FocusOverlayButton();
 
             var windowAtOpen = overlayWindow;
+            QueueOverlayForegroundRecovery(windowAtOpen, "InitialShow");
 
             if (shouldSuspendGameAfterOverlayIsVisible)
             {
@@ -1295,6 +1978,136 @@ namespace AnikiHelper.Services.InGameOverlay
             }
 
             RefreshOverlayDataAfterShowAsync(windowAtOpen, gameIdAtOpen);
+        }
+
+        private async void QueueOverlayForegroundRecovery(
+            AnikiInGameOverlayWindow expectedWindow,
+            string reason,
+            bool focusOverlayButton = true)
+        {
+            if (expectedWindow == null)
+            {
+                return;
+            }
+
+            var generation = Interlocked.Increment(ref overlayForegroundRecoveryGeneration);
+            // The later attempts are intentional: Guide can briefly bring Playnite
+            // forward after our first focus call, depending on Steam Input and drivers.
+            var retryDelaysMs = new[] { 0, 100, 220, 450, 800 };
+            var previousDelay = 0;
+
+            try
+            {
+                foreach (var absoluteDelay in retryDelaysMs)
+                {
+                    var waitMs = absoluteDelay - previousDelay;
+                    previousDelay = absoluteDelay;
+
+                    if (waitMs > 0)
+                    {
+                        await Task.Delay(waitMs).ConfigureAwait(false);
+                    }
+
+                    if (generation != Volatile.Read(ref overlayForegroundRecoveryGeneration))
+                    {
+                        return;
+                    }
+
+                    var dispatcher = expectedWindow.Dispatcher;
+                    if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                    {
+                        return;
+                    }
+
+                    var completion = new TaskCompletionSource<bool>();
+
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            if (generation != Volatile.Read(ref overlayForegroundRecoveryGeneration) ||
+                                !ReferenceEquals(overlayWindow, expectedWindow) ||
+                                !expectedWindow.IsVisible)
+                            {
+                                completion.TrySetResult(false);
+                                return;
+                            }
+
+                            completion.TrySetResult(
+                                TryBringOverlayToForeground(
+                                    expectedWindow,
+                                    $"{reason}:Attempt{absoluteDelay}",
+                                    focusOverlayButton));
+                        }
+                        catch (Exception ex)
+                        {
+                            logger?.Debug(ex, "[AnikiHelper][Overlay] Foreground recovery attempt failed.");
+                            completion.TrySetResult(false);
+                        }
+                    }), System.Windows.Threading.DispatcherPriority.Send);
+
+                    if (await completion.Task.ConfigureAwait(false))
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper][Overlay] Foreground recovery sequence failed.");
+            }
+        }
+
+        private bool TryBringOverlayToForeground(
+            AnikiInGameOverlayWindow targetWindow,
+            string reason,
+            bool focusOverlayButton)
+        {
+            if (targetWindow == null || !targetWindow.IsVisible)
+            {
+                return false;
+            }
+
+            try
+            {
+                var overlayHandle = new System.Windows.Interop.WindowInteropHelper(targetWindow).Handle;
+
+                targetWindow.Topmost = false;
+                targetWindow.Topmost = true;
+
+                if (overlayHandle != IntPtr.Zero)
+                {
+                    ShowWindowAsync(overlayHandle, SW_SHOW);
+                    BringWindowToTop(overlayHandle);
+                    ForceFocusWindow(overlayHandle);
+                }
+
+                targetWindow.Activate();
+                targetWindow.Focus();
+
+                if (focusOverlayButton)
+                {
+                    targetWindow.FocusOverlayButton();
+                }
+
+                var foregroundHandle = GetForegroundWindow();
+                var foregroundAcquired = overlayHandle != IntPtr.Zero && foregroundHandle == overlayHandle;
+                var ready = foregroundAcquired &&
+                            targetWindow.IsActive &&
+                            targetWindow.IsKeyboardFocusWithin;
+
+                OverlayDebugLog(
+                    $"[Overlay][FocusRecovery] Reason={reason}, " +
+                    $"Foreground={foregroundAcquired}, Active={targetWindow.IsActive}, " +
+                    $"KeyboardFocusWithin={targetWindow.IsKeyboardFocusWithin}, Ready={ready}");
+
+                return ready;
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, $"[AnikiHelper][Overlay] Failed to bring overlay to foreground. Reason={reason}");
+                return false;
+            }
         }
 
         private void SyncOverlayMouseInputWithPlaynite()
@@ -1335,6 +2148,59 @@ namespace AnikiHelper.Services.InGameOverlay
 
             // Preserve mouse support if Playnite's window state cannot be read.
             return true;
+        }
+
+        private void CaptureVirtualKeyboardTargetWindow()
+        {
+            try
+            {
+                var handle = GetForegroundWindow();
+                if (handle == IntPtr.Zero || !IsWindow(handle))
+                {
+                    virtualKeyboardTargetWindow = IntPtr.Zero;
+                    virtualKeyboardTargetProcessId = null;
+                    return;
+                }
+
+                // Never replace the target with the overlay itself.
+                try
+                {
+                    if (overlayWindow != null)
+                    {
+                        var overlayHandle = new System.Windows.Interop.WindowInteropHelper(overlayWindow).Handle;
+                        if (overlayHandle != IntPtr.Zero && handle == overlayHandle)
+                        {
+                            return;
+                        }
+                    }
+                }
+                catch
+                {
+                }
+
+                uint processId;
+                GetWindowThreadProcessId(handle, out processId);
+
+                if (processId <= 0)
+                {
+                    virtualKeyboardTargetWindow = IntPtr.Zero;
+                    virtualKeyboardTargetProcessId = null;
+                    return;
+                }
+
+                virtualKeyboardTargetWindow = handle;
+                virtualKeyboardTargetProcessId = (int)processId;
+
+                OverlayDebugLog(
+                    $"[Overlay][VirtualKeyboard] Target captured before overlay. " +
+                    $"PID={processId}, Window={handle}");
+            }
+            catch (Exception ex)
+            {
+                virtualKeyboardTargetWindow = IntPtr.Zero;
+                virtualKeyboardTargetProcessId = null;
+                logger?.Debug(ex, "[AnikiHelper][Overlay] Failed to capture the virtual keyboard target window.");
+            }
         }
 
         private void CaptureCurrentForegroundGameWindow()
@@ -1653,6 +2519,69 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
+        private bool IsSteamBigPictureGuideExclusionActive()
+        {
+            if (!string.Equals(
+                settings?.InGameOverlayControllerShortcut,
+                "Guide",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            try
+            {
+                var foregroundWindow = GetForegroundWindow();
+
+                if (foregroundWindow == IntPtr.Zero || !IsWindow(foregroundWindow))
+                {
+                    return false;
+                }
+
+                uint foregroundPid;
+                GetWindowThreadProcessId(foregroundWindow, out foregroundPid);
+
+                if (foregroundPid <= 0)
+                {
+                    return false;
+                }
+
+                using (var foregroundProcess = Process.GetProcessById((int)foregroundPid))
+                {
+                    if (!string.Equals(
+                        foregroundProcess.ProcessName,
+                        "steamwebhelper",
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+
+                var titleLength = GetWindowTextLength(foregroundWindow);
+                if (titleLength <= 0)
+                {
+                    return false;
+                }
+
+                var titleBuilder = new StringBuilder(titleLength + 1);
+                if (GetWindowText(foregroundWindow, titleBuilder, titleBuilder.Capacity) <= 0)
+                {
+                    return false;
+                }
+
+                return titleBuilder
+                    .ToString()
+                    .IndexOf("Big Picture", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(
+                    ex,
+                    "[AnikiHelper][Overlay] Failed to detect whether Steam Big Picture is foreground.");
+                return false;
+            }
+        }
+
         private bool IsForegroundCurrentGame()
         {
             try
@@ -1731,6 +2660,9 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private void HideOverlayImmediate(bool resumeSuspendedGame = true)
         {
+            Interlocked.Increment(ref overlayForegroundRecoveryGeneration);
+            Interlocked.Increment(ref controllerOverlayOpenGeneration);
+            Interlocked.Increment(ref controllerVirtualKeyboardOpenGeneration);
             overlayOpenOrOpening = false;
 
             if (resumeSuspendedGame)
@@ -1944,10 +2876,11 @@ namespace AnikiHelper.Services.InGameOverlay
                 sourceName);
         }
 
-        private async Task FocusGameWindowWithRetriesAsync(
+        private async Task<bool> FocusGameWindowWithRetriesAsync(
             IntPtr initialWindowHandle,
             int processId,
-            string sourceName)
+            string sourceName,
+            bool updateCurrentGameProcessId = true)
         {
             var targetWindow = initialWindowHandle;
             var playniteWindow = IntPtr.Zero;
@@ -1992,7 +2925,7 @@ namespace AnikiHelper.Services.InGameOverlay
                             OverlayDebugLog(
                                 $"[Overlay][ReturnToGame] Target process is no longer running. PID={processId}"
                             );
-                            return;
+                            return false;
                         }
 
                         try
@@ -2030,13 +2963,17 @@ namespace AnikiHelper.Services.InGameOverlay
                     {
                         lastForegroundWindow = targetWindow;
                         lastForegroundWindowProcessId = processId;
-                        currentGameProcessId = processId;
+
+                        if (updateCurrentGameProcessId)
+                        {
+                            currentGameProcessId = processId;
+                        }
 
                         OverlayDebugLog(
                             $"[Overlay][ReturnToGame] Focus confirmed. " +
                             $"Source={sourceName}, PID={processId}, Attempt={attempt}"
                         );
-                        return;
+                        return true;
                     }
 
                     OverlayDebugLog(
@@ -2052,11 +2989,100 @@ namespace AnikiHelper.Services.InGameOverlay
                     $"[AnikiHelper] Failed to return focus to the game after " +
                     $"{ReturnToGameFocusMaxAttempts} attempts. PID={processId}, Source={sourceName}."
                 );
+
+                return false;
             }
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[AnikiHelper] Delayed ReturnToGame focus failed.");
+                return false;
             }
+        }
+
+        private async Task<bool> FocusVirtualKeyboardTargetWithRetriesAsync(
+            IntPtr initialWindowHandle,
+            int processId,
+            string sourceName)
+        {
+            var targetWindow = initialWindowHandle;
+
+            OverlayDebugLog(
+                $"[Overlay][VirtualKeyboard] Focus scheduled. " +
+                $"Source={sourceName}, PID={processId}, Window={targetWindow}");
+
+            try
+            {
+                // The overlay has just been hidden. A short delay prevents Playnite's
+                // closing activation messages from immediately taking focus back.
+                await Task.Delay(VirtualKeyboardTargetInitialFocusDelayMs);
+
+                for (var attempt = 1; attempt <= VirtualKeyboardTargetFocusMaxAttempts; attempt++)
+                {
+                    if (!IsWindow(targetWindow))
+                    {
+                        Process process;
+
+                        if (!TryGetRunningProcess(processId, out process))
+                        {
+                            return false;
+                        }
+
+                        try
+                        {
+                            process.Refresh();
+                            targetWindow = process.MainWindowHandle;
+                        }
+                        finally
+                        {
+                            process.Dispose();
+                        }
+
+                        if (targetWindow == IntPtr.Zero || !IsWindow(targetWindow))
+                        {
+                            await Task.Delay(VirtualKeyboardTargetFocusRetryDelayMs);
+                            continue;
+                        }
+                    }
+
+                    // SW_RESTORE changes an already maximized window back to its normal
+                    // windowed size. Only restore a target that is actually minimized.
+                    if (IsIconic(targetWindow))
+                    {
+                        ShowWindowAsync(targetWindow, SW_RESTORE);
+                        await Task.Delay(VirtualKeyboardTargetRestoreDelayMs);
+                    }
+
+                    BringWindowToTop(targetWindow);
+                    ForceFocusWindow(targetWindow);
+
+                    await Task.Delay(VirtualKeyboardTargetFocusVerificationDelayMs);
+
+                    var foregroundWindow = GetForegroundWindow();
+                    if (foregroundWindow == targetWindow)
+                    {
+                        OverlayDebugLog(
+                            $"[Overlay][VirtualKeyboard] Focus confirmed. " +
+                            $"Source={sourceName}, PID={processId}, Attempt={attempt}");
+                        return true;
+                    }
+
+                    uint foregroundPid;
+                    GetWindowThreadProcessId(foregroundWindow, out foregroundPid);
+
+                    OverlayDebugLog(
+                        $"[Overlay][VirtualKeyboard] Focus attempt failed. " +
+                        $"Source={sourceName}, PID={processId}, Attempt={attempt}, " +
+                        $"ForegroundPID={foregroundPid}, ForegroundWindow={foregroundWindow}");
+
+                    await Task.Delay(VirtualKeyboardTargetFocusRetryDelayMs);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to restore the virtual keyboard target window.");
+            }
+
+            return false;
         }
 
         public void ReturnToGame()
@@ -2131,6 +3157,404 @@ namespace AnikiHelper.Services.InGameOverlay
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[AnikiHelper] ReturnToGame failed.");
+            }
+        }
+
+        public void CloseDirectVirtualKeyboard()
+        {
+            _ = CloseDirectVirtualKeyboardAsync();
+        }
+
+        private async Task CloseDirectVirtualKeyboardAsync()
+        {
+            IntPtr targetWindow;
+            int targetProcessId;
+
+            var hasTarget = TryResolveVirtualKeyboardTarget(out targetWindow, out targetProcessId);
+
+            HideOverlayImmediate();
+
+            if (!hasTarget)
+            {
+                return;
+            }
+
+            await FocusVirtualKeyboardTargetWithRetriesAsync(
+                targetWindow,
+                targetProcessId,
+                "virtualKeyboardCancel");
+        }
+
+        internal IntPtr GetVirtualKeyboardLayout()
+        {
+            try
+            {
+                IntPtr targetWindow;
+                int targetProcessId;
+
+                if (TryResolveVirtualKeyboardTarget(out targetWindow, out targetProcessId))
+                {
+                    uint ignoredProcessId;
+                    var targetThreadId = GetWindowThreadProcessId(targetWindow, out ignoredProcessId);
+
+                    if (targetThreadId != 0)
+                    {
+                        var keyboardLayout = GetKeyboardLayout(targetThreadId);
+                        if (keyboardLayout != IntPtr.Zero)
+                        {
+                            return keyboardLayout;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper][Overlay] Failed to resolve the target keyboard layout.");
+            }
+
+            return GetKeyboardLayout(0);
+        }
+
+        public void SendVirtualKeyboardText(string text, bool pressEnter)
+        {
+            _ = SendVirtualKeyboardTextAsync(text ?? string.Empty, pressEnter);
+        }
+
+        private async Task SendVirtualKeyboardTextAsync(string text, bool pressEnter)
+        {
+            IntPtr targetWindow;
+            int targetProcessId;
+
+            if (!TryResolveVirtualKeyboardTarget(out targetWindow, out targetProcessId))
+            {
+                HideOverlayImmediate();
+                logger?.Warn("[AnikiHelper] Virtual keyboard could not resolve a valid target window.");
+                return;
+            }
+
+            OverlayDebugLog(
+                $"[Overlay][VirtualKeyboard] Sending text. PID={targetProcessId}, " +
+                $"Window={targetWindow}, Length={text.Length}, PressEnter={pressEnter}");
+
+            HideOverlayImmediate();
+
+            var focused = await FocusVirtualKeyboardTargetWithRetriesAsync(
+                targetWindow,
+                targetProcessId,
+                "virtualKeyboard");
+
+            if (!focused)
+            {
+                logger?.Warn("[AnikiHelper] Virtual keyboard stopped because target focus could not be restored.");
+                return;
+            }
+
+            await Task.Delay(VirtualKeyboardAfterFocusDelayMs);
+
+            // Closing the WPF overlay can briefly give focus back to Playnite after the first
+            // focus confirmation. Verify the exact target window once more immediately before
+            // injecting keyboard input.
+            var foregroundWindow = GetForegroundWindow();
+
+            if (foregroundWindow != targetWindow)
+            {
+                focused = await FocusVirtualKeyboardTargetWithRetriesAsync(
+                    targetWindow,
+                    targetProcessId,
+                    "virtualKeyboardBeforeInput");
+
+                if (!focused)
+                {
+                    logger?.Warn("[AnikiHelper] Virtual keyboard stopped because the target lost focus before input injection.");
+                    return;
+                }
+            }
+
+            try
+            {
+                uint ignoredProcessId;
+                var targetThreadId = GetWindowThreadProcessId(targetWindow, out ignoredProcessId);
+                var keyboardLayout = GetKeyboardLayout(targetThreadId);
+
+                foreach (var character in text)
+                {
+                    SendCharacterInput(character, keyboardLayout);
+                    await Task.Delay(VirtualKeyboardCharacterDelayMs);
+                }
+
+                if (pressEnter)
+                {
+                    SendVirtualKeyInput(VK_RETURN, keyboardLayout);
+                }
+
+                OverlayDebugLog("[Overlay][VirtualKeyboard] Text injection completed.");
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Virtual keyboard text injection failed.");
+            }
+        }
+
+        private bool TryResolveVirtualKeyboardTarget(out IntPtr targetWindow, out int targetProcessId)
+        {
+            targetWindow = IntPtr.Zero;
+            targetProcessId = 0;
+
+            try
+            {
+                if (virtualKeyboardTargetWindow != IntPtr.Zero && IsWindow(virtualKeyboardTargetWindow))
+                {
+                    uint windowPid;
+                    GetWindowThreadProcessId(virtualKeyboardTargetWindow, out windowPid);
+
+                    if (windowPid > 0)
+                    {
+                        targetWindow = virtualKeyboardTargetWindow;
+                        targetProcessId = (int)windowPid;
+                        return true;
+                    }
+                }
+
+                if (lastForegroundWindow != IntPtr.Zero && IsWindow(lastForegroundWindow))
+                {
+                    uint windowPid;
+                    GetWindowThreadProcessId(lastForegroundWindow, out windowPid);
+
+                    if (windowPid > 0)
+                    {
+                        targetWindow = lastForegroundWindow;
+                        targetProcessId = (int)windowPid;
+                        return true;
+                    }
+                }
+
+                var processIds = new[]
+                {
+                    virtualKeyboardTargetProcessId,
+                    lastForegroundWindowProcessId,
+                    currentGameProcessId
+                };
+
+                foreach (var processId in processIds)
+                {
+                    Process process;
+
+                    if (!TryGetRunningProcess(processId, out process))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        process.Refresh();
+
+                        if (process.MainWindowHandle != IntPtr.Zero && IsWindow(process.MainWindowHandle))
+                        {
+                            targetWindow = process.MainWindowHandle;
+                            targetProcessId = process.Id;
+                            return true;
+                        }
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+
+                using (var process = TryFindCurrentGameProcess())
+                {
+                    if (process != null &&
+                        process.MainWindowHandle != IntPtr.Zero &&
+                        IsWindow(process.MainWindowHandle))
+                    {
+                        targetWindow = process.MainWindowHandle;
+                        targetProcessId = process.Id;
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Debug(ex, "[AnikiHelper][Overlay] Failed to resolve virtual keyboard target window.");
+            }
+
+            return false;
+        }
+
+        private static void SendCharacterInput(char character, IntPtr keyboardLayout)
+        {
+            var keyScan = VkKeyScanEx(character, keyboardLayout);
+
+            if (keyScan == -1)
+            {
+                // Unicode is kept as a fallback for characters that do not exist on the
+                // active keyboard layout. Games using Raw Input may ignore this fallback,
+                // but ordinary Windows text controls will still accept it.
+                SendUnicodeCharacterInput(character);
+                return;
+            }
+
+            var virtualKey = (ushort)(keyScan & 0xFF);
+            var modifiers = (byte)((keyScan >> 8) & 0xFF);
+            var inputs = new List<INPUT>();
+
+            if ((modifiers & 1) != 0)
+            {
+                inputs.Add(CreateMappedVirtualKeyInput(VK_SHIFT, false, keyboardLayout));
+            }
+
+            if ((modifiers & 2) != 0)
+            {
+                inputs.Add(CreateMappedVirtualKeyInput(VK_CONTROL, false, keyboardLayout));
+            }
+
+            if ((modifiers & 4) != 0)
+            {
+                inputs.Add(CreateMappedVirtualKeyInput(VK_MENU, false, keyboardLayout));
+            }
+
+            inputs.Add(CreateMappedVirtualKeyInput(virtualKey, false, keyboardLayout));
+            inputs.Add(CreateMappedVirtualKeyInput(virtualKey, true, keyboardLayout));
+
+            if ((modifiers & 4) != 0)
+            {
+                inputs.Add(CreateMappedVirtualKeyInput(VK_MENU, true, keyboardLayout));
+            }
+
+            if ((modifiers & 2) != 0)
+            {
+                inputs.Add(CreateMappedVirtualKeyInput(VK_CONTROL, true, keyboardLayout));
+            }
+
+            if ((modifiers & 1) != 0)
+            {
+                inputs.Add(CreateMappedVirtualKeyInput(VK_SHIFT, true, keyboardLayout));
+            }
+
+            SendKeyboardInputs(inputs.ToArray());
+        }
+
+        private static void SendUnicodeCharacterInput(char character)
+        {
+            var inputs = new[]
+            {
+                CreateUnicodeInput(character, false),
+                CreateUnicodeInput(character, true)
+            };
+
+            SendKeyboardInputs(inputs);
+        }
+
+        private static void SendVirtualKeyInput(ushort virtualKey, IntPtr keyboardLayout)
+        {
+            var inputs = new[]
+            {
+                CreateMappedVirtualKeyInput(virtualKey, false, keyboardLayout),
+                CreateMappedVirtualKeyInput(virtualKey, true, keyboardLayout)
+            };
+
+            SendKeyboardInputs(inputs);
+        }
+
+        private static INPUT CreateMappedVirtualKeyInput(
+            ushort virtualKey,
+            bool keyUp,
+            IntPtr keyboardLayout)
+        {
+            var mappedScanCode = MapVirtualKeyEx(
+                virtualKey,
+                MAPVK_VK_TO_VSC_EX,
+                keyboardLayout);
+
+            if (mappedScanCode == 0)
+            {
+                return CreateVirtualKeyInput(virtualKey, keyUp);
+            }
+
+            var flags = KEYEVENTF_SCANCODE;
+            var prefix = mappedScanCode & 0xFF00;
+
+            if (prefix == 0xE000 || prefix == 0xE100)
+            {
+                flags |= KEYEVENTF_EXTENDEDKEY;
+            }
+
+            if (keyUp)
+            {
+                flags |= KEYEVENTF_KEYUP;
+            }
+
+            return new INPUT
+            {
+                Type = INPUT_KEYBOARD,
+                Data = new InputUnion
+                {
+                    Keyboard = new KEYBDINPUT
+                    {
+                        VirtualKey = 0,
+                        ScanCode = (ushort)(mappedScanCode & 0xFF),
+                        Flags = flags,
+                        Time = 0,
+                        ExtraInfo = UIntPtr.Zero
+                    }
+                }
+            };
+        }
+
+        private static INPUT CreateVirtualKeyInput(ushort virtualKey, bool keyUp)
+        {
+            return new INPUT
+            {
+                Type = INPUT_KEYBOARD,
+                Data = new InputUnion
+                {
+                    Keyboard = new KEYBDINPUT
+                    {
+                        VirtualKey = virtualKey,
+                        ScanCode = 0,
+                        Flags = keyUp ? KEYEVENTF_KEYUP : 0,
+                        Time = 0,
+                        ExtraInfo = UIntPtr.Zero
+                    }
+                }
+            };
+        }
+
+        private static INPUT CreateUnicodeInput(char character, bool keyUp)
+        {
+            return new INPUT
+            {
+                Type = INPUT_KEYBOARD,
+                Data = new InputUnion
+                {
+                    Keyboard = new KEYBDINPUT
+                    {
+                        VirtualKey = 0,
+                        ScanCode = character,
+                        Flags = KEYEVENTF_UNICODE | (keyUp ? KEYEVENTF_KEYUP : 0),
+                        Time = 0,
+                        ExtraInfo = UIntPtr.Zero
+                    }
+                }
+            };
+        }
+
+        private static void SendKeyboardInputs(INPUT[] inputs)
+        {
+            if (inputs == null || inputs.Length == 0)
+            {
+                return;
+            }
+
+            var sent = SendInput(
+                (uint)inputs.Length,
+                inputs,
+                Marshal.SizeOf(typeof(INPUT)));
+
+            if (sent != inputs.Length)
+            {
+                throw new InvalidOperationException(
+                    $"SendInput sent {sent} of {inputs.Length} keyboard events. Win32={Marshal.GetLastWin32Error()}");
             }
         }
 
@@ -3266,7 +4690,6 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 var summary =
                     LoadPlayniteAchievementsSummary(gameAtCall)
-                    ?? LoadSuccessStoryAchievementSummary(gameAtCall)
                     ?? new AchievementOverlaySummary();
 
                 lock (achievementSummaryLock)
@@ -3323,248 +4746,12 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
-        private AchievementOverlaySummary LoadSuccessStoryAchievementSummary(Game game)
-        {
-            try
-            {
-                var ssRoot = FindSuccessStoryRoot();
-                if (string.IsNullOrWhiteSpace(ssRoot) || !Directory.Exists(ssRoot))
-                {
-                    return null;
-                }
 
-                var files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray();
-                if (files.Length == 0)
-                {
-                    return null;
-                }
 
-                foreach (var file in files)
-                {
-                    SsFile rootObj = null;
 
-                    try
-                    {
-                        rootObj = Serialization.FromJsonFile<SsFile>(file);
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            var arrOnly = Serialization.FromJsonFile<List<SsItem>>(file);
-                            rootObj = new SsFile { Items = arrOnly };
-                        }
-                        catch
-                        {
-                            continue;
-                        }
-                    }
 
-                    if (rootObj == null)
-                    {
-                        continue;
-                    }
 
-                    var fileGameName = !string.IsNullOrWhiteSpace(rootObj.Name)
-                        ? rootObj.Name
-                        : (rootObj.Game?.Name ?? Path.GetFileNameWithoutExtension(file));
 
-                    if (!IsSameGameForAchievements(game, fileGameName, file))
-                    {
-                        continue;
-                    }
-
-                    var items = rootObj.Items ?? rootObj.Achievements ?? new List<SsItem>();
-                    if (items.Count == 0)
-                    {
-                        return null;
-                    }
-
-                    var unlocked = items.Where(IsAchievementUnlocked).ToList();
-                    var latest = unlocked
-                        .Select(x => new
-                        {
-                            Item = x,
-                            Date = ParseAchievementUnlockDate(x)
-                        })
-                        .Where(x => x.Date != null)
-                        .OrderByDescending(x => x.Date.Value)
-                        .FirstOrDefault();
-
-                    return new AchievementOverlaySummary
-                    {
-                        Unlocked = unlocked.Count,
-                        Total = items.Count,
-                        LastUnlockedTitle = latest != null ? GetAchievementTitle(latest.Item) : string.Empty
-                    };
-                }
-            }
-            catch (Exception ex)
-            {
-                logger?.Debug(ex, "[AnikiHelper] Failed to load SuccessStory achievement summary for overlay.");
-            }
-
-            return null;
-        }
-
-        private string FindSuccessStoryRoot()
-        {
-            try
-            {
-                var root = playniteApi?.Paths?.ExtensionsDataPath;
-                if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
-                {
-                    return null;
-                }
-
-                var classic = Path.Combine(root, "cebe6d32-8c46-4459-b993-5a5189d60788", "SuccessStory");
-                if (Directory.Exists(classic) && Directory.EnumerateFiles(classic, "*.json", SearchOption.AllDirectories).Any())
-                {
-                    return classic;
-                }
-
-                foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
-                {
-                    if (!dir.EndsWith("SuccessStory", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    if (Directory.EnumerateFiles(dir, "*.json", SearchOption.AllDirectories).Any())
-                    {
-                        return dir;
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            return null;
-        }
-
-        private bool IsSameGameForAchievements(Game game, string achievementGameName, string filePath)
-        {
-            if (game == null)
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(filePath) &&
-                filePath.IndexOf(game.Id.ToString(), StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return true;
-            }
-
-            if (string.IsNullOrWhiteSpace(achievementGameName) || string.IsNullOrWhiteSpace(game.Name))
-            {
-                return false;
-            }
-
-            return string.Equals(NormalizeGameName(achievementGameName), NormalizeGameName(game.Name), StringComparison.OrdinalIgnoreCase);
-        }
-
-        private string NormalizeGameName(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return string.Empty;
-            }
-
-            var chars = value
-                .Where(char.IsLetterOrDigit)
-                .Select(char.ToLowerInvariant)
-                .ToArray();
-
-            return new string(chars);
-        }
-
-        private bool IsAchievementUnlocked(SsItem item)
-        {
-            if (item == null)
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(item.DateUnlocked) && !item.DateUnlocked.StartsWith("0001-01-01"))
-            {
-                return true;
-            }
-
-            if (item.UnlockTime != null)
-            {
-                return true;
-            }
-
-            if (string.Equals(item.IsUnlock, "true", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (string.Equals(item.Earned, "true", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (string.Equals(item.Unlocked, "true", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-        private DateTime? ParseAchievementUnlockDate(SsItem item)
-        {
-            if (item == null)
-            {
-                return null;
-            }
-
-            DateTime parsed;
-
-            if (!string.IsNullOrWhiteSpace(item.DateUnlocked) && DateTime.TryParse(item.DateUnlocked, out parsed))
-            {
-                return parsed;
-            }
-
-            if (item.UnlockTime != null)
-            {
-                return DateTimeOffset.FromUnixTimeSeconds(item.UnlockTime.Value).LocalDateTime;
-            }
-
-            if (!string.IsNullOrWhiteSpace(item.UnlockTimestamp) && DateTime.TryParse(item.UnlockTimestamp, out parsed))
-            {
-                return parsed;
-            }
-
-            if (!string.IsNullOrWhiteSpace(item.LastUnlock) && DateTime.TryParse(item.LastUnlock, out parsed))
-            {
-                return parsed;
-            }
-
-            return null;
-        }
-
-        private string GetAchievementTitle(SsItem item)
-        {
-            if (item == null)
-            {
-                return string.Empty;
-            }
-
-            if (!string.IsNullOrWhiteSpace(item.Name))
-            {
-                return item.Name;
-            }
-
-            if (!string.IsNullOrWhiteSpace(item.Title))
-            {
-                return item.Title;
-            }
-
-            return Loc("LOCInGameOverlayAchievement", "Achievement");
-        }
 
         private string FormatRelativeTime(DateTime date)
         {
@@ -3853,6 +5040,139 @@ namespace AnikiHelper.Services.InGameOverlay
             Stop();
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeRectangle
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+
+            public int Width
+            {
+                get { return Math.Max(0, Right - Left); }
+            }
+
+            public int Height
+            {
+                get { return Math.Max(0, Bottom - Top); }
+            }
+        }
+
+        [ComImport]
+        [Guid("4CE576FA-83DC-4F88-951C-9D0782B4E376")]
+        private class UIHostNoLaunch
+        {
+        }
+
+        [ComImport]
+        [Guid("37C994E7-432B-4834-A2F7-DCE1F13B834B")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITipInvocation
+        {
+            void Toggle(IntPtr windowHandle);
+        }
+
+        [ComImport]
+        [Guid("D5120AA3-46BA-44C5-822D-CA8092C1FC72")]
+        private class FrameworkInputPane
+        {
+        }
+
+        [ComImport]
+        [System.Security.SuppressUnmanagedCodeSecurity]
+        [Guid("5752238B-24F0-495A-82F1-2FD593056796")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IFrameworkInputPane
+        {
+            [PreserveSig]
+            int Advise(
+                [MarshalAs(UnmanagedType.IUnknown)] object window,
+                [MarshalAs(UnmanagedType.IUnknown)] object handler,
+                out int cookie);
+
+            [PreserveSig]
+            int AdviseWithHWND(
+                IntPtr windowHandle,
+                [MarshalAs(UnmanagedType.IUnknown)] object handler,
+                out int cookie);
+
+            [PreserveSig]
+            int Unadvise(int cookie);
+
+            [PreserveSig]
+            int Location(out NativeRectangle inputPaneScreenLocation);
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct INPUT
+        {
+            public uint Type;
+            public InputUnion Data;
+        }
+
+        // INPUT contains a native union. The union size is determined by its
+        // largest member (MOUSEINPUT), even when we only send keyboard input.
+        // Declaring only KEYBDINPUT makes Marshal.SizeOf(INPUT) equal 32 bytes
+        // on x64 instead of the 40 bytes required by user32!SendInput, which
+        // causes ERROR_INVALID_PARAMETER (Win32 error 87).
+        [StructLayout(LayoutKind.Explicit)]
+        private struct InputUnion
+        {
+            [FieldOffset(0)]
+            public MOUSEINPUT Mouse;
+
+            [FieldOffset(0)]
+            public KEYBDINPUT Keyboard;
+
+            [FieldOffset(0)]
+            public HARDWAREINPUT Hardware;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MOUSEINPUT
+        {
+            public int Dx;
+            public int Dy;
+            public uint MouseData;
+            public uint Flags;
+            public uint Time;
+            public UIntPtr ExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct KEYBDINPUT
+        {
+            public ushort VirtualKey;
+            public ushort ScanCode;
+            public uint Flags;
+            public uint Time;
+            public UIntPtr ExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct HARDWAREINPUT
+        {
+            public uint Message;
+            public ushort ParameterLow;
+            public ushort ParameterHigh;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint inputCount, INPUT[] inputs, int inputSize);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern short VkKeyScanEx(char character, IntPtr keyboardLayout);
+
+        [DllImport("user32.dll")]
+        private static extern uint MapVirtualKeyEx(
+            uint code,
+            uint mapType,
+            IntPtr keyboardLayout);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetKeyboardLayout(uint threadId);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr OpenThread(uint dwDesiredAccess, bool bInheritHandle, uint dwThreadId);
 
@@ -3867,6 +5187,15 @@ namespace AnikiHelper.Services.InGameOverlay
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int GetWindowTextLength(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = false)]
+        private static extern IntPtr GetDesktopWindow();
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -3895,6 +5224,27 @@ namespace AnikiHelper.Services.InGameOverlay
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+        private const uint INPUT_KEYBOARD = 1;
+        private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+        private const uint KEYEVENTF_KEYUP = 0x0002;
+        private const uint KEYEVENTF_UNICODE = 0x0004;
+        private const uint KEYEVENTF_SCANCODE = 0x0008;
+        private const uint MAPVK_VK_TO_VSC_EX = 4;
+        private const ushort VK_SHIFT = 0x10;
+        private const ushort VK_CONTROL = 0x11;
+        private const ushort VK_MENU = 0x12;
+        private const ushort VK_RETURN = 0x0D;
+        private const int WindowsVirtualKeyboardAfterFocusDelayMs = 120;
+        private const int WindowsVirtualKeyboardTabTipBootstrapDelayMs = 180;
+        private const int WindowsVirtualKeyboardVisibilityCheckDelayMs = 300;
+        private const int VirtualKeyboardAfterFocusDelayMs = 100;
+        private const int VirtualKeyboardCharacterDelayMs = 5;
+        private const int VirtualKeyboardTargetInitialFocusDelayMs = 60;
+        private const int VirtualKeyboardTargetRestoreDelayMs = 80;
+        private const int VirtualKeyboardTargetFocusVerificationDelayMs = 70;
+        private const int VirtualKeyboardTargetFocusRetryDelayMs = 90;
+        private const int VirtualKeyboardTargetFocusMaxAttempts = 8;
+
         private const uint THREAD_SUSPEND_RESUME = 0x0002;
         private const uint WM_CLOSE = 0x0010;
         private const uint WM_KEYDOWN = 0x0100;
@@ -3911,31 +5261,8 @@ namespace AnikiHelper.Services.InGameOverlay
         private const int ReturnToGameFocusMaxAttempts = 8;
         private const int GameStatusFocusRetryDelayMs = 250;
         private const int GameStatusFocusMaxAttempts = 6;
-        private sealed class SsFile
-        {
-            public string Name { get; set; }
-            public SsGameInfo Game { get; set; }
-            public List<SsItem> Items { get; set; }
-            public List<SsItem> Achievements { get; set; }
-        }
 
-        private sealed class SsGameInfo
-        {
-            public string Name { get; set; }
-        }
 
-        private sealed class SsItem
-        {
-            public string Name { get; set; }
-            public string Title { get; set; }
-            public string DateUnlocked { get; set; }
-            public long? UnlockTime { get; set; }
-            public string UnlockTimestamp { get; set; }
-            public string LastUnlock { get; set; }
-            public string IsUnlock { get; set; }
-            public string Earned { get; set; }
-            public string Unlocked { get; set; }
-        }
 
         private sealed class AchievementOverlaySummary
         {

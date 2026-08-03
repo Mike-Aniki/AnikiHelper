@@ -6,7 +6,9 @@ using AnikiHelper.Services.InGameOverlay;
 using AnikiHelper.Services.MediaGallery;
 using AnikiHelper.Services.AnikiThemeSettings;
 using AnikiHelper.Services.UI;
+using AnikiHelper.Services.WebBrowser;
 using AnikiHelper.Services.EasterEgg;
+using AnikiHelper.Services.FirstSetup;
 using Microsoft.Win32;
 using Newtonsoft.Json;
 using Playnite.SDK;
@@ -24,6 +26,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -45,7 +48,18 @@ namespace AnikiHelper
 {
     public class AnikiHelper : GenericPlugin
     {
+        private const int CurrentSteamBannerResetMigrationVersion = 1;
+
         private static readonly ILogger logger = LogManager.GetLogger();
+        private static readonly HttpClient SteamSearchHttpClient = CreateSteamSearchHttpClient();
+
+        private static HttpClient CreateSteamSearchHttpClient()
+        {
+            var client = new HttpClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 AnikiHelper");
+            return client;
+        }
 
         private void DebugLog(string message)
         {
@@ -59,6 +73,62 @@ namespace AnikiHelper
             catch
             {
                 // Never let debug logging break the plugin.
+            }
+        }
+
+        private void ApplySteamBannerResetMigration()
+        {
+            try
+            {
+                if (Settings == null || anikiThemeSettingsService == null)
+                {
+                    return;
+                }
+
+                if (Settings.SteamBannerResetMigrationVersion >= CurrentSteamBannerResetMigrationVersion)
+                {
+                    return;
+                }
+
+                var availableOptions = anikiThemeSettingsService.GetAllDefaultOptionValues();
+                if (availableOptions == null || !availableOptions.ContainsKey("SteamBanner"))
+                {
+                    logger.Warn("[AnikiHelper][Migration] SteamBanner option was not found. The one-time reset will be retried on the next Aniki ReMake launch.");
+                    return;
+                }
+
+                anikiThemeSettingsService.SetOptionValue("SteamBanner", false);
+
+                var steamBannerDisabled = false;
+                if (Settings.Options != null &&
+                    Settings.Options.TryGetValue("SteamBanner", out var appliedValue))
+                {
+                    steamBannerDisabled = appliedValue is bool boolValue
+                        ? !boolValue
+                        : bool.TryParse(appliedValue?.ToString(), out var parsedValue) && !parsedValue;
+                }
+
+                if (!steamBannerDisabled &&
+                    Settings.AnikiThemeSettingsValues != null &&
+                    Settings.AnikiThemeSettingsValues.TryGetValue("SteamBanner", out var storedValue))
+                {
+                    steamBannerDisabled = bool.TryParse(storedValue, out var parsedStoredValue) && !parsedStoredValue;
+                }
+
+                if (!steamBannerDisabled)
+                {
+                    logger.Warn("[AnikiHelper][Migration] SteamBanner could not be confirmed as disabled. The one-time reset will be retried on the next Aniki ReMake launch.");
+                    return;
+                }
+
+                Settings.SteamBannerResetMigrationVersion = CurrentSteamBannerResetMigrationVersion;
+                SavePluginSettings(Settings);
+
+                logger.Info("[AnikiHelper][Migration] SteamBanner was reset to false once for this installation.");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][Migration] Failed to apply the one-time SteamBanner reset. It will be retried on the next Aniki ReMake launch.");
             }
         }
 
@@ -162,6 +232,11 @@ namespace AnikiHelper
         private readonly EventSoundService eventSoundService;
         private readonly AnikiWindowManager anikiWindowManager;
         private readonly InGameOverlayService inGameOverlayService;
+        private readonly AnikiWebBrowserService webBrowserService;
+
+        private readonly object emergencyCloseHoldSync = new object();
+        private CancellationTokenSource emergencyCloseHoldCts;
+        private static readonly TimeSpan EmergencyCloseHoldDuration = TimeSpan.FromSeconds(2);
 
         // A short grace period prevents temporary false states while WPF replaces one
         // Aniki window with another. IsAnikiWindowOpen keeps its original meaning and
@@ -172,6 +247,10 @@ namespace AnikiHelper
         // SecondaryMusic option keep IsSecondaryMusicWindowOpen active.
         private DispatcherTimer secondaryMusicWindowCloseGraceTimer;
         private static readonly TimeSpan AnikiWindowCloseGracePeriod = TimeSpan.FromMilliseconds(750);
+
+        // The Steam update cache prompt is a first-run modal dialog. When the automatic
+        // setup assistant owns the screen, defer that prompt until the wizard is complete.
+        private int deferredSteamUpdateCacheStartupPrompt;
         private readonly AnikiThemeSettingsService anikiThemeSettingsService;
         private readonly NavigationFixService horizontalFocusFixService;
         private readonly KonamiCodeService konamiCodeService;
@@ -224,7 +303,9 @@ namespace AnikiHelper
         private DateTime lastControllerInputUtc = DateTime.MinValue;
         private readonly System.Threading.SemaphoreSlim startupSteamNotificationRefreshLock = new System.Threading.SemaphoreSlim(1, 1);
         private const int MaxWishlistNotificationsPerRefresh = 3;
-        private static readonly TimeSpan StartupSteamAuthCheckDelay = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan StartupSteamAuthCheckDelay = TimeSpan.FromSeconds(45);
+        private static readonly TimeSpan StartupSteamFriendsCountDelay = TimeSpan.FromMilliseconds(1500);
+        private static readonly TimeSpan StartupSteamFriendsFullDelay = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan StartupSteamAuthReminderInterval = TimeSpan.FromDays(1);
         private static readonly TimeSpan StartupSteamNotificationInitialDelay = TimeSpan.FromMinutes(1);
         private static readonly TimeSpan StartupSteamNotificationRetryDelay = TimeSpan.FromSeconds(30);
@@ -234,6 +315,15 @@ namespace AnikiHelper
 
         // Steam Store loading progress animation
         private int steamStoreProgressAnimationToken = 0;
+
+        // Prevent account/session callbacks from publishing the Store while the first
+        // complete initialization is still running behind the blocking loading overlay.
+        private int steamStoreBlockingInitialLoadActive;
+
+        private bool IsSteamStoreBlockingInitialLoadActive
+        {
+            get { return Volatile.Read(ref steamStoreBlockingInitialLoadActive) != 0; }
+        }
 
         public static AnikiHelper Instance { get; private set; }
 
@@ -271,6 +361,35 @@ namespace AnikiHelper
 
         private bool hubStartupVisibleCacheLoaded = false;
 
+        // Lightweight background invalidation cache. Most cards keep using Playnite's
+        // original image path. A local versioned copy is created only when the source
+        // file was replaced while keeping the exact same path.
+        private readonly object hubBackgroundVersionLock = new object();
+        private HubBackgroundVersionIndex hubBackgroundVersionIndex;
+        private bool hubBackgroundVersionIndexLoaded;
+        private bool hubBackgroundVersionIndexDirty;
+        private int hubBackgroundVersionIndexSaveQueued;
+        private int hubBackgroundCleanupQueued;
+        private bool hubGameItemUpdatedSubscribed;
+        private readonly Dictionary<Guid, string> hubBackgroundPreviousPaths =
+            new Dictionary<Guid, string>();
+
+        private sealed class HubBackgroundVersionIndex
+        {
+            public int Version { get; set; } = 1;
+            public Dictionary<string, HubBackgroundVersionEntry> Games { get; set; } =
+                new Dictionary<string, HubBackgroundVersionEntry>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private sealed class HubBackgroundVersionEntry
+        {
+            public string SourcePath { get; set; }
+            public long SourceLength { get; set; }
+            public long SourceLastWriteUtcTicks { get; set; }
+            public string ResolvedPath { get; set; }
+            public DateTime UpdatedUtc { get; set; }
+        }
+
         private class WelcomeHubStartupCache
         {
             public DateTime SavedUtc { get; set; }
@@ -307,6 +426,7 @@ namespace AnikiHelper
             public Guid ThisYearTopGameId { get; set; }
 
             public string RecentPlayedBackgroundPath { get; set; }
+            public Guid RecentPlayedGameId { get; set; }
 
             public string HubRecentAddedName { get; set; }
             public string HubRecentAddedDate { get; set; }
@@ -1375,6 +1495,11 @@ namespace AnikiHelper
             if (Settings != null)
             {
                 Settings.IsWelcomeHubOpen = isOpen;
+
+                if (isOpen)
+                {
+                    TriggerStartupSteamFriendsFullRefreshIfNeeded("HubOpened");
+                }
             }
         }
 
@@ -1384,6 +1509,144 @@ namespace AnikiHelper
             {
                 Settings.IsWelcomeHubClosing = false;
                 Settings.IsWelcomeHubOpen = true;
+                TriggerStartupSteamFriendsFullRefreshIfNeeded("HubOpened");
+                QueueWelcomeHubCardFocusRestore();
+            }
+        }
+
+        private async void QueueWelcomeHubCardFocusRestore()
+        {
+            try
+            {
+                var dispatcher = PlayniteApi?.MainView?.UIDispatcher ?? Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                // The Hub keeps its current page when it is reopened. Its page template is rebuilt lazily,
+                // so the focus target may not exist during the same UI pass as IsWelcomeHubOpen = true.
+                // Retry after layout/render without changing HubCurrentPage.
+                var delays = new[] { 35, 140, 320 };
+
+                foreach (var delay in delays)
+                {
+                    await Task.Delay(delay);
+
+                    if (Settings == null ||
+                        !Settings.IsWelcomeHubOpen ||
+                        Settings.IsWelcomeHubClosing)
+                    {
+                        return;
+                    }
+
+                    var focusRestored = false;
+
+                    await dispatcher.InvokeAsync(
+                        () => focusRestored = TryFocusCurrentWelcomeHubCard(),
+                        DispatcherPriority.ContextIdle);
+
+                    if (focusRestored)
+                    {
+                        return;
+                    }
+                }
+
+                DebugLog(
+                    $"[AnikiHelper][HubFocus] No focusable card found after reopening Hub. " +
+                    $"Page={Settings?.HubCurrentPage ?? 0}");
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to restore Hub card focus.");
+            }
+        }
+
+        private bool TryFocusCurrentWelcomeHubCard()
+        {
+            try
+            {
+                if (Settings == null ||
+                    !Settings.IsWelcomeHubOpen ||
+                    Settings.IsWelcomeHubClosing)
+                {
+                    return false;
+                }
+
+                var mainWindow = Application.Current?.MainWindow;
+                if (mainWindow == null || !mainWindow.IsVisible)
+                {
+                    return false;
+                }
+
+                var hubOverlay = mainWindow
+                    .FindVisualChildren<FrameworkElement>()
+                    .FirstOrDefault(element =>
+                        element.Name == "WelcomeHubOverlay" &&
+                        element.IsVisible);
+
+                var hubViewport = mainWindow
+                    .FindVisualChildren<FrameworkElement>()
+                    .FirstOrDefault(element =>
+                        element.Name == "HubViewport" &&
+                        element.IsVisible);
+
+                if (hubOverlay == null || hubViewport == null)
+                {
+                    return false;
+                }
+
+                hubOverlay.UpdateLayout();
+                hubViewport.UpdateLayout();
+
+                var currentFocus = Keyboard.FocusedElement as DependencyObject;
+                if (currentFocus != null && IsDescendantOrSelf(currentFocus, hubViewport))
+                {
+                    return true;
+                }
+
+                // HubViewport only contains the page cards, not the top navigation bar.
+                // Inactive Hub pages unload their DataTemplate, so the first visible/focusable
+                // button is the first real card of the remembered current page.
+                var target = hubViewport
+                    .FindVisualChildren<ButtonBase>()
+                    .FirstOrDefault(button =>
+                        button.IsVisible &&
+                        button.IsEnabled &&
+                        button.Focusable &&
+                        button.IsHitTestVisible &&
+                        button.ActualWidth > 0 &&
+                        button.ActualHeight > 0);
+
+                if (target == null)
+                {
+                    return false;
+                }
+
+                target.BringIntoView();
+                target.Focus();
+                Keyboard.Focus(target);
+
+                var focusScope = FocusManager.GetFocusScope(target);
+                FocusManager.SetFocusedElement(focusScope, target);
+
+                var focusedElement = Keyboard.FocusedElement as DependencyObject;
+                var success = focusedElement != null &&
+                    IsDescendantOrSelf(focusedElement, hubViewport);
+
+                if (success)
+                {
+                    DebugLog(
+                        $"[AnikiHelper][HubFocus] Restored card focus. " +
+                        $"Page={Settings.HubCurrentPage}, Target={target.Name ?? target.GetType().Name}");
+                }
+
+                return success;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Hub card focus pass failed.");
+                return false;
             }
         }
 
@@ -2594,6 +2857,11 @@ namespace AnikiHelper
         private readonly DispatcherTimer navigationSettleTimer;
         private readonly SemaphoreSlim newsRefreshGate = new SemaphoreSlim(1, 1);
 
+        // Keeps non-essential Hub/Steam background work quiet while a game is running.
+        private volatile bool isGameQuietModeActive;
+        private int gameQuietModeGeneration;
+        private static readonly TimeSpan GameQuietModeResumeDelay = TimeSpan.FromSeconds(3);
+
 
         private readonly List<SteamGlobalNewsItem> latestNewsRotation = new List<SteamGlobalNewsItem>();
         private int latestNewsRotationIndex = 0;
@@ -2656,6 +2924,10 @@ namespace AnikiHelper
         private SteamStoreRecommendationService steamStoreRecommendationService;
         private string lastLoggedSteamRecommendationProfileKey = string.Empty;
         private AnikiSteamFriendsService steamFriendsService;
+        private readonly object startupSteamFriendsRefreshLock = new object();
+        private CancellationTokenSource startupSteamFriendsRefreshCts;
+        private bool startupSteamFriendsFullRefreshStarted;
+        private bool startupSteamFriendsFullRefreshCompleted;
 
         // GUID plugin Steam officiel
         private static readonly Guid SteamPluginId = Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab");
@@ -2797,12 +3069,8 @@ namespace AnikiHelper
                 var query = Uri.EscapeDataString(game.Name);
                 var url = $"https://store.steampowered.com/api/storesearch/?term={query}&l=english&cc=US";
 
-                using (var client = new System.Net.Http.HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromSeconds(10);
-                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 AnikiHelper");
-
-                    var json = await client.GetStringAsync(url).ConfigureAwait(false);
+                    var json = await SteamSearchHttpClient.GetStringAsync(url).ConfigureAwait(false);
 
                     ct.ThrowIfCancellationRequested();
 
@@ -4645,30 +4913,6 @@ namespace AnikiHelper
 
 
 
-        // SuccessStory helpers
-
-        // Try to find the "SuccessStory" folder in ExtensionsData
-        private string FindSuccessStoryRoot()
-        {
-            try
-            {
-                var root = PlayniteApi?.Paths?.ExtensionsDataPath;
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return null;
-
-
-                var classic = Path.Combine(root, "cebe6d32-8c46-4459-b993-5a5189d60788", "SuccessStory");
-                if (Directory.Exists(classic)) return classic;
-
-                // fallback
-                foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
-                {
-                    if (dir.EndsWith("SuccessStory", StringComparison.OrdinalIgnoreCase))
-                        return dir;
-                }
-            }
-            catch { }
-            return null;
-        }
 
 
 
@@ -6211,13 +6455,7 @@ namespace AnikiHelper
 
             string coverPath = GetGameCoverPath(game);
 
-            string bgPath = null;
-            if (!string.IsNullOrEmpty(game.BackgroundImage))
-                bgPath = PlayniteApi.Database.GetFullFilePath(game.BackgroundImage);
-            if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(game.CoverImage))
-                bgPath = PlayniteApi.Database.GetFullFilePath(game.CoverImage);
-            if (string.IsNullOrEmpty(bgPath) && !string.IsNullOrEmpty(game.Icon))
-                bgPath = PlayniteApi.Database.GetFullFilePath(game.Icon);
+            string bgPath = GetBestHubCardBackgroundPath(game);
 
             return new HubRecommendationSnapshot
             {
@@ -6662,6 +6900,39 @@ namespace AnikiHelper
             }
         }
 
+        public void DeleteAllMonthlyStats()
+        {
+            try
+            {
+                var monthlyDir = Path.Combine(PlayniteApi.Paths.ExtensionsDataPath, Id.ToString(), "monthly");
+
+                if (Directory.Exists(monthlyDir))
+                {
+                    Directory.Delete(monthlyDir, true);
+                }
+
+                // Recreate a clean baseline for the current month so tracking starts again now.
+                Directory.CreateDirectory(monthlyDir);
+
+                var now = DateTime.Now;
+                var monthStart = new DateTime(now.Year, now.Month, 1);
+                var snapshot = PlayniteApi.Database.Games.ToDictionary(g => g.Id, g => g.Playtime / 60UL);
+                var json = Serialization.ToJson(snapshot, true);
+                var currentMonthFile = Path.Combine(monthlyDir, $"{monthStart:yyyy-MM}.json");
+
+                File.WriteAllText(currentMonthFile, json);
+                UpdateSnapshotInfoProperty(monthStart);
+                RecalcStatsSafe();
+
+                DebugLog("[AnikiHelper] All monthly statistics were deleted. Current month tracking restarted from now.");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper] DeleteAllMonthlyStats failed");
+                throw;
+            }
+        }
+
         public void ExportMonthlyBackup(string exportFilePath)
         {
             try
@@ -7071,6 +7342,21 @@ namespace AnikiHelper
             // Fullscreen or not
             isFullscreenMode = api?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen;
 
+            // Listen in Desktop too. When a metadata image changes before switching to
+            // Fullscreen, we remember the previous path without scanning the library.
+            try
+            {
+                if (api?.Database?.Games != null)
+                {
+                    api.Database.Games.ItemUpdated += OnGameDatabaseItemUpdated;
+                    hubGameItemUpdatedSubscribed = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][HubBackground] Failed to subscribe to game updates.");
+            }
+
             // ViewModel 
             SettingsVM = new AnikiHelperSettingsViewModel(this);
             Properties = new GenericPluginProperties { HasSettings = true };
@@ -7103,10 +7389,23 @@ namespace AnikiHelper
             {
                 SetSecondaryMusicWindowOpenState(isOpen, "AnikiWindowManager.SecondaryMusic");
             };
+            webBrowserService = new AnikiWebBrowserService(
+                api,
+                logger,
+                () => inGameOverlayService?.OpenVirtualKeyboardForWebBrowser(),
+                () => Settings?.WebBrowserFavorites?.Select(x => x?.Clone()).Where(x => x != null).ToList(),
+                Path.Combine(GetPluginUserDataPath(), "WebBrowser", "WebView2Profile"));
+            webBrowserService.OpenStateChanged += isOpen =>
+            {
+                SetAnikiWindowOpenState(isOpen, "WebBrowser");
+            };
+
             inGameOverlayService = new InGameOverlayService(
                 api,
                 Settings,
-                () => anikiWindowManager?.HasOpenWindow == true);
+                () => anikiWindowManager?.HasOpenWindow == true,
+                () => webBrowserService?.IsControllerInputActive == true,
+                state => webBrowserService?.ProcessControllerInput(state));
             anikiWindowManager.SetOverlayOpenStateProvider(
                 () => inGameOverlayService?.IsOverlayOpenOrOpening == true);
             konamiCodeService = new KonamiCodeService(
@@ -7125,6 +7424,17 @@ namespace AnikiHelper
                 logger,
                 GetPluginUserDataPath());
 
+            Settings.FirstSetup = new AnikiFirstSetupViewModel(
+                this,
+                api,
+                Settings,
+                anikiThemeSettingsService,
+                logger);
+
+            anikiWindowManager.SetCancelRequestHandler(styleKey =>
+                string.Equals(styleKey, "FirstSetupWindowStyle", StringComparison.OrdinalIgnoreCase) &&
+                Settings.FirstSetup?.HandleBackRequest() == true);
+
             steamStoreService = new SteamStoreService(api, GetPluginUserDataPath());
             steamAccountSessionService = new SteamAccountSessionService(api, logger);
             steamUpcomingGamesService = new SteamUpcomingGamesService(logger, GetPluginUserDataPath(), steamStoreService);
@@ -7138,14 +7448,23 @@ namespace AnikiHelper
                 logger,
                 DebugLog,
                 IsAnikiThemeActive,
-                SaveSettingsSafe);
+                SaveSettingsSafe,
+                anikiWindowManager);
 
             Settings.Options.PropertyChanged += (s, e) =>
             {
                 if (string.Equals(e.PropertyName, "UseSteamAvatar", StringComparison.OrdinalIgnoreCase) &&
                     IsThemeOptionEnabled("UseSteamAvatar"))
                 {
-                    _ = steamFriendsService?.RefreshSelfAvatarOnlyAsync();
+                    // Theme options are applied during the critical fullscreen startup path.
+                    // Restore the local avatar immediately, but do not open a Steam request
+                    // until the phased Steam Friends startup refresh has completed.
+                    steamFriendsService?.LoadCachedSelfAvatar();
+
+                    if (!IsSteamFriendsStartupRefreshPending())
+                    {
+                        _ = steamFriendsService?.RefreshSelfAvatarOnlyAsync();
+                    }
                 }
             };
             splashScreenService = new SplashScreenService(GetPluginUserDataPath());
@@ -7183,7 +7502,8 @@ namespace AnikiHelper
                 }
 
                 if (e.PropertyName == nameof(Settings.SteamFriendsEnabled) ||
-                    e.PropertyName == nameof(Settings.SteamApiKey) ||
+                    e.PropertyName == nameof(Settings.SteamWebApiToken) ||
+                    e.PropertyName == nameof(Settings.SteamAccountConnected) ||
                     e.PropertyName == nameof(Settings.SteamId64) ||
                     e.PropertyName == nameof(Settings.SteamAccountSteamId64) ||
                     e.PropertyName == nameof(Settings.ShowOffline) ||
@@ -7350,7 +7670,7 @@ namespace AnikiHelper
 
         public async void ConnectSteamAccountFromSettings()
         {
-            if (steamAccountSessionService == null || Settings == null)
+            if (steamAccountSessionService == null || Settings == null || Settings.SteamAccountBusy)
             {
                 return;
             }
@@ -7397,7 +7717,7 @@ namespace AnikiHelper
 
         public async void CheckSteamAccountFromSettings()
         {
-            if (steamAccountSessionService == null || Settings == null)
+            if (steamAccountSessionService == null || Settings == null || Settings.SteamAccountBusy)
             {
                 return;
             }
@@ -7413,22 +7733,37 @@ namespace AnikiHelper
             try
             {
                 var result = await steamAccountSessionService
-                    .ProbeAsync(CancellationToken.None)
+                    .ProbeForServicesAsync(CancellationToken.None)
                     .ConfigureAwait(false);
 
                 if (result?.IsConnected == true)
                 {
                     ApplySteamAccountSession(result, "Steam session is connected.");
 
-                    OnUi(() => PlayniteApi.Dialogs.ShowMessage(
-                        "✓ " + Loc("SteamAccount_ConnectedTitle", "Connected to Steam") +
-                        Environment.NewLine + Environment.NewLine +
-                        Loc(
-                            "SteamAccount_ConnectedDesc",
-                            "Your Steam Store session is active. Personalized Store sections are ready to use."),
-                        Loc("SteamAccount_CheckButton", "Check connection"),
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information));
+                    if (result.HasWebApiToken)
+                    {
+                        OnUi(() => PlayniteApi.Dialogs.ShowMessage(
+                            "✓ " + Loc("SteamAccount_ConnectedTitle", "Connected to Steam") +
+                            Environment.NewLine + Environment.NewLine +
+                            Loc(
+                                "SteamAccount_ConnectedDesc",
+                                "Steam Friends, My Wishlist and For You are ready to use."),
+                            Loc("SteamAccount_CheckButton", "Check connection"),
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information));
+                    }
+                    else
+                    {
+                        OnUi(() => PlayniteApi.Dialogs.ShowMessage(
+                            Loc("SteamAccount_TokenMissingTitle", "Steam services are not ready") +
+                            Environment.NewLine + Environment.NewLine +
+                            Loc(
+                                "SteamAccount_TokenMissingDesc",
+                                "Your Steam account is connected, but Aniki Helper could not retrieve the session token required for Steam Friends. Disconnect and connect again."),
+                            Loc("SteamAccount_CheckButton", "Check connection"),
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning));
+                    }
                 }
                 else if (result != null && string.IsNullOrWhiteSpace(result.Error))
                 {
@@ -7477,6 +7812,142 @@ namespace AnikiHelper
             {
                 OnUi(() => Settings.SteamAccountBusy = false);
                 SaveSettingsSafe();
+            }
+        }
+
+        private Task ScheduleStartupSteamFriendsRefreshAsync()
+        {
+            CancellationTokenSource cts;
+
+            lock (startupSteamFriendsRefreshLock)
+            {
+                try
+                {
+                    startupSteamFriendsRefreshCts?.Cancel();
+                    startupSteamFriendsRefreshCts?.Dispose();
+                }
+                catch
+                {
+                }
+
+                startupSteamFriendsRefreshCts = new CancellationTokenSource();
+                startupSteamFriendsFullRefreshStarted = false;
+                startupSteamFriendsFullRefreshCompleted = false;
+                cts = startupSteamFriendsRefreshCts;
+            }
+
+            return Task.Run(async () =>
+            {
+                var phaseStartedUtc = DateTime.UtcNow;
+
+                try
+                {
+                    await Task.Delay(StartupSteamFriendsCountDelay, cts.Token).ConfigureAwait(false);
+
+                    if (Settings?.SteamFriendsEnabled != true ||
+                        PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen ||
+                        !IsAnikiThemeActive())
+                    {
+                        return;
+                    }
+
+                    DebugLog("[AnikiHelper][SteamFriends][Startup] lightweight counter refresh START");
+                    await steamFriendsService.RefreshCountsOnlyAsync().ConfigureAwait(false);
+
+                    var elapsed = DateTime.UtcNow - phaseStartedUtc;
+                    var remainingDelay = StartupSteamFriendsFullDelay - elapsed;
+                    if (remainingDelay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(remainingDelay, cts.Token).ConfigureAwait(false);
+                    }
+
+                    await RunStartupSteamFriendsFullRefreshAsync("scheduled").ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    DebugLog("[AnikiHelper][SteamFriends][Startup] phased refresh cancelled");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[AnikiHelper][SteamFriends][Startup] Phased refresh failed.");
+                }
+            });
+        }
+
+        private async Task RunStartupSteamFriendsFullRefreshAsync(string reason)
+        {
+            lock (startupSteamFriendsRefreshLock)
+            {
+                if (startupSteamFriendsFullRefreshCompleted || startupSteamFriendsFullRefreshStarted)
+                {
+                    return;
+                }
+
+                startupSteamFriendsFullRefreshStarted = true;
+            }
+
+            try
+            {
+                if (Settings?.SteamFriendsEnabled != true ||
+                    PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen ||
+                    !IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                DebugLog($"[AnikiHelper][SteamFriends][Startup] full friends/Hub refresh START | reason={reason}");
+                await steamFriendsService.ForceRefreshAndWaitAsync(20000).ConfigureAwait(false);
+                DebugLog($"[AnikiHelper][SteamFriends][Startup] full friends/Hub refresh END | reason={reason}");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, $"[AnikiHelper][SteamFriends][Startup] Full refresh failed | reason={reason}");
+            }
+            finally
+            {
+                lock (startupSteamFriendsRefreshLock)
+                {
+                    startupSteamFriendsFullRefreshCompleted = true;
+                    startupSteamFriendsFullRefreshStarted = false;
+                }
+            }
+        }
+
+        private bool IsSteamFriendsStartupRefreshPending()
+        {
+            if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+            {
+                return false;
+            }
+
+            lock (startupSteamFriendsRefreshLock)
+            {
+                return !startupSteamFriendsFullRefreshCompleted;
+            }
+        }
+
+        private void TriggerStartupSteamFriendsFullRefreshIfNeeded(string reason)
+        {
+            var shouldTrigger = false;
+
+            lock (startupSteamFriendsRefreshLock)
+            {
+                if (!startupSteamFriendsFullRefreshCompleted && !startupSteamFriendsFullRefreshStarted)
+                {
+                    shouldTrigger = true;
+                    try
+                    {
+                        startupSteamFriendsRefreshCts?.Cancel();
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (shouldTrigger)
+            {
+                _ = RunStartupSteamFriendsFullRefreshAsync(reason);
             }
         }
 
@@ -7900,6 +8371,7 @@ namespace AnikiHelper
                 Settings.SteamAccountBusy = false;
                 Settings.SteamAccountSteamId64 = string.Empty;
                 Settings.SteamAccountProfileUrl = string.Empty;
+                Settings.SteamWebApiToken = string.Empty;
                 Settings.SteamAccountStatus = "Disconnected";
                 ClearAuthenticatedSteamStoreSectionsOnUi();
                 UpdateSteamStoreActiveSection();
@@ -7950,9 +8422,17 @@ namespace AnikiHelper
                         ? string.Empty
                         : "https://steamcommunity.com/profiles/" + steamId;
 
-                    // Keep the legacy field synchronized so existing Steam Friends and Steam API code keep working.
+                    // Keep the legacy SteamID field synchronized for older theme bindings.
                     Settings.SteamId64 = steamId;
-                    Settings.SteamAccountStatus = "Connected: " + steamId;
+
+                    if (!string.IsNullOrWhiteSpace(session.WebApiToken))
+                    {
+                        Settings.SteamWebApiToken = session.WebApiToken.Trim();
+                    }
+
+                    Settings.SteamAccountStatus = Settings.SteamAccountServicesReady
+                        ? "Connected and ready: " + steamId
+                        : "Connected, but Steam services need a connection refresh.";
 
                     shouldReloadPersonalStoreData = !wasConnected ||
                         !string.Equals(previousSteamId, steamId, StringComparison.Ordinal);
@@ -7970,6 +8450,7 @@ namespace AnikiHelper
                 }
                 else
                 {
+                    Settings.SteamWebApiToken = string.Empty;
                     Settings.SteamAccountStatus = !string.IsNullOrWhiteSpace(fallbackStatus)
                         ? fallbackStatus
                         : "Not connected";
@@ -8256,6 +8737,10 @@ namespace AnikiHelper
                 }
             }
 
+            var wishlistNames = await steamStoreService
+                .GetStoreItemNamesAsync(orderedAppIds, language, region)
+                .ConfigureAwait(false);
+
             var rank = 0;
             foreach (var appId in orderedAppIds)
             {
@@ -8263,7 +8748,11 @@ namespace AnikiHelper
                 var item = new SteamStoreItem
                 {
                     AppId = appId,
-                    Name = "Steam App " + appId.ToString(CultureInfo.InvariantCulture),
+                    Name = wishlistNames != null &&
+                           wishlistNames.TryGetValue(appId, out var resolvedWishlistName) &&
+                           !string.IsNullOrWhiteSpace(resolvedWishlistName)
+                        ? resolvedWishlistName
+                        : "Steam App " + appId.ToString(CultureInfo.InvariantCulture),
                     StoreUrl = BuildSteamAppStoreUrl(appId),
                     Source = "Steam User Wishlist",
                     SteamRank = rank,
@@ -8892,6 +9381,10 @@ namespace AnikiHelper
 
                 OnUi(() =>
                 {
+                    Settings.SteamStoreDetailsTitle = string.IsNullOrWhiteSpace(item.Name)
+                        ? Settings.SteamStoreDetailsTitle
+                        : item.Name;
+
                     Settings.SteamStoreDetailsImage = FirstSteamStoreImage(
                         item.HeaderImageLocalPath,
                         item.HeaderImageUrl,
@@ -11027,6 +11520,62 @@ namespace AnikiHelper
             }
         }
 
+        private int GetWelcomeHubFirstStorePage()
+        {
+            if (Settings == null)
+            {
+                return int.MaxValue;
+            }
+
+            return Settings.ShowHubAppsPage ? 8 : 7;
+        }
+
+        private bool IsWelcomeHubStorePageActive()
+        {
+            try
+            {
+                if (Settings == null ||
+                    !Settings.IsWelcomeHubOpen ||
+                    Settings.IsWelcomeHubClosing)
+                {
+                    return false;
+                }
+
+                return Settings.HubCurrentPage >= GetWelcomeHubFirstStorePage();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsWelcomeHubStorePreloadRequested()
+        {
+            try
+            {
+                if (Settings == null ||
+                    !Settings.IsWelcomeHubOpen ||
+                    Settings.IsWelcomeHubClosing)
+                {
+                    return false;
+                }
+
+                var firstStorePage = GetWelcomeHubFirstStorePage();
+                if (firstStorePage == int.MaxValue)
+                {
+                    return false;
+                }
+
+                // Begin one page early so the first Store card is usually ready before the
+                // user reaches the Store section. This does not preload at Hub startup.
+                return Settings.HubCurrentPage >= Math.Max(1, firstStorePage - 1);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private bool IsSteamStoreViewVisible()
         {
             try
@@ -11250,6 +11799,16 @@ namespace AnikiHelper
         {
             if (Settings == null)
             {
+                return;
+            }
+
+            // Recommended/My Wishlist can refresh the Steam session after Deals is ready.
+            // Their session callback calls this method; without this guard, Deals makes
+            // hasAnyData=true at 25% and the XAML hides the blocking overlay immediately.
+            if (IsSteamStoreBlockingInitialLoadActive)
+            {
+                Settings.SteamStoreAvailable = false;
+                Settings.SteamStoreError = string.Empty;
                 return;
             }
 
@@ -11955,7 +12514,7 @@ namespace AnikiHelper
                 if (steamUserGamesService != null && Settings != null)
                 {
                     var steamOwned = await steamUserGamesService.GetOwnedGameAppIdsAsync(
-                        Settings.SteamApiKey,
+                        Settings.SteamWebApiToken,
                         GetEffectiveSteamIdInput(),
                         TimeSpan.FromHours(12)
                     ).ConfigureAwait(false);
@@ -12058,7 +12617,7 @@ namespace AnikiHelper
                 if (steamUserGamesService != null && Settings != null)
                 {
                     var recentSteamSeeds = await steamUserGamesService.GetRecentlyPlayedGameSeedsAsync(
-                        Settings.SteamApiKey,
+                        Settings.SteamWebApiToken,
                         GetEffectiveSteamIdInput(),
                         5,
                         TimeSpan.FromHours(6)
@@ -12256,7 +12815,7 @@ namespace AnikiHelper
                    current.IsInLibrary == incoming.IsInLibrary;
         }
 
-        private async Task LoadSteamStoreCacheOnlyAsync()
+        private async Task LoadSteamStoreCacheOnlyAsync(bool publishAvailability = true)
         {
             if (Settings?.SteamStoreEnabled != true)
             {
@@ -12371,7 +12930,18 @@ namespace AnikiHelper
                 }
 
                 UpdateSteamStoreActiveSection();
-                UpdateSteamStoreAvailabilityState();
+
+                if (publishAvailability)
+                {
+                    UpdateSteamStoreAvailabilityState();
+                }
+                else
+                {
+                    // During the first complete Store initialization, cached partial data
+                    // may be displayed internally but must not hide the blocking overlay.
+                    Settings.SteamStoreAvailable = false;
+                    Settings.SteamStoreError = string.Empty;
+                }
 
                 SaveSettingsSafe();
             });
@@ -12385,7 +12955,7 @@ namespace AnikiHelper
             return Task.CompletedTask;
         }
 
-        private async Task RefreshSteamStoreAllAsync(bool manageLoading = true, bool allowVisibleStoreUiRebuild = true)
+        private async Task RefreshSteamStoreAllAsync(bool manageLoading = true, bool allowVisibleStoreUiRebuild = true, bool publishAvailability = true)
         {
             if (Settings?.SteamStoreEnabled != true)
             {
@@ -12446,8 +13016,17 @@ namespace AnikiHelper
                         Settings.SteamStoreWishlisted.Count > 0 ||
                         Settings.SteamStoreRecommended.Count > 0;
 
-                    Settings.SteamStoreAvailable = hasAnyData;
-                    Settings.SteamStoreError = hasAnyData ? string.Empty : "No store data available";
+                    if (publishAvailability && !IsSteamStoreBlockingInitialLoadActive)
+                    {
+                        Settings.SteamStoreAvailable = hasAnyData;
+                        Settings.SteamStoreError = hasAnyData ? string.Empty : "No store data available";
+                    }
+                    else if (hasAnyData)
+                    {
+                        // During the first uncached load, keep the loading overlay visible
+                        // until every requested Store section has completed.
+                        Settings.SteamStoreError = string.Empty;
+                    }
 
                     if (manageLoading)
                     {
@@ -12532,6 +13111,487 @@ namespace AnikiHelper
             }
         }
 
+        private void SetSteamStoreLoadingProgressImmediate(int progress)
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            var value = Math.Max(0, Math.Min(100, progress));
+            System.Threading.Interlocked.Increment(ref steamStoreProgressAnimationToken);
+
+            OnUi(() =>
+            {
+                if (Settings != null)
+                {
+                    Settings.SteamStoreLoadingProgress = value;
+                }
+            });
+        }
+
+        private async Task<bool> RefreshSteamStoreDealsPriorityAsync(
+            SteamStorePersonalizationContext personalizationContext,
+            string language,
+            string region,
+            Task<List<SteamStoreItem>> pendingDealsTask,
+            bool publishAvailability = true)
+        {
+            try
+            {
+                var rawDeals = pendingDealsTask != null
+                    ? await pendingDealsTask.ConfigureAwait(false)
+                    : await steamStoreService
+                        .GetDealsAsync(language, region, TimeSpan.FromDays(1))
+                        .ConfigureAwait(false);
+
+                var deals = PersonalizeSteamStoreSection(
+                    rawDeals,
+                    personalizationContext,
+                    "Deals",
+                    24) ?? new List<SteamStoreItem>();
+
+                OnUi(() =>
+                {
+                    ReplaceSteamStoreCollection(Settings.SteamStoreDeals, deals);
+
+                    // Deals is the default visible page. Build its hero and cards before
+                    // the first-load overlay is removed so the Store never opens on an
+                    // empty frame while other sections are still loading.
+                    Settings.SteamStoreSelectedSection = "Deals";
+                    UpdateSteamStoreActiveSection(preserveFocusedCard: false);
+
+                    var hasDeals = Settings.SteamStoreDeals.Count > 0;
+                    if (publishAvailability && !IsSteamStoreBlockingInitialLoadActive)
+                    {
+                        Settings.SteamStoreAvailable = hasDeals;
+                        Settings.SteamStoreError = hasDeals
+                            ? string.Empty
+                            : "No deals available";
+                    }
+                    else if (hasDeals)
+                    {
+                        // Deals is ready, but the first uncached Store load remains blocked
+                        // until all other requested sections have also completed.
+                        Settings.SteamStoreError = string.Empty;
+                    }
+                });
+
+                logger.Info($"[Steam Store] priority Deals ready | count={deals.Count}");
+                return deals.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Steam Store] priority Deals refresh failed.");
+                return false;
+            }
+        }
+
+        private async Task RefreshSteamStoreTopSellersOnlyAsync(
+            SteamStorePersonalizationContext personalizationContext,
+            string language,
+            string region)
+        {
+            try
+            {
+                var topSellers = await steamStoreService
+                    .GetTopSellersAsync(language, region, TimeSpan.FromDays(1))
+                    .ConfigureAwait(false);
+
+                var items = PersonalizeSteamStoreSection(
+                    topSellers,
+                    personalizationContext,
+                    "TopSellers",
+                    24);
+
+                OnUi(() =>
+                {
+                    ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, items);
+                    UpdateSteamStoreActiveSectionIfAllowed(false);
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Steam Store] Top Sellers background refresh failed.");
+            }
+        }
+
+        private string GetSteamStoreInitialLoadMarkerPath(string language, string region)
+        {
+            try
+            {
+                var safeLanguage = Regex.Replace(language ?? "english", "[^a-zA-Z0-9_-]", "_");
+                var safeRegion = Regex.Replace(region ?? "US", "[^a-zA-Z0-9_-]", "_");
+                var folder = Path.Combine(GetPluginUserDataPath(), "SteamStore");
+                return Path.Combine(folder, $"InitialFullLoad_v4_{safeLanguage}_{safeRegion}.complete");
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private bool HasSteamStoreInitialLoadMarker(string language, string region)
+        {
+            try
+            {
+                var path = GetSteamStoreInitialLoadMarkerPath(language, region);
+                return !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void SaveSteamStoreInitialLoadMarker(string language, string region)
+        {
+            try
+            {
+                var path = GetSteamStoreInitialLoadMarkerPath(language, region);
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    return;
+                }
+
+                var folder = Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(folder))
+                {
+                    Directory.CreateDirectory(folder);
+                }
+
+                File.WriteAllText(path, DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[Steam Store] Failed to save initial full-load marker.");
+            }
+        }
+
+        private bool HasCompleteSteamStoreInitialUiData(bool requireRecommended)
+        {
+            if (Settings == null)
+            {
+                return false;
+            }
+
+            var publicSectionsReady =
+                (Settings.SteamStoreDeals?.Count ?? 0) > 0 &&
+                (Settings.SteamStoreTopSellers?.Count ?? 0) > 0 &&
+                (Settings.SteamStoreUpcoming?.Count ?? 0) > 0 &&
+                (Settings.SteamStoreWishlisted?.Count ?? 0) > 0 &&
+                (Settings.SteamStoreNewReleases?.Count ?? 0) > 0;
+
+            if (!publicSectionsReady)
+            {
+                return false;
+            }
+
+            // A Steam wishlist can legitimately be empty. Recommended, however, must contain
+            // data when the connected account supports that page before the first load is marked complete.
+            return !requireRecommended || (Settings.SteamStoreRecommended?.Count ?? 0) > 0;
+        }
+
+        private async Task RunBlockingInitialSteamStoreLoadAsync(string language, string region)
+        {
+            Interlocked.Exchange(ref steamStoreBlockingInitialLoadActive, 1);
+
+            OnUi(() =>
+            {
+                Settings.SteamStoreLoading = true;
+                Settings.SteamStoreAvailable = false;
+                Settings.SteamStoreError = string.Empty;
+                Settings.SteamStoreLoadingProgress = 5;
+                Settings.SteamStoreSelectedSection = "Deals";
+            });
+
+            logger.Info($"[Steam Store] deterministic initial full load START | lang={language} | region={region}");
+
+            var recommendationProfile = BuildSteamRecommendationProfile();
+
+            // Start the network request immediately, but do not start any other Store section yet.
+            // Deals is the default visible page and must be fully published before the remaining
+            // sections are even launched.
+            var pendingDealsTask = steamStoreService.GetDealsAsync(
+                language,
+                region,
+                TimeSpan.FromDays(1));
+
+            var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
+            var canUseConnectedSteamStoreAccount = CanUseConnectedSteamStoreAccount();
+
+            if (steamAccountSessionService != null)
+            {
+                try
+                {
+                    var storeSession = await steamAccountSessionService
+                        .ProbeAsync(CancellationToken.None)
+                        .ConfigureAwait(false);
+
+                    ApplySteamAccountSession(
+                        storeSession,
+                        storeSession?.IsConnected == true
+                            ? "Steam Store session is connected."
+                            : "Steam Store session is not connected.",
+                        allowVisibleStoreUiRebuild: false);
+
+                    canUseConnectedSteamStoreAccount = CanUseConnectedSteamStoreAccount();
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[Steam Store] Initial full-load session validation failed; public sections will still load.");
+                    canUseConnectedSteamStoreAccount = false;
+                }
+            }
+
+            SetSteamStoreLoadingProgress(10);
+
+            // Real priority: wait until Deals has completed, has been copied to the UI collection,
+            // and its hero/cards have been built. Only then can the other requests start.
+            var dealsReady = await RefreshSteamStoreDealsPriorityAsync(
+                personalizationContext,
+                language,
+                region,
+                pendingDealsTask,
+                publishAvailability: false).ConfigureAwait(false);
+
+            SetSteamStoreLoadingProgress(25);
+            logger.Info($"[Steam Store] deterministic initial load | Deals published first | ready={dealsReady} | count={Settings?.SteamStoreDeals?.Count ?? 0}");
+
+            var loadMyWishlist = canUseConnectedSteamStoreAccount && steamStoreService != null;
+            var loadRecommended = canUseConnectedSteamStoreAccount && recommendationProfile != null;
+
+            // Deals is already complete. The progress from 25 to 95 now represents the
+            // remaining sections that have genuinely finished and published their collections.
+            var remainingSteps = 4 + (loadMyWishlist ? 1 : 0) + (loadRecommended ? 1 : 0);
+            var completedRemainingSteps = 0;
+
+            Action<string> reportRemainingStepDone = sectionName =>
+            {
+                var completed = Interlocked.Increment(ref completedRemainingSteps);
+                var progress = Math.Min(
+                    95,
+                    25 + (int)Math.Round((completed / (double)Math.Max(1, remainingSteps)) * 70));
+
+                SetSteamStoreLoadingProgress(progress);
+                logger.Info($"[Steam Store] deterministic initial load step finished | section={sectionName} | completed={completed}/{remainingSteps} | progress={progress}");
+            };
+
+            var refreshTasks = new List<Task>();
+
+            refreshTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    var topSellers = await steamStoreService
+                        .GetTopSellersAsync(language, region, TimeSpan.FromDays(1))
+                        .ConfigureAwait(false);
+
+                    var items = PersonalizeSteamStoreSection(
+                        topSellers,
+                        personalizationContext,
+                        "TopSellers",
+                        24);
+
+                    OnUi(() =>
+                    {
+                        ReplaceSteamStoreCollection(Settings.SteamStoreTopSellers, items);
+                        UpdateSteamStoreActiveSectionIfAllowed(false);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[Steam Store] Initial Top Sellers load failed.");
+                }
+                finally
+                {
+                    reportRemainingStepDone("TopSellers");
+                }
+            }));
+
+            refreshTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    var upcoming = await steamUpcomingGamesService.RefreshAsync(language, region).ConfigureAwait(false);
+                    var items = PersonalizeSteamStoreSection(
+                        upcoming.Select(ConvertUpcomingToStoreItem).Where(x => x != null),
+                        personalizationContext,
+                        "Upcoming",
+                        24);
+
+                    OnUi(() => ReplaceSteamStoreCollection(Settings.SteamStoreUpcoming, items));
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[Steam Store] Initial Upcoming load failed.");
+                }
+                finally
+                {
+                    reportRemainingStepDone("Upcoming");
+                }
+            }));
+
+            refreshTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    var wishlisted = await steamUpcomingGamesService.RefreshWishlistedAsync(language, region).ConfigureAwait(false);
+                    var items = PersonalizeSteamStoreSection(
+                        wishlisted.Select(ConvertUpcomingToStoreItem).Where(x => x != null),
+                        personalizationContext,
+                        "Wishlisted",
+                        24);
+
+                    OnUi(() => ReplaceSteamStoreCollection(Settings.SteamStoreWishlisted, items));
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[Steam Store] Initial Most Wishlisted load failed.");
+                }
+                finally
+                {
+                    reportRemainingStepDone("MostWishlisted");
+                }
+            }));
+
+            refreshTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    var newReleases = await steamUpcomingGamesService.RefreshNewReleasesAsync(language, region).ConfigureAwait(false);
+                    var items = PersonalizeSteamStoreSection(
+                        newReleases.Select(ConvertUpcomingToStoreItem).Where(x => x != null),
+                        personalizationContext,
+                        "New",
+                        24);
+
+                    OnUi(() => ReplaceSteamStoreCollection(Settings.SteamStoreNewReleases, items));
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "[Steam Store] Initial New Releases load failed.");
+                }
+                finally
+                {
+                    reportRemainingStepDone("NewReleases");
+                }
+            }));
+
+            if (loadMyWishlist)
+            {
+                refreshTasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        var items = await RefreshSteamStoreMyWishlistFromSteamAsync(
+                            personalizationContext,
+                            language,
+                            region,
+                            reportProgress: null,
+                            allowVisibleStoreUiRebuild: false).ConfigureAwait(false);
+
+                        if (items != null)
+                        {
+                            OnUi(() => ReplaceSteamStoreCollection(Settings.SteamStoreMyWishlist, items));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[Steam Store] Initial My Wishlist load failed.");
+                    }
+                    finally
+                    {
+                        reportRemainingStepDone("MyWishlist");
+                    }
+                }));
+            }
+
+            if (loadRecommended)
+            {
+                refreshTasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        var items = await RefreshSteamStoreForYouFromSteamAsync(
+                            personalizationContext,
+                            recommendationProfile,
+                            language,
+                            region,
+                            reportProgress: null,
+                            allowVisibleStoreUiRebuild: false).ConfigureAwait(false);
+
+                        if (items != null)
+                        {
+                            items = items.Take(20).ToList();
+                            ApplySteamStoreFlags(items, personalizationContext);
+                            OnUi(() => ReplaceSteamStoreRecommendedCollections(items));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[Steam Store] Initial Recommended load failed.");
+                    }
+                    finally
+                    {
+                        reportRemainingStepDone("Recommended");
+                    }
+                }));
+            }
+
+            try
+            {
+                logger.Info($"[Steam Store] deterministic remaining sections START | steps={remainingSteps} | connected={canUseConnectedSteamStoreAccount}");
+                await Task.WhenAll(refreshTasks).ConfigureAwait(false);
+            }
+            finally
+            {
+                // Build the final visible Deals page while the blocking overlay is still active.
+                // SteamStoreAvailable is deliberately not published yet: the overlay must remain
+                // visible until the progress reaches 100 and every requested task has ended.
+                OnUi(() =>
+                {
+                    Settings.SteamStoreSelectedSection = "Deals";
+                    UpdateSteamStoreActiveSection(preserveFocusedCard: false);
+                    Settings.SteamStoreAvailable = false;
+                    Settings.SteamStoreError = string.Empty;
+                    SaveSettingsSafe();
+                });
+
+                var initialLoadIsComplete = HasCompleteSteamStoreInitialUiData(loadRecommended);
+                if (initialLoadIsComplete)
+                {
+                    SaveSteamStoreInitialLoadMarker(language, region);
+                }
+                else
+                {
+                    logger.Warn(
+                        $"[Steam Store] deterministic initial full load finished with missing sections | Deals={Settings?.SteamStoreDeals?.Count ?? 0} | Top={Settings?.SteamStoreTopSellers?.Count ?? 0} | Upcoming={Settings?.SteamStoreUpcoming?.Count ?? 0} | Wishlisted={Settings?.SteamStoreWishlisted?.Count ?? 0} | New={Settings?.SteamStoreNewReleases?.Count ?? 0} | Recommended={Settings?.SteamStoreRecommended?.Count ?? 0}");
+                }
+
+                SetSteamStoreLoadingProgressImmediate(100);
+                await Task.Delay(300).ConfigureAwait(false);
+
+                // All requested sections are finished. Availability may now be published
+                // and only now can the XAML replace the loading overlay with the Store.
+                Interlocked.Exchange(ref steamStoreBlockingInitialLoadActive, 0);
+
+                OnUi(() =>
+                {
+                    UpdateSteamStoreAvailabilityState();
+                    Settings.SteamStoreLoading = false;
+                    SaveSettingsSafe();
+
+                    if (IsWelcomeHubStorePageActive())
+                    {
+                        QueueWelcomeHubCardFocusRestore();
+                    }
+                });
+
+                logger.Info($"[Steam Store] deterministic initial full load END | complete={initialLoadIsComplete}");
+            }
+        }
+
         public async Task OnSteamStoreViewOpenedAsync()
         {
             if (Settings?.SteamStoreEnabled != true)
@@ -12539,9 +13599,8 @@ namespace AnikiHelper
                 return;
             }
 
-            // Important:
             // XAML bindings can call this several times while the Store view is visible.
-            // We do not queue refresh calls. If one refresh is already running, we ignore the new call.
+            // Do not queue refreshes: one open/refresh pipeline at a time is enough.
             if (!await steamStoreOpenLock.WaitAsync(0))
             {
                 return;
@@ -12559,34 +13618,122 @@ namespace AnikiHelper
                     return;
                 }
 
-                await LoadSteamStoreCacheOnlyAsync();
+                var isStoreViewVisible = IsSteamStoreViewVisible();
+                var isHubStorePreloadRequested = IsWelcomeHubStorePreloadRequested();
 
-                // Hub bindings can request Store data too. In that case we only load the cache.
-                // Do not start the real Store-view throttle here, otherwise opening the Store
-                // shortly after the Hub can suppress its network refresh for 30 seconds.
-                if (!IsSteamStoreViewVisible())
+                // Keep the lightweight cache-only behavior while neither the Store nor its
+                // Hub preload point is active.
+                if (!isStoreViewVisible && !isHubStorePreloadRequested)
                 {
+                    await LoadSteamStoreCacheOnlyAsync();
                     return;
                 }
 
+                var language = GetResolvedSteamStoreLanguage();
+                var region = GetResolvedSteamStoreRegion();
+                var initialLoadMarkerExists = HasSteamStoreInitialLoadMarker(language, region);
+
+                // On the first complete initialization, show the overlay before loading even
+                // partial caches. Otherwise one cached page (usually Deals) can publish
+                // SteamStoreAvailable=true and hide the overlay too early.
+                if (!initialLoadMarkerExists)
+                {
+                    OnUi(() =>
+                    {
+                        Settings.SteamStoreLoading = true;
+                        Settings.SteamStoreAvailable = false;
+                        Settings.SteamStoreError = string.Empty;
+                        Settings.SteamStoreLoadingProgress = 5;
+                    });
+                }
+
+                await LoadSteamStoreCacheOnlyAsync(publishAvailability: initialLoadMarkerExists);
+
+                var requiresCompleteInitialLoad =
+                    !initialLoadMarkerExists ||
+                    !HasCompleteSteamStoreInitialUiData(requireRecommended: false);
+
+                if (requiresCompleteInitialLoad)
+                {
+                    OnUi(() =>
+                    {
+                        Settings.SteamStoreLoading = true;
+                        Settings.SteamStoreAvailable = false;
+                        Settings.SteamStoreError = string.Empty;
+                        if (Settings.SteamStoreLoadingProgress < 5)
+                        {
+                            Settings.SteamStoreLoadingProgress = 5;
+                        }
+                    });
+
+                    try
+                    {
+                        await RunBlockingInitialSteamStoreLoadAsync(language, region).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        // Fail-safe: an unexpected exception before the normal 100% path must
+                        // never leave availability publication permanently blocked.
+                        Interlocked.Exchange(ref steamStoreBlockingInitialLoadActive, 0);
+                    }
+
+                    return;
+                }
+
+                if (IsWelcomeHubStorePageActive())
+                {
+                    QueueWelcomeHubCardFocusRestore();
+                }
+
+                var firstVisibleStoreLoadWithoutDealsCache =
+                    isStoreViewVisible &&
+                    (Settings.SteamStoreDeals?.Count ?? 0) == 0;
+
+                // Once a complete initial cache exists, later openings can display it immediately
+                // and refresh silently in the background.
+                var prioritizeDealsFirst = firstVisibleStoreLoadWithoutDealsCache;
+
                 var nowUtc = DateTime.UtcNow;
-                if (HasSteamStoreCacheUiData() && (nowUtc - lastSteamStoreOpenRequestUtc) < SteamStoreOpenRequestThrottle)
+                if (!firstVisibleStoreLoadWithoutDealsCache &&
+                    HasSteamStoreCacheUiData() &&
+                    (nowUtc - lastSteamStoreOpenRequestUtc) < SteamStoreOpenRequestThrottle)
                 {
                     return;
                 }
 
                 lastSteamStoreOpenRequestUtc = nowUtc;
 
-                var language = GetResolvedSteamStoreLanguage();
-                var region = GetResolvedSteamStoreRegion();
+                // Start the Deals request immediately, before recommendation/auth work.
+                // This is the visible page and therefore the only blocking first-load task.
+                Task<List<SteamStoreItem>> priorityDealsTask = null;
+                if (prioritizeDealsFirst)
+                {
+                    priorityDealsTask = steamStoreService.GetDealsAsync(
+                        language,
+                        region,
+                        TimeSpan.FromDays(1));
+                }
+
                 var recommendationProfile = BuildSteamRecommendationProfile();
                 var personalizationContext = await BuildSteamStorePersonalizationContextAsync().ConfigureAwait(false);
 
+                var dealsReadyFirst = false;
+                if (prioritizeDealsFirst)
+                {
+                    dealsReadyFirst = await RefreshSteamStoreDealsPriorityAsync(
+                        personalizationContext,
+                        language,
+                        region,
+                        priorityDealsTask,
+                        publishAvailability: !firstVisibleStoreLoadWithoutDealsCache).ConfigureAwait(false);
+                }
+
+                // Check the remaining sections only after Deals has had first priority.
                 var storeMustRefresh = await steamStoreService.IsAnyStoreCacheMissingOrExpiredAsync(
                     language,
                     region,
                     TimeSpan.FromDays(1)
-                );
+                ).ConfigureAwait(false);
 
                 var upcomingMustRefresh = steamUpcomingGamesService.IsCacheMissingOrExpired(
                     language,
@@ -12629,9 +13776,8 @@ namespace AnikiHelper
                         TimeSpan.FromDays(1)
                     ));
 
-                // The saved flag only says that a Steam account was connected previously.
-                // Before loading personalized Store pages, verify the real Store-domain CEF
-                // session now. Community cookies are deliberately not accepted here.
+                // Personalized sections can require a Store-domain session probe. This is
+                // deliberately performed after the visible Deals page has become available.
                 if ((myWishlistMustRefresh || recommendedMustRefresh) &&
                     steamAccountSessionService != null)
                 {
@@ -12660,34 +13806,60 @@ namespace AnikiHelper
                     catch (Exception ex)
                     {
                         // A network/CEF failure is not a logout. Keep the current cache and do
-                        // not start the two personal refreshes with an unverified session.
+                        // not start personalized refreshes with an unverified session.
                         logger.Warn(ex, "[Steam Store] Store session validation failed; personal cache preserved.");
                         myWishlistMustRefresh = false;
                         recommendedMustRefresh = false;
                     }
                 }
 
-                if (!storeMustRefresh && !upcomingMustRefresh && !wishlistedMustRefresh && !myWishlistMustRefresh && !newReleasesMustRefresh && !recommendedMustRefresh)
+                if (!storeMustRefresh &&
+                    !upcomingMustRefresh &&
+                    !wishlistedMustRefresh &&
+                    !myWishlistMustRefresh &&
+                    !newReleasesMustRefresh &&
+                    !recommendedMustRefresh)
                 {
+                    if (firstVisibleStoreLoadWithoutDealsCache)
+                    {
+                        SetSteamStoreLoadingProgressImmediate(100);
+                        await Task.Delay(250).ConfigureAwait(false);
+
+                        OnUi(() =>
+                        {
+                            UpdateSteamStoreActiveSectionIfAllowed(false);
+                            UpdateSteamStoreAvailabilityState();
+                            Settings.SteamStoreLoading = false;
+                            SaveSettingsSafe();
+                        });
+                    }
+
                     return;
                 }
 
-                OnUi(() =>
+                var useBlockingProgress = firstVisibleStoreLoadWithoutDealsCache;
+
+                if (useBlockingProgress)
                 {
-                    Settings.SteamStoreLoading = true;
-                    Settings.SteamStoreError = string.Empty;
-                    Settings.SteamStoreLoadingProgress = 5;
-                });
+                    OnUi(() =>
+                    {
+                        Settings.SteamStoreLoading = true;
+                        Settings.SteamStoreError = string.Empty;
+                        if (Settings.SteamStoreLoadingProgress < 5)
+                        {
+                            Settings.SteamStoreLoadingProgress = 5;
+                        }
+                    });
+                }
 
                 try
                 {
                     logger.Info(
-                        $"[AnikiHelper] Steam Store refresh START | Store={storeMustRefresh} | Upcoming={upcomingMustRefresh} | MostWishlisted={wishlistedMustRefresh} | MyWishlist={myWishlistMustRefresh} | New={newReleasesMustRefresh} | Recommended={recommendedMustRefresh} | Lang={language} | Region={region}"
+                        $"[AnikiHelper] Steam Store refresh START | BlockingFirstLoad={useBlockingProgress} | DealsPriority={dealsReadyFirst} | Store={storeMustRefresh} | Upcoming={upcomingMustRefresh} | MostWishlisted={wishlistedMustRefresh} | MyWishlist={myWishlistMustRefresh} | New={newReleasesMustRefresh} | Recommended={recommendedMustRefresh} | Lang={language} | Region={region}"
                     );
 
                     var refreshTasks = new List<Task>();
-
-                    var totalRefreshSteps = 0;
+                    var totalRefreshSteps = prioritizeDealsFirst ? 1 : 0;
 
                     if (storeMustRefresh)
                     {
@@ -12719,7 +13891,9 @@ namespace AnikiHelper
                         totalRefreshSteps++;
                     }
 
-                    var completedRefreshSteps = 0;
+                    // The priority Deals request has already completed before the parallel
+                    // refresh phase starts, whether it returned data or failed.
+                    var completedRefreshSteps = prioritizeDealsFirst ? 1 : 0;
                     var progressLock = new object();
 
                     Action reportRefreshStepDone = () =>
@@ -12732,14 +13906,26 @@ namespace AnikiHelper
                             completed = completedRefreshSteps;
                         }
 
+                        if (!useBlockingProgress)
+                        {
+                            return;
+                        }
+
                         var progress = totalRefreshSteps <= 0
                             ? 100
-                            : Math.Min(95, 10 + (int)Math.Round((completed / (double)totalRefreshSteps) * 85));
+                            : Math.Min(95, 5 + (int)Math.Round((completed / (double)totalRefreshSteps) * 90));
 
                         SetSteamStoreLoadingProgress(progress);
                     };
 
-                    SetSteamStoreLoadingProgress(10);
+                    if (useBlockingProgress)
+                    {
+                        var initialCompletedProgress = totalRefreshSteps <= 0
+                            ? 95
+                            : Math.Min(95, 5 + (int)Math.Round((completedRefreshSteps / (double)totalRefreshSteps) * 90));
+
+                        SetSteamStoreLoadingProgress(initialCompletedProgress);
+                    }
 
                     if (storeMustRefresh)
                     {
@@ -12747,7 +13933,22 @@ namespace AnikiHelper
                         {
                             try
                             {
-                                await RefreshSteamStoreAllAsync(false, false);
+                                if (dealsReadyFirst)
+                                {
+                                    // Deals is already visible. Refresh only the remaining
+                                    // classic section instead of downloading Deals twice.
+                                    await RefreshSteamStoreTopSellersOnlyAsync(
+                                        personalizationContext,
+                                        language,
+                                        region).ConfigureAwait(false);
+                                }
+                                else
+                                {
+                                    await RefreshSteamStoreAllAsync(
+                                        false,
+                                        false,
+                                        publishAvailability: !useBlockingProgress).ConfigureAwait(false);
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -12836,7 +14037,7 @@ namespace AnikiHelper
                                     personalizationContext,
                                     language,
                                     region,
-                                    progress => SetSteamStoreLoadingProgress(progress),
+                                    reportProgress: null,
                                     allowVisibleStoreUiRebuild: false
                                 ).ConfigureAwait(false);
 
@@ -12909,7 +14110,7 @@ namespace AnikiHelper
                                     recommendationProfile,
                                     language,
                                     region,
-                                    progress => SetSteamStoreLoadingProgress(progress),
+                                    reportProgress: null,
                                     allowVisibleStoreUiRebuild: false
                                 ).ConfigureAwait(false);
 
@@ -12945,7 +14146,7 @@ namespace AnikiHelper
                         }));
                     }
 
-                    await Task.WhenAll(refreshTasks);
+                    await Task.WhenAll(refreshTasks).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -12958,20 +14159,40 @@ namespace AnikiHelper
                 }
                 finally
                 {
+                    if (!useBlockingProgress)
+                    {
+                        OnUi(() =>
+                        {
+                            UpdateSteamStoreActiveSectionIfAllowed(false);
+                            UpdateSteamStoreAvailabilityState();
+                        });
+                    }
+
+                    if (useBlockingProgress)
+                    {
+                        SetSteamStoreLoadingProgressImmediate(100);
+                        await Task.Delay(250).ConfigureAwait(false);
+                    }
+
                     OnUi(() =>
                     {
                         UpdateSteamStoreActiveSectionIfAllowed(false);
-                        UpdateSteamStoreAvailabilityState();
-                    });
 
-                    SetSteamStoreLoadingProgress(100);
+                        if (useBlockingProgress)
+                        {
+                            // Publish Store availability only after the progress bar really
+                            // reached 100%, so the initial overlay cannot disappear early.
+                            UpdateSteamStoreAvailabilityState();
+                        }
 
-                    await Task.Delay(900);
-
-                    OnUi(() =>
-                    {
                         Settings.SteamStoreLoading = false;
                         SaveSettingsSafe();
+
+                        // Hub Store cards may have been created only now.
+                        if (IsWelcomeHubStorePageActive())
+                        {
+                            QueueWelcomeHubCardFocusRestore();
+                        }
                     });
                 }
             }
@@ -13157,6 +14378,109 @@ namespace AnikiHelper
             anikiWindowManager?.OpenChildWindow(styleKey);
         }
 
+        public void OpenWebBrowserHome()
+        {
+            try
+            {
+                Action openBrowser = () => webBrowserService?.OpenHome();
+
+                // A browser button can be placed in Quick Access or any other Aniki
+                // window. Fully close that source window first so it cannot leave the
+                // Playnite dim layer active behind the WebView2 window.
+                if (anikiWindowManager?.HasOpenWindow == true &&
+                    anikiWindowManager.CloseTopWindowForExternalHandoff(openBrowser))
+                {
+                    return;
+                }
+
+                openBrowser();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open the web browser home page.");
+            }
+        }
+
+        public void OpenWebBrowser(string address, string title = null)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(address))
+                {
+                    OpenWebBrowserHome();
+                    return;
+                }
+
+                Action openBrowser = () => webBrowserService?.Open(address, title);
+
+                if (anikiWindowManager?.HasOpenWindow == true &&
+                    anikiWindowManager.CloseTopWindowForExternalHandoff(openBrowser))
+                {
+                    return;
+                }
+
+                openBrowser();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to open the generic web browser.");
+            }
+        }
+
+        public async Task ClearWebBrowserCacheAsync()
+        {
+            try
+            {
+                await webBrowserService.ClearCacheAsync();
+                PlayniteApi?.Dialogs?.ShowMessage(
+                    Loc("WebBrowser_CacheCleared", "The web browser cache has been cleared. Your website sessions were kept."),
+                    Loc("SettingsNav_WebBrowser", "Web Browser"));
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][WebBrowser] Failed to clear browser cache.");
+                PlayniteApi?.Dialogs?.ShowErrorMessage(
+                    Loc("WebBrowser_CacheClearFailed", "The web browser cache could not be cleared."),
+                    Loc("SettingsNav_WebBrowser", "Web Browser"));
+            }
+        }
+
+        public async Task ResetWebBrowserDataAsync()
+        {
+            try
+            {
+                var confirmation = PlayniteApi?.Dialogs?.ShowMessage(
+                    Loc(
+                        "WebBrowser_ResetDataConfirm",
+                        "This will delete cookies, saved sessions, browsing history, cache and all other Aniki browser data. You will be signed out of every website. Continue?"),
+                    Loc("WebBrowser_ResetDataTitle", "Reset browser data"),
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (confirmation != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
+                await webBrowserService.ClearAllBrowserDataAsync();
+                PlayniteApi?.Dialogs?.ShowMessage(
+                    Loc("WebBrowser_DataReset", "All Aniki web browser data has been deleted."),
+                    Loc("SettingsNav_WebBrowser", "Web Browser"));
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][WebBrowser] Failed to reset browser data.");
+                PlayniteApi?.Dialogs?.ShowErrorMessage(
+                    Loc("WebBrowser_DataResetFailed", "The web browser data could not be deleted."),
+                    Loc("SettingsNav_WebBrowser", "Web Browser"));
+            }
+        }
+
+        public void CloseWebBrowser()
+        {
+            webBrowserService?.Close();
+        }
+
         public void CloseTopWindow()
         {
             anikiWindowManager?.CloseTopWindow();
@@ -13177,58 +14501,176 @@ namespace AnikiHelper
                     return;
                 }
 
-                dispatcher.BeginInvoke(new Action(() =>
+                Action openAfterQuickAccessClosed = () =>
                 {
                     try
                     {
-                        // Ferme la fenêtre Quick Access avant d'ouvrir les notifications Playnite
-                        CloseTopWindow();
-
-                        dispatcher.BeginInvoke(new Action(() =>
+                        var app = Application.Current;
+                        if (app == null)
                         {
-                            try
-                            {
-                                var app = Application.Current;
-                                if (app == null)
-                                {
-                                    return;
-                                }
+                            return;
+                        }
 
-                                var button = app.Windows
-                                    .OfType<Window>()
-                                    .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
-                                    .FirstOrDefault(x => x.Name == "PART_ButtonNotifications") as ButtonBase;
+                        // Take the snapshot only after Quick Access is fully closed. This avoids
+                        // confusing the outgoing Aniki window with the native NotificationsWindow.
+                        var windowsBeforeOpen = new HashSet<Window>(app.Windows.OfType<Window>());
 
-                                if (button == null)
-                                {
-                                    logger.Warn("[AnikiHelper] PART_ButtonNotifications was not found.");
-                                    return;
-                                }
+                        var button = app.Windows
+                            .OfType<Window>()
+                            .SelectMany(w => w.FindVisualChildren<FrameworkElement>())
+                            .FirstOrDefault(x => x.Name == "PART_ButtonNotifications") as ButtonBase;
 
-                                if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
-                                {
-                                    button.Command.Execute(button.CommandParameter);
-                                    return;
-                                }
+                        if (button == null)
+                        {
+                            logger.Warn("[AnikiHelper] PART_ButtonNotifications was not found after Quick Access handoff.");
+                            return;
+                        }
 
-                                button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.Warn(ex, "[AnikiHelper] Failed to trigger PART_ButtonNotifications.");
-                            }
-                        }), DispatcherPriority.Background);
+                        logger?.Debug("[AnikiHelper][NotificationsFocus] Quick Access closed; opening native NotificationsWindow.");
+                        ExecuteButton(button);
+
+                        // With an empty notification list there is no item to take focus naturally.
+                        // Explicitly activate the native window and focus its first usable button.
+                        QueueNotificationsWindowFocusRestore(windowsBeforeOpen, 0);
                     }
                     catch (Exception ex)
                     {
-                        logger.Warn(ex, "[AnikiHelper] OpenNotificationsMenuFromQuickAccess inner failed.");
+                        logger.Warn(ex, "[AnikiHelper] Failed to open notifications after Quick Access handoff.");
                     }
-                }), DispatcherPriority.Background);
+                };
+
+                Action beginHandoff = () =>
+                {
+                    try
+                    {
+                        if (anikiWindowManager == null ||
+                            !anikiWindowManager.CloseTopWindowForExternalHandoff(openAfterQuickAccessClosed))
+                        {
+                            // Fallback for calls made when Quick Access is no longer tracked.
+                            dispatcher.BeginInvoke(openAfterQuickAccessClosed, DispatcherPriority.Normal);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Notifications external handoff failed; using fallback open.");
+                        dispatcher.BeginInvoke(openAfterQuickAccessClosed, DispatcherPriority.Normal);
+                    }
+                };
+
+                if (dispatcher.CheckAccess())
+                {
+                    beginHandoff();
+                }
+                else
+                {
+                    dispatcher.BeginInvoke(beginHandoff, DispatcherPriority.Normal);
+                }
             }
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] OpenNotificationsMenuFromQuickAccess failed.");
             }
+        }
+
+        private void QueueNotificationsWindowFocusRestore(HashSet<Window> windowsBeforeOpen, int attempt)
+        {
+            const int maxAttempts = 5;
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                return;
+            }
+
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (TryFocusNotificationsWindow(windowsBeforeOpen))
+                    {
+                        logger?.Debug(
+                            $"[AnikiHelper][NotificationsFocus] Notifications window focused. Attempt={attempt + 1}");
+                        return;
+                    }
+
+                    if (attempt + 1 < maxAttempts)
+                    {
+                        QueueNotificationsWindowFocusRestore(windowsBeforeOpen, attempt + 1);
+                    }
+                    else
+                    {
+                        logger?.Warn(
+                            "[AnikiHelper][NotificationsFocus] Notifications window could not be focused after all attempts.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][NotificationsFocus] Focus restore attempt failed.");
+                }
+            }), attempt == 0 ? DispatcherPriority.Loaded : DispatcherPriority.ApplicationIdle);
+        }
+
+        private bool TryFocusNotificationsWindow(HashSet<Window> windowsBeforeOpen)
+        {
+            var app = Application.Current;
+            if (app == null)
+            {
+                return false;
+            }
+
+            var openWindows = app.Windows.OfType<Window>().ToList();
+
+            var notificationsWindow = openWindows
+                .Where(window => window != null && window.IsVisible)
+                .OrderByDescending(window => windowsBeforeOpen == null || !windowsBeforeOpen.Contains(window))
+                .FirstOrDefault(IsPlayniteNotificationsWindow);
+
+            if (notificationsWindow == null)
+            {
+                return false;
+            }
+
+            notificationsWindow.Activate();
+            notificationsWindow.Focus();
+            notificationsWindow.UpdateLayout();
+
+            var target = notificationsWindow
+                .FindVisualChildren<ButtonBase>()
+                .FirstOrDefault(button =>
+                    button != null &&
+                    button.IsVisible &&
+                    button.IsEnabled &&
+                    button.Focusable);
+
+            if (target != null)
+            {
+                target.Focus();
+                Keyboard.Focus(target);
+
+                var focusScope = FocusManager.GetFocusScope(target);
+                if (focusScope != null)
+                {
+                    FocusManager.SetFocusedElement(focusScope, target);
+                }
+            }
+
+            return notificationsWindow.IsActive &&
+                   (target == null || ReferenceEquals(Keyboard.FocusedElement, target));
+        }
+
+        private static bool IsPlayniteNotificationsWindow(Window window)
+        {
+            if (window == null)
+            {
+                return false;
+            }
+
+            var type = window.GetType();
+            var typeName = type?.Name ?? string.Empty;
+            var fullName = type?.FullName ?? string.Empty;
+
+            return string.Equals(typeName, "NotificationsWindow", StringComparison.Ordinal) ||
+                   fullName.EndsWith(".NotificationsWindow", StringComparison.Ordinal);
         }
 
         private ButtonBase FindButtonInOpenWindows(string buttonName)
@@ -14043,6 +15485,7 @@ namespace AnikiHelper
                     // A new Aniki window may have opened without producing a new event yet,
                     // or the native Playnite Settings window may now own the transition.
                     var stillOpen = anikiWindowManager?.HasOpenWindow == true ||
+                                    webBrowserService?.IsOpen == true ||
                                     IsNativeFullscreenSettingsWindowVisible();
 
                     if (stillOpen)
@@ -14160,6 +15603,8 @@ namespace AnikiHelper
 
                 try
                 {
+                    // The generic web browser is not a secondary music view. Only
+                    // windows explicitly marked SecondaryMusic keep this soundtrack alive.
                     var stillOpen = anikiWindowManager?.HasSecondaryMusicWindow == true;
 
                     if (stillOpen)
@@ -14397,11 +15842,7 @@ namespace AnikiHelper
                     return;
                 }
 
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = url,
-                    UseShellExecute = true
-                });
+                OpenWebBrowser(url, linkKey);
             }
             catch (Exception ex)
             {
@@ -14737,6 +16178,26 @@ namespace AnikiHelper
             anikiThemeSettingsService?.Reload();
         }
 
+        public void ExportAnikiThemeConfiguration(string exportFilePath)
+        {
+            if (anikiThemeSettingsService == null)
+            {
+                throw new InvalidOperationException("Aniki theme settings are not available.");
+            }
+
+            anikiThemeSettingsService.ExportThemeConfiguration(exportFilePath);
+        }
+
+        public void ImportAnikiThemeConfiguration(string importFilePath)
+        {
+            if (anikiThemeSettingsService == null)
+            {
+                throw new InvalidOperationException("Aniki theme settings are not available.");
+            }
+
+            anikiThemeSettingsService.ImportThemeConfiguration(importFilePath);
+        }
+
         public void SetAnikiThemeSettingsRestartRequiredAction(Action action)
         {
             anikiThemeSettingsService?.SetRestartRequiredAction(action);
@@ -14796,6 +16257,19 @@ namespace AnikiHelper
             {
                 DataContext = SettingsVM ?? (SettingsVM = new AnikiHelperSettingsViewModel(this))
             };
+
+            // These values are only needed by the settings UI. Loading them here avoids
+            // drive enumeration and Software Tools reflection during every Playnite startup.
+            try
+            {
+                Settings?.LoadOverlayApps();
+                _ = Task.Run(() => Settings?.RefreshDiskUsages());
+            }
+            catch (Exception ex)
+            {
+                logger.Debug(ex, "[AnikiHelper] Deferred settings data load failed.");
+            }
+
             return view;
         }
 
@@ -14816,6 +16290,15 @@ namespace AnikiHelper
                 var cachePath = GetSteamUpdatesCachePath();
                 if (File.Exists(cachePath) || !Settings.AskSteamUpdateCacheAtStartup)
                 {
+                    return;
+                }
+
+                if (anikiThemeSettingsService?.HasPendingInitialSetupExperience == true ||
+                    Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true ||
+                    Settings?.FirstSetup?.IsActive == true)
+                {
+                    Interlocked.Exchange(ref deferredSteamUpdateCacheStartupPrompt, 1);
+                    DebugLog("[AnikiHelper][FirstSetup] Steam update cache prompt deferred until setup completion.");
                     return;
                 }
 
@@ -14852,6 +16335,35 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] TryAskForSteamUpdateCacheOnStartup failed.");
+            }
+        }
+
+        private async Task ResumeDeferredStartupPromptsAfterInitialSetupAsync()
+        {
+            if (Interlocked.Exchange(ref deferredSteamUpdateCacheStartupPrompt, 0) == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                // Give the wizard window, its dim state and the selected destination time
+                // to finish restoring before opening a native Playnite modal dialog.
+                await Task.Delay(1000);
+
+                if (anikiThemeSettingsService?.HasPendingInitialSetupExperience == true ||
+                    Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true ||
+                    Settings?.FirstSetup?.IsActive == true)
+                {
+                    Interlocked.Exchange(ref deferredSteamUpdateCacheStartupPrompt, 1);
+                    return;
+                }
+
+                await OnUiAsync(TryAskForSteamUpdateCacheOnStartup, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FirstSetup] Failed to resume deferred startup prompts.");
             }
         }
 
@@ -14940,10 +16452,24 @@ namespace AnikiHelper
                     return;
                 }
 
+                if (anikiThemeSettingsService?.HasPendingInitialSetupExperience == true ||
+                    Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true ||
+                    Settings?.FirstSetup?.IsActive == true)
+                {
+                    return;
+                }
+
                 // Delay pour éviter de se lancer en même temps que l’intro / le hub
                 if (!forceOpen)
                 {
                     await Task.Delay(6000);
+
+                    if (anikiThemeSettingsService?.HasPendingInitialSetupExperience == true ||
+                        Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true ||
+                        Settings?.FirstSetup?.IsActive == true)
+                    {
+                        return;
+                    }
                 }
 
                 var themeRoot = Path.Combine(
@@ -15014,11 +16540,326 @@ namespace AnikiHelper
             }
         }
 
+        internal async Task ShowInitialSetupAfterStartupAsync(int delayMilliseconds)
+        {
+            try
+            {
+                var hasPendingAddonInstallations =
+                    Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true;
+
+                if (!isFullscreenMode ||
+                    !IsAnikiThemeActive() ||
+                    (anikiThemeSettingsService?.HasPendingInitialSetupExperience != true &&
+                     !hasPendingAddonInstallations))
+                {
+                    return;
+                }
+
+                if (delayMilliseconds > 0)
+                {
+                    await Task.Delay(delayMilliseconds);
+                }
+
+                hasPendingAddonInstallations =
+                    Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true;
+
+                if (anikiThemeSettingsService?.HasPendingInitialSetupExperience != true &&
+                    !hasPendingAddonInstallations)
+                {
+                    return;
+                }
+
+                await OnUiAsync(() =>
+                {
+                    if (Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true)
+                    {
+                        Settings.IsWelcomeHubOpen = false;
+
+                        if (Settings.FirstSetup.PreparePendingAddonInstallations())
+                        {
+                            OpenWindow("FirstSetupWindowStyle|FirstSetupAddonInstallButton|NoDim|SecondaryMusic");
+                        }
+                        else
+                        {
+                            if (Settings.OpenWelcomeHubOnStartup)
+                            {
+                                OpenWelcomeHub();
+                            }
+
+                            _ = ResumeDeferredStartupPromptsAfterInitialSetupAsync();
+                        }
+
+                        return;
+                    }
+
+                    if (anikiThemeSettingsService?.ShouldShowInitialSetup == true)
+                    {
+                        Settings.IsWelcomeHubOpen = false;
+                        Settings.FirstSetup?.Prepare();
+                        OpenWindow("FirstSetupWindowStyle|FirstSetupStartButton|NoDim|SecondaryMusic");
+                        return;
+                    }
+
+                    if (anikiThemeSettingsService?.ShouldOfferInitialSetup == true)
+                    {
+                        Settings.IsWelcomeHubOpen = false;
+                        Settings.FirstSetup?.PrepareOffer();
+                        OpenWindow("FirstSetupWindowStyle|FirstSetupOfferStartButton|NoDim|SecondaryMusic");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FirstSetup] Failed to open the initial setup experience.");
+            }
+        }
+
+        public async void OpenFirstSetupFromHelpMenu()
+        {
+            try
+            {
+                if (!isFullscreenMode || !IsAnikiThemeActive())
+                {
+                    return;
+                }
+
+                await OnUiAsync(() =>
+                {
+                    if (Settings != null)
+                    {
+                        Settings.IsWelcomeHubOpen = false;
+                    }
+                });
+
+                // Help & Support may be stacked above Quick Access. Wait until every owned
+                // Aniki window has actually raised Closed before opening the setup again.
+                await CloseAllTrackedAnikiWindowsForFirstSetupAsync(finalizeWindowState: false);
+                await Task.Delay(60);
+
+                await OnUiAsync(() =>
+                {
+                    Settings.FirstSetup?.Prepare(manualLaunch: true);
+                    OpenWindow("FirstSetupWindowStyle|FirstSetupStartButton|NoDim|SecondaryMusic");
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FirstSetup] Failed to reopen the setup assistant from Help & Support.");
+            }
+        }
+
+        private async Task CloseAllTrackedAnikiWindowsForFirstSetupAsync(bool finalizeWindowState)
+        {
+            try
+            {
+                await OnUiAsync(() =>
+                {
+                    anikiWindowCloseGraceTimer?.Stop();
+                    secondaryMusicWindowCloseGraceTimer?.Stop();
+
+                    if (Settings == null)
+                    {
+                        return;
+                    }
+
+                    // Reset these states before and after the awaited WPF close. This prevents a
+                    // hidden owner window or a delayed grace timer from keeping the main view dimmed
+                    // and prevents SecondaryViewsOST from resuming after the setup has finished.
+                    Settings.IsQuickAccessToMainMenuDimActive = false;
+                    Settings.IsSecondaryMusicWindowOpen = false;
+
+                    if (finalizeWindowState)
+                    {
+                        Settings.IsAnikiWindowOpen = false;
+                    }
+                }, DispatcherPriority.Send);
+
+                if (anikiWindowManager != null)
+                {
+                    await anikiWindowManager.CloseAllWindowsAndWaitAsync(
+                        finalizeWindowState ? "FirstSetupComplete" : "FirstSetupReopen");
+                }
+
+                await OnUiAsync(() =>
+                {
+                    anikiWindowCloseGraceTimer?.Stop();
+                    secondaryMusicWindowCloseGraceTimer?.Stop();
+
+                    if (Settings != null)
+                    {
+                        Settings.IsAnikiWindowOpen = false;
+                        Settings.IsSecondaryMusicWindowOpen = false;
+                        Settings.IsQuickAccessToMainMenuDimActive = false;
+                    }
+
+                    var playniteWindow = PlayniteApi?.Dialogs?.GetCurrentAppWindow();
+                    if (playniteWindow != null && playniteWindow.IsVisible)
+                    {
+                        playniteWindow.Activate();
+                        playniteWindow.Focus();
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FirstSetup] Failed to close and restore the setup window state.");
+
+                try
+                {
+                    anikiWindowManager?.CloseAllWindowsAndRestorePlayniteFocus("FirstSetupFallback");
+
+                    if (Settings != null)
+                    {
+                        Settings.IsAnikiWindowOpen = false;
+                        Settings.IsSecondaryMusicWindowOpen = false;
+                        Settings.IsQuickAccessToMainMenuDimActive = false;
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        internal void FocusFirstSetupControl(string elementName)
+        {
+            anikiWindowManager?.FocusTopWindowElement(elementName);
+        }
+
+        internal void MarkCurrentWhatsNewAsSeen()
+        {
+            try
+            {
+                var themeRoot = Path.Combine(
+                    PlayniteApi.Paths.ConfigurationPath,
+                    "Themes",
+                    "Fullscreen",
+                    ShutdownThemeFolderName);
+
+                var jsonPath = Path.Combine(themeRoot, "Extra", "WhatsNew", "whatsnew.json");
+                if (!File.Exists(jsonPath))
+                {
+                    return;
+                }
+
+                var data = Serialization.FromJson<WhatsNewPackage>(File.ReadAllText(jsonPath));
+                if (data == null || string.IsNullOrWhiteSpace(data.Version))
+                {
+                    return;
+                }
+
+                Settings.LastSeenWhatsNewVersion = data.Version;
+                SaveSettingsSafe();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FirstSetup] Failed to mark What's New as seen.");
+            }
+        }
+
+        internal async Task CloseInitialSetupOfferAsync(bool openWelcomeHub)
+        {
+            try
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Settings != null)
+                    {
+                        Settings.IsWelcomeHubOpen = false;
+                    }
+                });
+
+                await CloseAllTrackedAnikiWindowsForFirstSetupAsync(finalizeWindowState: true);
+
+                if (openWelcomeHub)
+                {
+                    await OnUiAsync(OpenWelcomeHub, DispatcherPriority.ApplicationIdle);
+                }
+
+                _ = ResumeDeferredStartupPromptsAfterInitialSetupAsync();
+                _ = CheckWhatsNewAfterStartupAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FirstSetup] Failed to close the setup offer.");
+                await CloseAllTrackedAnikiWindowsForFirstSetupAsync(finalizeWindowState: true);
+            }
+        }
+
+        internal async Task CompleteInitialSetupWithoutRestartAsync(
+            bool openWelcomeHub,
+            bool resumeDeferredStartupPrompts,
+            bool resumeWhatsNew = false)
+        {
+            try
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Settings == null)
+                    {
+                        return;
+                    }
+
+                    // Stop the setup soundtrack as soon as the visual exit transition begins.
+                    secondaryMusicWindowCloseGraceTimer?.Stop();
+                    Settings.IsSecondaryMusicWindowOpen = false;
+                    Settings.IsQuickAccessToMainMenuDimActive = false;
+
+                    // Prepare the selected destination underneath the setup window. The setup then
+                    // fades away instead of abruptly cutting to the Hub or Library.
+                    Settings.IsWelcomeHubClosing = false;
+                    Settings.IsWelcomeHubOpen = openWelcomeHub;
+                }, DispatcherPriority.Render);
+
+                // FirstSetupView.xaml uses a 380 ms exit animation.
+                await Task.Delay(420);
+
+                await CloseAllTrackedAnikiWindowsForFirstSetupAsync(finalizeWindowState: true);
+
+                await OnUiAsync(() =>
+                {
+                    if (openWelcomeHub)
+                    {
+                        // IsWelcomeHubOpen is already true; calling this again restores Hub focus
+                        // now that the setup window no longer owns the foreground.
+                        OpenWelcomeHub();
+                        return;
+                    }
+
+                    var gameList = Application.Current?.Windows
+                        .OfType<Window>()
+                        .SelectMany(window => window.FindVisualChildren<FrameworkElement>())
+                        .FirstOrDefault(element => element.Name == "PART_ListGameItems");
+
+                    if (gameList != null)
+                    {
+                        gameList.Focus();
+                        Keyboard.Focus(gameList);
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+
+                if (resumeDeferredStartupPrompts)
+                {
+                    _ = ResumeDeferredStartupPromptsAfterInitialSetupAsync();
+                }
+
+                if (resumeWhatsNew)
+                {
+                    _ = CheckWhatsNewAfterStartupAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[AnikiHelper][FirstSetup] Failed to close the initial setup.");
+                await CloseAllTrackedAnikiWindowsForFirstSetupAsync(finalizeWindowState: true);
+            }
+        }
+
         private bool IsAnikiThemeActive()
         {
             try
             {
-                // 1) First condition: the active theme must include your XAML marker.
+                // The active theme only needs to expose the Aniki XAML marker.
                 var hasAnikiMarker = System.Windows.Application.Current?.TryFindResource("Aniki_ThemeMarker") is bool enabled && enabled;
 
                 if (!hasAnikiMarker)
@@ -15026,7 +16867,13 @@ namespace AnikiHelper
                     return false;
                 }
 
-                // 2) Second condition: the active theme must keep Aniki branding and Mike Aniki credit.
+                /*
+                 * OPTIONAL STRICT THEME AUTHORIZATION - CURRENTLY DISABLED
+                 *
+                 * Uncomment this block if you want to require both:
+                 * - Mike Aniki in the Author/Authors field of theme.yaml
+                 * - Aniki in the Name or Id field of theme.yaml
+                 *
                 var activeThemeId = GetActiveThemeId();
 
                 if (string.IsNullOrWhiteSpace(activeThemeId))
@@ -15057,10 +16904,13 @@ namespace AnikiHelper
                 }
 
                 return isAuthorized;
+                */
+
+                return true;
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] Failed to check Aniki theme authorization.");
+                logger.Warn(ex, "[AnikiHelper] Failed to check Aniki theme marker.");
                 return false;
             }
         }
@@ -15313,6 +17163,11 @@ namespace AnikiHelper
         {
             try
             {
+                if (isGameQuietModeActive || IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    return;
+                }
+
                 if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
                 {
                     return;
@@ -15345,6 +17200,11 @@ namespace AnikiHelper
         {
             try
             {
+                if (isGameQuietModeActive || IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    return;
+                }
+
                 if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
                 {
                     return;
@@ -15379,6 +17239,11 @@ namespace AnikiHelper
             {
                 await Task.Delay(delayMs).ConfigureAwait(false);
 
+                if (isGameQuietModeActive || IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    return;
+                }
+
                 if (PlayniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
                 {
                     return;
@@ -15402,6 +17267,12 @@ namespace AnikiHelper
             try
             {
                 await Task.Delay(delayMs).ConfigureAwait(false);
+
+                if (isGameQuietModeActive || IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    return;
+                }
+
                 await RefreshHubLibraryNewsTargetedAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -15412,6 +17283,11 @@ namespace AnikiHelper
 
         private bool IsSteamRecentScanAllowed()
         {
+            if (isGameQuietModeActive || IsAnyPlayniteGameRunningOrLaunching())
+            {
+                return false;
+            }
+
             bool enabled = false;
             OnUi(() => enabled = Settings.SteamUpdatesScanEnabled);
             if (!enabled)
@@ -15897,7 +17773,7 @@ namespace AnikiHelper
             }
         }
 
-       
+
 
         private async Task<bool> WaitForPlayniteForegroundAsync(TimeSpan timeout)
         {
@@ -15991,14 +17867,14 @@ namespace AnikiHelper
             }
         }
 
-        internal async Task ShowShutdownVideoAndExitAsync()
+        internal async Task ShowShutdownVideoAndExitAsync(bool forceVideo = false)
         {
             if (shutdownVideoSequenceRunning)
             {
                 return;
             }
 
-            if (!(Settings?.ShutdownVideoEnabled ?? true))
+            if (!forceVideo && !(Settings?.ShutdownVideoEnabled ?? true))
             {
                 Application.Current?.Shutdown();
                 return;
@@ -16243,7 +18119,8 @@ namespace AnikiHelper
                     {
                         sw.Restart();
                         anikiThemeSettingsService?.LoadAndApply();
-                        DebugLog($"[AnikiHelper][OnApplicationStarted] anikiThemeSettingsService.LoadAndApply took {sw.ElapsedMilliseconds}ms");
+                        ApplySteamBannerResetMigration();
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] anikiThemeSettingsService.LoadAndApply + migrations took {sw.ElapsedMilliseconds}ms");
                     }
                 }
                 catch (Exception ex)
@@ -16270,14 +18147,20 @@ namespace AnikiHelper
                     if (isAnikiThemeActive)
                     {
                         sw.Restart();
-                        steamFriendsService?.Start();
+
+                        // Keep the recurring timer alive, but do not launch the full online refresh
+                        // while WPF is still building the first fullscreen frame. Cached counters and
+                        // Hub cards were already restored by the Steam Friends service constructor.
+                        steamFriendsService?.Start(refreshImmediately: false);
 
                         if (IsThemeOptionEnabled("UseSteamAvatar"))
                         {
-                            _ = steamFriendsService?.RefreshSelfAvatarOnlyAsync();
+                            steamFriendsService?.LoadCachedSelfAvatar();
                         }
 
-                        DebugLog($"[AnikiHelper][OnApplicationStarted] steamFriendsService.Start took {sw.ElapsedMilliseconds}ms");
+                        _ = ScheduleStartupSteamFriendsRefreshAsync();
+
+                        DebugLog($"[AnikiHelper][OnApplicationStarted] Steam Friends phased startup scheduled took {sw.ElapsedMilliseconds}ms");
                     }
                 }
                 catch (Exception ex)
@@ -16314,7 +18197,10 @@ namespace AnikiHelper
                         sw.Restart();
                         OnUi(() =>
                         {
-                            Settings.IsWelcomeHubOpen = Settings.OpenWelcomeHubOnStartup;
+                            Settings.IsWelcomeHubOpen =
+                                anikiThemeSettingsService?.HasPendingInitialSetupExperience != true &&
+                                Settings?.FirstSetup?.HasPersistedPendingAddonInstallations != true &&
+                                Settings.OpenWelcomeHubOnStartup;
                         });
                         DebugLog($"[AnikiHelper][OnApplicationStarted] Welcome hub OnUi took {sw.ElapsedMilliseconds}ms");
                     }
@@ -16330,6 +18216,16 @@ namespace AnikiHelper
                 DebugLog($"[AnikiHelper][OnApplicationStarted] hubPage3CardsInitialized reset took {sw.ElapsedMilliseconds}ms");
 
                 QueueWelcomeHubCriticalCachePrime(isAnikiThemeActive);
+
+                if (isAnikiThemeActive)
+                {
+                    var startupCacheWarmupDelay = Settings?.StartupIntroVideoEnabled == true
+                        ? (int)StartupVideoDuration.TotalMilliseconds + 750
+                        : 900;
+
+                    Settings?.QueueDeferredStartupCacheWarmup(startupCacheWarmupDelay);
+                }
+
                 QueueStartupFocusRecovery(isAnikiThemeActive);
 
                 sw.Restart();
@@ -16420,14 +18316,27 @@ namespace AnikiHelper
                                 {
                                     logger.Warn(ex, "[AnikiHelper] Startup sound after video failed.");
                                 }
+
+                                await ShowInitialSetupAfterStartupAsync(250);
                             }
                         },
                         System.Windows.Threading.DispatcherPriority.Send
                     );
                     DebugLog($"[AnikiHelper][OnApplicationStarted] Startup video InvokeAsync queued took {sw.ElapsedMilliseconds}ms");
                 }
+                else if (isAnikiThemeActive &&
+                         (anikiThemeSettingsService?.HasPendingInitialSetupExperience == true ||
+                          Settings?.FirstSetup?.HasPersistedPendingAddonInstallations == true))
+                {
+                    _ = ShowInitialSetupAfterStartupAsync(700);
+                }
 
                 QueuePostStartupNonCriticalWork(isAnikiThemeActive);
+
+                if (isAnikiThemeActive)
+                {
+                    QueueHubBackgroundCacheCleanup();
+                }
 
                 DebugLog($"[AnikiHelper][OnApplicationStarted] END queued non-critical work | total={swTotal.ElapsedMilliseconds}ms");
             }
@@ -16725,6 +18634,11 @@ namespace AnikiHelper
                     return;
                 }
 
+                // Resolve only the cards that are about to be displayed. Database lookups
+                // and file stamps are cheap; image copies happen only for a same-path
+                // replacement detected by the lightweight version index.
+                RefreshWelcomeHubStartupCacheBackgrounds(cache);
+
                 var dispatcher = Application.Current?.Dispatcher;
 
                 Action apply = () =>
@@ -16770,6 +18684,7 @@ namespace AnikiHelper
                         s.ThisYearTopGameId = cache.ThisYearTopGameId;
 
                         s.RecentPlayedBackgroundPath = cache.RecentPlayedBackgroundPath ?? string.Empty;
+                        s.RecentPlayedGameId = cache.RecentPlayedGameId;
 
                         s.HubRecentAddedName = cache.HubRecentAddedName ?? string.Empty;
                         s.HubRecentAddedDate = cache.HubRecentAddedDate ?? string.Empty;
@@ -16880,6 +18795,7 @@ namespace AnikiHelper
                     ThisYearTopGameId = s.ThisYearTopGameId,
 
                     RecentPlayedBackgroundPath = s.RecentPlayedBackgroundPath,
+                    RecentPlayedGameId = s.RecentPlayedGameId,
 
                     HubRecentAddedName = s.HubRecentAddedName,
                     HubRecentAddedDate = s.HubRecentAddedDate,
@@ -17059,8 +18975,11 @@ namespace AnikiHelper
             var swDb = Stopwatch.StartNew();
             DebugLog("[AnikiHelper][DatabaseOpened] START delayed");
 
-            hubPage3CardsInitialized = false;
-            DebugLog($"[AnikiHelper][DatabaseOpened] hubPage3CardsInitialized reset at {swDb.ElapsedMilliseconds}ms");
+            if (!hubStartupCachePrimed)
+            {
+                hubPage3CardsInitialized = false;
+                DebugLog($"[AnikiHelper][DatabaseOpened] hubPage3CardsInitialized reset at {swDb.ElapsedMilliseconds}ms");
+            }
 
             try
             {
@@ -17075,10 +18994,16 @@ namespace AnikiHelper
             EnsureMonthlySnapshotSafe();
             DebugLog($"[AnikiHelper][DatabaseOpened] EnsureMonthlySnapshotSafe at {swDb.ElapsedMilliseconds}ms");
 
-            RecalcStatsSafe();
-            DebugLog($"[AnikiHelper][DatabaseOpened] RecalcStatsSafe at {swDb.ElapsedMilliseconds}ms");
-
-            SaveWelcomeHubStartupCacheSnapshotSafe();
+            if (!hubStartupCachePrimed)
+            {
+                var swPrime = Stopwatch.StartNew();
+                PrimeWelcomeHubCriticalCache();
+                DebugLog($"[AnikiHelper][DatabaseOpened] Startup prime completed in {swPrime.ElapsedMilliseconds}ms");
+            }
+            else
+            {
+                DebugLog("[AnikiHelper][DatabaseOpened] Full stats refresh skipped; startup prime already completed.");
+            }
 
             DebugLog($"[AnikiHelper][DatabaseOpened] END total={swDb.ElapsedMilliseconds}ms");
         }
@@ -17163,12 +19088,12 @@ namespace AnikiHelper
                 if (!hubStartupCachePrimed)
                 {
                     sw.Restart();
-                    RecalcStatsSafe();
-                    DebugLog($"[AnikiHelper][PostStartup] RecalcStatsSafe took {sw.ElapsedMilliseconds}ms");
+                    PrimeWelcomeHubCriticalCache();
+                    DebugLog($"[AnikiHelper][PostStartup] Startup prime fallback took {sw.ElapsedMilliseconds}ms");
                 }
                 else
                 {
-                    DebugLog("[AnikiHelper][PostStartup] RecalcStatsSafe skipped; hub data was loaded before login close.");
+                    DebugLog("[AnikiHelper][PostStartup] Full stats refresh skipped; startup prime already completed.");
                 }
 
                 DebugLog("[AnikiHelper][PostStartup] Profile genre cache mode active.");
@@ -17847,6 +19772,8 @@ namespace AnikiHelper
 
         public override void OnControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
         {
+            HandleEmergencyCloseHoldInput(args);
+
             if (args != null && args.State == ControllerInputState.Pressed)
             {
                 lastControllerInputUtc = DateTime.UtcNow;
@@ -17912,12 +19839,12 @@ namespace AnikiHelper
 
             if (args.Button == ControllerInput.B && args.State == ControllerInputState.Pressed)
             {
-                if (anikiWindowManager != null && anikiWindowManager.IsTopWindowActive())
+                // Overlay, Steam Friends and other specialized views are handled above.
+                // If none consumed B, the central coordinator closes the latest Aniki window
+                // even during a temporary WPF focus transition where IsActive can be false.
+                if (anikiWindowManager?.HandleCancelRequest("Controller.B") == true)
                 {
-                    if (anikiWindowManager.CloseTopWindow())
-                    {
-                        return;
-                    }
+                    return;
                 }
             }
 
@@ -17925,6 +19852,113 @@ namespace AnikiHelper
         }
 
 
+
+
+        private void HandleEmergencyCloseHoldInput(OnControllerButtonStateChangedArgs args)
+        {
+            if (args == null || args.Button != ControllerInput.B)
+            {
+                return;
+            }
+
+            if (args.State == ControllerInputState.Pressed)
+            {
+                // The emergency B-hold recovery only applies to windows tracked by
+                // AnikiWindowManager. The in-game overlay and virtual keyboard have
+                // their own close/focus restoration flow. Starting this timer while
+                // no tracked window exists can restore Playnite over the running game
+                // if a controller release event is missed.
+                if (anikiWindowManager?.HasOpenWindow == true)
+                {
+                    StartEmergencyCloseHold();
+                }
+                else
+                {
+                    CancelEmergencyCloseHold();
+                }
+            }
+            else
+            {
+                CancelEmergencyCloseHold();
+            }
+        }
+
+        private void StartEmergencyCloseHold()
+        {
+            CancellationToken token;
+
+            lock (emergencyCloseHoldSync)
+            {
+                try
+                {
+                    emergencyCloseHoldCts?.Cancel();
+                    emergencyCloseHoldCts?.Dispose();
+                }
+                catch
+                {
+                }
+
+                emergencyCloseHoldCts = new CancellationTokenSource();
+                token = emergencyCloseHoldCts.Token;
+            }
+
+            _ = RunEmergencyCloseHoldAsync(token);
+        }
+
+        private async Task RunEmergencyCloseHoldAsync(CancellationToken token)
+        {
+            try
+            {
+                await Task.Delay(EmergencyCloseHoldDuration, token);
+
+                lock (emergencyCloseHoldSync)
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                }
+
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted)
+                {
+                    return;
+                }
+
+                await dispatcher.InvokeAsync(() =>
+                {
+                    logger?.Warn(
+                        "[AnikiHelper][EmergencyClose] B held for 2 seconds; closing all tracked Aniki windows and restoring Playnite focus.");
+
+                    anikiWindowManager?.CloseAllWindowsAndRestorePlayniteFocus("Controller.B.Hold");
+                }, DispatcherPriority.Send);
+            }
+            catch (TaskCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][EmergencyClose] Recovery shortcut failed.");
+            }
+        }
+
+        private void CancelEmergencyCloseHold()
+        {
+            lock (emergencyCloseHoldSync)
+            {
+                try
+                {
+                    emergencyCloseHoldCts?.Cancel();
+                    emergencyCloseHoldCts?.Dispose();
+                }
+                catch
+                {
+                }
+
+                emergencyCloseHoldCts = null;
+            }
+        }
 
         private async Task CheckRequiredPluginVersionAfterFullscreenStartupAsync()
         {
@@ -17950,6 +19984,7 @@ namespace AnikiHelper
 
         public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
         {
+            CancelEmergencyCloseHold();
             logger.Debug("AnikiHelper shutdown: start");
 
             try
@@ -17962,6 +19997,17 @@ namespace AnikiHelper
             {
                 logger.Error(e, "AnikiHelper shutdown: PlayApplicationStopped failed");
             }
+
+            try
+            {
+                lock (startupSteamFriendsRefreshLock)
+                {
+                    startupSteamFriendsRefreshCts?.Cancel();
+                    startupSteamFriendsRefreshCts?.Dispose();
+                    startupSteamFriendsRefreshCts = null;
+                }
+            }
+            catch { }
 
             try { steamFriendsService?.Dispose(); } catch { }
             try { steamUpdateTimer?.Stop(); } catch { }
@@ -18000,6 +20046,17 @@ namespace AnikiHelper
 
             try
             {
+                logger.Debug("AnikiHelper shutdown: before webBrowserService.Dispose");
+                webBrowserService?.Dispose();
+                logger.Debug("AnikiHelper shutdown: after webBrowserService.Dispose");
+            }
+            catch (Exception e)
+            {
+                logger.Error(e, "AnikiHelper shutdown: webBrowserService.Dispose failed");
+            }
+
+            try
+            {
                 logger.Debug("AnikiHelper shutdown: before inGameOverlayService.Stop");
                 inGameOverlayService?.Stop();
                 logger.Debug("AnikiHelper shutdown: after inGameOverlayService.Stop");
@@ -18008,6 +20065,20 @@ namespace AnikiHelper
             {
                 logger.Error(e, "AnikiHelper shutdown: inGameOverlayService.Stop failed");
             }
+
+            try
+            {
+                if (hubGameItemUpdatedSubscribed && PlayniteApi?.Database?.Games != null)
+                {
+                    PlayniteApi.Database.Games.ItemUpdated -= OnGameDatabaseItemUpdated;
+                    hubGameItemUpdatedSubscribed = false;
+                }
+            }
+            catch { }
+
+            // The index is tiny and only written when one of the displayed cards was
+            // resolved. Flushing it here avoids losing a pending asynchronous save.
+            try { SaveHubBackgroundVersionIndexNowIfDirty(); } catch { }
 
             base.OnApplicationStopped(args);
 
@@ -18041,6 +20112,11 @@ namespace AnikiHelper
                 // Cache-first startup: wait longer before any online refresh so the Hub opens instantly.
                 await Task.Delay(60000);
 
+                if (isGameQuietModeActive || IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    return;
+                }
+
                 if (!Settings.NewsScanEnabled)
                 {
                     return;
@@ -18060,6 +20136,12 @@ namespace AnikiHelper
             try
             {
                 await Task.Delay(60000);
+
+                if (isGameQuietModeActive || IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    return;
+                }
+
                 await RefreshPlayniteNewsAsync(force: false, silent: true);
             }
             catch (Exception ex)
@@ -18410,6 +20492,99 @@ namespace AnikiHelper
                 UpdateSteamFriendsDetailsForGame(g);
             }
 
+        }
+
+        private void EnterGameQuietMode(Game game)
+        {
+            try
+            {
+                Interlocked.Increment(ref gameQuietModeGeneration);
+                isGameQuietModeActive = true;
+
+                OnUi(() =>
+                {
+                    try { newsRotationTimer?.Stop(); } catch { }
+                    try { libraryNewsRotationTimer?.Stop(); } catch { }
+                    try { steamUpdateTimer?.Stop(); } catch { }
+                    try { navigationSettleTimer?.Stop(); } catch { }
+                    try { steamUpdatesCacheFlushTimer?.Stop(); } catch { }
+                    try { steamGameNewsCacheFlushTimer?.Stop(); } catch { }
+
+                    if (Settings != null)
+                    {
+                        Settings.IsFastNavigating = false;
+                    }
+                });
+
+                try { steamUpdateCts?.Cancel(); } catch { }
+                try { steamGameNewsCts?.Cancel(); } catch { }
+                try { steamFriendsService?.OnGameStarted(); } catch { }
+
+                DebugLog(
+                    $"[AnikiHelper][GameQuietMode] ENTER | " +
+                    $"Game='{game?.Name ?? "NULL"}' | " +
+                    "Hub rotations stopped, pending Steam news cancelled, cache writes paused.");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][GameQuietMode] Failed to enter quiet mode.");
+            }
+        }
+
+        private void ScheduleExitGameQuietMode(Game game)
+        {
+            try
+            {
+                var generation = Interlocked.Increment(ref gameQuietModeGeneration);
+                _ = ExitGameQuietModeAfterDelayAsync(generation, game?.Name);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][GameQuietMode] Failed to schedule quiet mode exit.");
+            }
+        }
+
+        private async Task ExitGameQuietModeAfterDelayAsync(int generation, string gameName)
+        {
+            try
+            {
+                await Task.Delay(GameQuietModeResumeDelay).ConfigureAwait(false);
+
+                if (generation != Volatile.Read(ref gameQuietModeGeneration))
+                {
+                    return;
+                }
+
+                if (IsAnyPlayniteGameRunningOrLaunching())
+                {
+                    DebugLog("[AnikiHelper][GameQuietMode] Resume skipped because another game is still running or launching.");
+                    return;
+                }
+
+                isGameQuietModeActive = false;
+
+                try { steamFriendsService?.OnGameStopped(refreshAfterDelay: false); } catch { }
+
+                OnUi(() =>
+                {
+                    try { steamUpdatesCacheFlushTimer?.Start(); } catch { }
+                    try { steamGameNewsCacheFlushTimer?.Start(); } catch { }
+
+                    if (PlayniteApi?.ApplicationInfo?.Mode == ApplicationMode.Fullscreen && IsAnikiThemeActive())
+                    {
+                        try { newsRotationTimer?.Start(); } catch { }
+                        try { libraryNewsRotationTimer?.Start(); } catch { }
+                    }
+                });
+
+                DebugLog(
+                    $"[AnikiHelper][GameQuietMode] EXIT | " +
+                    $"Game='{gameName ?? "NULL"}' | Background timers resumed after {GameQuietModeResumeDelay.TotalSeconds:0}s.");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][GameQuietMode] Failed to exit quiet mode.");
+            }
         }
 
         public override void OnGameStarting(OnGameStartingEventArgs args)
@@ -19648,7 +21823,7 @@ namespace AnikiHelper
             {
                 base.OnGameStarted(args);
 
-                try { steamFriendsService?.OnGameStarted(); } catch { }
+                EnterGameQuietMode(args?.Game);
 
                 DebugLogFocusState("After base.OnGameStarted");
 
@@ -19806,7 +21981,6 @@ namespace AnikiHelper
             try
             {
                 base.OnGameStopped(args);
-                try { steamFriendsService?.OnGameStopped(); } catch { }
 
                 var g = args?.Game;
 
@@ -20031,6 +22205,10 @@ namespace AnikiHelper
                     $"Game='{args?.Game?.Name ?? "NULL"}'"
                 );
             }
+            finally
+            {
+                ScheduleExitGameQuietMode(args?.Game);
+            }
         }
 
         #endregion
@@ -20126,6 +22304,18 @@ namespace AnikiHelper
 
         private string GetBestHubCardBackgroundPath(Game game)
         {
+            var sourcePath = GetBestHubCardBackgroundSourcePath(game);
+
+            if (game == null || string.IsNullOrWhiteSpace(sourcePath))
+            {
+                return string.Empty;
+            }
+
+            return ResolveVersionedHubBackgroundPath(game, sourcePath);
+        }
+
+        private string GetBestHubCardBackgroundSourcePath(Game game)
+        {
             if (game == null)
             {
                 return string.Empty;
@@ -20154,6 +22344,681 @@ namespace AnikiHelper
             }
 
             return string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
+        }
+
+        public string ResolveHubBackgroundPathForGame(Guid gameId)
+        {
+            try
+            {
+                if (gameId == Guid.Empty)
+                {
+                    return string.Empty;
+                }
+
+                var game = PlayniteApi?.Database?.Games?.Get(gameId);
+                return GetBestHubCardBackgroundPath(game);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, $"[AnikiHelper][HubBackground] Failed to resolve background for game {gameId}.");
+                return string.Empty;
+            }
+        }
+
+        private void RefreshSessionGameBackgroundPath()
+        {
+            try
+            {
+                var settings = Settings;
+
+                if (settings == null || settings.SessionGameId == Guid.Empty)
+                {
+                    return;
+                }
+
+                var game = PlayniteApi?.Database?.Games?.Get(settings.SessionGameId);
+
+                if (game == null)
+                {
+                    settings.SessionGameBackgroundPath = string.Empty;
+                    DebugLog($"[AnikiHelper][HubBackground][LastSession] Game not found. GameId={settings.SessionGameId}");
+                    return;
+                }
+
+                var sourceKind = !string.IsNullOrWhiteSpace(game.BackgroundImage) &&
+                                 !game.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    ? "Background"
+                    : !string.IsNullOrWhiteSpace(game.CoverImage) &&
+                      !game.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                        ? "CoverFallback"
+                        : !string.IsNullOrWhiteSpace(game.Icon) &&
+                          !game.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                            ? "IconFallback"
+                            : "None";
+
+                var resolvedPath = GetBestHubCardBackgroundPath(game);
+                settings.SessionGameBackgroundPath = resolvedPath;
+
+                DebugLog(
+                    $"[AnikiHelper][HubBackground][LastSession] " +
+                    $"Game='{game.Name}', GameId={game.Id}, Source={sourceKind}, " +
+                    $"BackgroundImage='{game.BackgroundImage ?? string.Empty}', " +
+                    $"ResolvedPath='{resolvedPath}'"
+                );
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][HubBackground][LastSession] Failed to refresh session game background.");
+            }
+        }
+
+        private void OnGameDatabaseItemUpdated(object sender, ItemUpdatedEventArgs<Game> args)
+        {
+            try
+            {
+                if (args?.UpdatedItems == null)
+                {
+                    return;
+                }
+
+                lock (hubBackgroundVersionLock)
+                {
+                    foreach (var update in args.UpdatedItems)
+                    {
+                        var oldGame = update?.OldData;
+                        var newGame = update?.NewData;
+
+                        if (newGame == null || newGame.Id == Guid.Empty ||
+                            !HasHubImageReferenceChanged(oldGame, newGame))
+                        {
+                            continue;
+                        }
+
+                        hubBackgroundPreviousPaths[newGame.Id] =
+                            GetBestHubCardBackgroundSourcePath(oldGame) ?? string.Empty;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][HubBackground] Failed to track a game image update.");
+            }
+        }
+
+        private static bool HasHubImageReferenceChanged(Game oldGame, Game newGame)
+        {
+            if (newGame == null)
+            {
+                return false;
+            }
+
+            if (oldGame == null)
+            {
+                return true;
+            }
+
+            return !string.Equals(oldGame.BackgroundImage, newGame.BackgroundImage, StringComparison.OrdinalIgnoreCase) ||
+                   !string.Equals(oldGame.CoverImage, newGame.CoverImage, StringComparison.OrdinalIgnoreCase) ||
+                   !string.Equals(oldGame.Icon, newGame.Icon, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string ResolveVersionedHubBackgroundPath(Game game, string sourcePath)
+        {
+            if (game == null || string.IsNullOrWhiteSpace(sourcePath))
+            {
+                return string.Empty;
+            }
+
+            long sourceLength;
+            long sourceLastWriteUtcTicks;
+
+            if (!TryGetHubBackgroundFileStamp(sourcePath, out sourceLength, out sourceLastWriteUtcTicks))
+            {
+                return sourcePath;
+            }
+
+            string resolvedPath = sourcePath;
+            bool indexChanged = false;
+
+            lock (hubBackgroundVersionLock)
+            {
+                var index = GetHubBackgroundVersionIndexLocked();
+                var key = game.Id.ToString("N");
+
+                HubBackgroundVersionEntry entry;
+                index.Games.TryGetValue(key, out entry);
+
+                string previousPath;
+                var hasTrackedDesktopChange = hubBackgroundPreviousPaths.TryGetValue(game.Id, out previousPath);
+                if (hasTrackedDesktopChange)
+                {
+                    hubBackgroundPreviousPaths.Remove(game.Id);
+                }
+
+                var samePathChangedThisSession =
+                    hasTrackedDesktopChange && HubBackgroundPathsEqual(previousPath, sourcePath);
+
+                if (entry == null)
+                {
+                    // First observation normally keeps the original Playnite path. If the
+                    // Desktop event explicitly says that the same path was replaced, only
+                    // this displayed game gets a versioned copy.
+                    resolvedPath = samePathChangedThisSession
+                        ? CreateVersionedHubBackgroundCopy(
+                            game.Id,
+                            sourcePath,
+                            sourceLength,
+                            sourceLastWriteUtcTicks,
+                            true)
+                        : sourcePath;
+
+                    entry = new HubBackgroundVersionEntry();
+                    index.Games[key] = entry;
+                    indexChanged = true;
+                }
+                else
+                {
+                    var sameSourcePath = HubBackgroundPathsEqual(entry.SourcePath, sourcePath);
+                    var sourceStampChanged =
+                        entry.SourceLength != sourceLength ||
+                        entry.SourceLastWriteUtcTicks != sourceLastWriteUtcTicks;
+
+                    if (!sameSourcePath)
+                    {
+                        // A genuinely new Playnite path cannot reuse WPF's old URI cache.
+                        // Use it directly: no file copy is needed.
+                        resolvedPath = sourcePath;
+                    }
+                    else if (sourceStampChanged || samePathChangedThisSession)
+                    {
+                        // The file behind the same URI changed. Create one local version so
+                        // WPF receives a different path and reloads the bitmap.
+                        resolvedPath = CreateVersionedHubBackgroundCopy(
+                            game.Id,
+                            sourcePath,
+                            sourceLength,
+                            sourceLastWriteUtcTicks,
+                            samePathChangedThisSession && !sourceStampChanged);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(entry.ResolvedPath) &&
+                             File.Exists(entry.ResolvedPath))
+                    {
+                        resolvedPath = entry.ResolvedPath;
+                    }
+                    else
+                    {
+                        resolvedPath = sourcePath;
+                    }
+                }
+
+                if (!HubBackgroundPathsEqual(entry.SourcePath, sourcePath) ||
+                    entry.SourceLength != sourceLength ||
+                    entry.SourceLastWriteUtcTicks != sourceLastWriteUtcTicks ||
+                    !HubBackgroundPathsEqual(entry.ResolvedPath, resolvedPath))
+                {
+                    entry.SourcePath = sourcePath;
+                    entry.SourceLength = sourceLength;
+                    entry.SourceLastWriteUtcTicks = sourceLastWriteUtcTicks;
+                    entry.ResolvedPath = resolvedPath;
+                    entry.UpdatedUtc = DateTime.UtcNow;
+                    indexChanged = true;
+                }
+
+                if (indexChanged)
+                {
+                    hubBackgroundVersionIndexDirty = true;
+                }
+            }
+
+            if (indexChanged)
+            {
+                QueueHubBackgroundVersionIndexSave();
+            }
+
+            return string.IsNullOrWhiteSpace(resolvedPath) ? sourcePath : resolvedPath;
+        }
+
+        private static bool TryGetHubBackgroundFileStamp(
+            string sourcePath,
+            out long sourceLength,
+            out long sourceLastWriteUtcTicks)
+        {
+            sourceLength = 0;
+            sourceLastWriteUtcTicks = 0;
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                {
+                    return false;
+                }
+
+                var info = new FileInfo(sourcePath);
+                sourceLength = info.Length;
+                sourceLastWriteUtcTicks = info.LastWriteTimeUtc.Ticks;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool HubBackgroundPathsEqual(string left, string right)
+        {
+            return string.Equals(
+                left ?? string.Empty,
+                right ?? string.Empty,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string GetHubBackgroundCacheRoot()
+        {
+            return Path.Combine(GetDataRoot(), "Hub Background Cache");
+        }
+
+        private string GetHubBackgroundVersionIndexPath()
+        {
+            return Path.Combine(GetHubBackgroundCacheRoot(), "background_index.json");
+        }
+
+        private HubBackgroundVersionIndex GetHubBackgroundVersionIndexLocked()
+        {
+            if (hubBackgroundVersionIndexLoaded && hubBackgroundVersionIndex != null)
+            {
+                return hubBackgroundVersionIndex;
+            }
+
+            hubBackgroundVersionIndexLoaded = true;
+
+            try
+            {
+                var path = GetHubBackgroundVersionIndexPath();
+                if (File.Exists(path))
+                {
+                    hubBackgroundVersionIndex =
+                        Serialization.FromJsonFile<HubBackgroundVersionIndex>(path);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][HubBackground] Failed to load background version index.");
+            }
+
+            if (hubBackgroundVersionIndex == null)
+            {
+                hubBackgroundVersionIndex = new HubBackgroundVersionIndex();
+            }
+
+            if (hubBackgroundVersionIndex.Games == null)
+            {
+                hubBackgroundVersionIndex.Games =
+                    new Dictionary<string, HubBackgroundVersionEntry>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            return hubBackgroundVersionIndex;
+        }
+
+        private string CreateVersionedHubBackgroundCopy(
+            Guid gameId,
+            string sourcePath,
+            long sourceLength,
+            long sourceLastWriteUtcTicks,
+            bool forceUniqueVersion)
+        {
+            try
+            {
+                var extension = Path.GetExtension(sourcePath);
+                if (string.IsNullOrWhiteSpace(extension) || extension.Length > 12)
+                {
+                    extension = ".img";
+                }
+
+                string pathHash;
+                using (var sha1 = SHA1.Create())
+                {
+                    var bytes = Encoding.UTF8.GetBytes(sourcePath.ToLowerInvariant());
+                    pathHash = BitConverter.ToString(sha1.ComputeHash(bytes))
+                        .Replace("-", string.Empty)
+                        .Substring(0, 12);
+                }
+
+                var gameCacheDirectory = Path.Combine(
+                    GetHubBackgroundCacheRoot(),
+                    gameId.ToString("N"));
+
+                Directory.CreateDirectory(gameCacheDirectory);
+
+                var uniqueSuffix = forceUniqueVersion
+                    ? "_" + DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture)
+                    : string.Empty;
+
+                var fileName = string.Concat(
+                    pathHash, "_",
+                    sourceLastWriteUtcTicks.ToString(CultureInfo.InvariantCulture), "_",
+                    sourceLength.ToString(CultureInfo.InvariantCulture),
+                    uniqueSuffix,
+                    extension.ToLowerInvariant());
+
+                var resolvedPath = Path.Combine(gameCacheDirectory, fileName);
+                if (File.Exists(resolvedPath))
+                {
+                    return resolvedPath;
+                }
+
+                var temporaryPath = resolvedPath + ".tmp_" + Guid.NewGuid().ToString("N");
+
+                try
+                {
+                    using (var input = new FileStream(
+                        sourcePath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete))
+                    using (var output = new FileStream(
+                        temporaryPath,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None))
+                    {
+                        input.CopyTo(output);
+                    }
+
+                    File.Move(temporaryPath, resolvedPath);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(temporaryPath))
+                        {
+                            File.Delete(temporaryPath);
+                        }
+                    }
+                    catch { }
+                }
+
+                return resolvedPath;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, $"[AnikiHelper][HubBackground] Failed to version '{sourcePath}'.");
+                return sourcePath;
+            }
+        }
+
+        private void QueueHubBackgroundVersionIndexSave()
+        {
+            if (Interlocked.CompareExchange(ref hubBackgroundVersionIndexSaveQueued, 1, 0) != 0)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Keep the write away from the critical Fullscreen startup path and
+                    // merge several card resolutions into one tiny JSON update.
+                    await Task.Delay(1500).ConfigureAwait(false);
+                    SaveHubBackgroundVersionIndexNowIfDirty();
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][HubBackground] Failed to save background version index.");
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref hubBackgroundVersionIndexSaveQueued, 0);
+
+                    bool saveAgain;
+                    lock (hubBackgroundVersionLock)
+                    {
+                        saveAgain = hubBackgroundVersionIndexDirty;
+                    }
+
+                    if (saveAgain)
+                    {
+                        QueueHubBackgroundVersionIndexSave();
+                    }
+                }
+            });
+        }
+
+        private void SaveHubBackgroundVersionIndexNowIfDirty()
+        {
+            HubBackgroundVersionIndex snapshot;
+
+            lock (hubBackgroundVersionLock)
+            {
+                if (!hubBackgroundVersionIndexDirty || hubBackgroundVersionIndex == null)
+                {
+                    return;
+                }
+
+                snapshot = CloneHubBackgroundVersionIndex(hubBackgroundVersionIndex);
+                hubBackgroundVersionIndexDirty = false;
+            }
+
+            try
+            {
+                var path = GetHubBackgroundVersionIndexPath();
+                var directory = Path.GetDirectoryName(path);
+                Directory.CreateDirectory(directory);
+
+                var temporaryPath = path + ".tmp";
+                File.WriteAllText(temporaryPath, Serialization.ToJson(snapshot, true));
+
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+
+                File.Move(temporaryPath, path);
+            }
+            catch
+            {
+                lock (hubBackgroundVersionLock)
+                {
+                    hubBackgroundVersionIndexDirty = true;
+                }
+
+                throw;
+            }
+        }
+
+        private static HubBackgroundVersionIndex CloneHubBackgroundVersionIndex(
+            HubBackgroundVersionIndex source)
+        {
+            var clone = new HubBackgroundVersionIndex
+            {
+                Version = source?.Version ?? 1,
+                Games = new Dictionary<string, HubBackgroundVersionEntry>(
+                    StringComparer.OrdinalIgnoreCase)
+            };
+
+            if (source?.Games != null)
+            {
+                foreach (var pair in source.Games)
+                {
+                    var item = pair.Value;
+                    if (item == null)
+                    {
+                        continue;
+                    }
+
+                    clone.Games[pair.Key] = new HubBackgroundVersionEntry
+                    {
+                        SourcePath = item.SourcePath,
+                        SourceLength = item.SourceLength,
+                        SourceLastWriteUtcTicks = item.SourceLastWriteUtcTicks,
+                        ResolvedPath = item.ResolvedPath,
+                        UpdatedUtc = item.UpdatedUtc
+                    };
+                }
+            }
+
+            return clone;
+        }
+
+        private string RefreshCachedHubBackground(Guid gameId, string cachedPath)
+        {
+            if (gameId == Guid.Empty)
+            {
+                return cachedPath ?? string.Empty;
+            }
+
+            try
+            {
+                var game = PlayniteApi?.Database?.Games?.Get(gameId);
+                if (game == null)
+                {
+                    return cachedPath ?? string.Empty;
+                }
+
+                var refreshedPath = GetBestHubCardBackgroundPath(game);
+                return string.IsNullOrWhiteSpace(refreshedPath)
+                    ? cachedPath ?? string.Empty
+                    : refreshedPath;
+            }
+            catch
+            {
+                return cachedPath ?? string.Empty;
+            }
+        }
+
+        private void RefreshWelcomeHubStartupCacheBackgrounds(WelcomeHubStartupCache cache)
+        {
+            var games = PlayniteApi?.Database?.Games;
+            if (cache == null || games == null || games.Count <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                cache.ThisMonthTopGameBackgroundPath = RefreshCachedHubBackground(
+                    cache.ThisMonthTopGameId,
+                    cache.ThisMonthTopGameBackgroundPath);
+
+                cache.ThisYearTopGameBackgroundPath = RefreshCachedHubBackground(
+                    cache.ThisYearTopGameId,
+                    cache.ThisYearTopGameBackgroundPath);
+
+                cache.HubRecentAddedBackgroundPath = RefreshCachedHubBackground(
+                    cache.HubRecentAddedGameId,
+                    cache.HubRecentAddedBackgroundPath);
+
+                cache.HubNeverPlayedBackgroundPath = RefreshCachedHubBackground(
+                    cache.HubNeverPlayedGameId,
+                    cache.HubNeverPlayedBackgroundPath);
+
+                var recentGame = games
+                    .Where(game => game != null && game.LastActivity.HasValue)
+                    .OrderByDescending(game => game.LastActivity.Value)
+                    .FirstOrDefault();
+
+                cache.RecentPlayedGameId = recentGame?.Id ?? Guid.Empty;
+                cache.RecentPlayedBackgroundPath = RefreshCachedHubBackground(
+                    cache.RecentPlayedGameId,
+                    cache.RecentPlayedBackgroundPath);
+
+                if (cache.HubLibraryRecommendedGames != null)
+                {
+                    foreach (var item in cache.HubLibraryRecommendedGames.Take(4))
+                    {
+                        if (item == null || item.GameId == Guid.Empty)
+                        {
+                            continue;
+                        }
+
+                        item.BackgroundPath = RefreshCachedHubBackground(
+                            item.GameId,
+                            item.BackgroundPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][HubBackground] Failed to refresh startup cache backgrounds.");
+            }
+        }
+
+        private void QueueHubBackgroundCacheCleanup()
+        {
+            if (Interlocked.CompareExchange(ref hubBackgroundCleanupQueued, 1, 0) != 0)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Cleanup is deliberately delayed so it never participates in the
+                    // Fullscreen critical startup sequence.
+                    await Task.Delay(TimeSpan.FromSeconds(90)).ConfigureAwait(false);
+                    CleanupOldHubBackgroundVersions();
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][HubBackground] Delayed cache cleanup failed.");
+                }
+            });
+        }
+
+        private void CleanupOldHubBackgroundVersions()
+        {
+            try
+            {
+                var root = GetHubBackgroundCacheRoot();
+                if (!Directory.Exists(root))
+                {
+                    return;
+                }
+
+                HashSet<string> referencedPaths;
+                lock (hubBackgroundVersionLock)
+                {
+                    var index = GetHubBackgroundVersionIndexLocked();
+                    referencedPaths = new HashSet<string>(
+                        index.Games.Values
+                            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.ResolvedPath))
+                            .Select(entry => entry.ResolvedPath),
+                        StringComparer.OrdinalIgnoreCase);
+                }
+
+                var deleteBeforeUtc = DateTime.UtcNow.AddDays(-30);
+
+                foreach (var directory in Directory.EnumerateDirectories(root))
+                {
+                    foreach (var file in Directory.EnumerateFiles(directory))
+                    {
+                        try
+                        {
+                            if (!referencedPaths.Contains(file) &&
+                                File.GetLastWriteTimeUtc(file) < deleteBeforeUtc)
+                            {
+                                File.Delete(file);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    try
+                    {
+                        if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                        {
+                            Directory.Delete(directory);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][HubBackground] Failed to clean old background versions.");
+            }
         }
 
         private static string PercentStringLocal(int part, int total) =>
@@ -20320,29 +23185,7 @@ namespace AnikiHelper
 
                     s.ThisMonthTopGameCoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath;
 
-                    string bgPath = null;
-
-                    if (!string.IsNullOrEmpty(topGame?.BackgroundImage) &&
-                        !topGame.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.BackgroundImage);
-                    }
-
-                    if (string.IsNullOrEmpty(bgPath) &&
-                        !string.IsNullOrEmpty(topGame?.CoverImage) &&
-                        !topGame.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.CoverImage);
-                    }
-
-                    if (string.IsNullOrEmpty(bgPath) &&
-                        !string.IsNullOrEmpty(topGame?.Icon) &&
-                        !topGame.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.Icon);
-                    }
-
-                    s.ThisMonthTopGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
+                    s.ThisMonthTopGameBackgroundPath = GetBestHubCardBackgroundPath(topGame);
                 }
                 else
                 {
@@ -20460,29 +23303,7 @@ namespace AnikiHelper
 
                     s.ThisYearTopGameCoverPath = string.IsNullOrEmpty(coverPath) ? string.Empty : coverPath;
 
-                    string bgPath = null;
-
-                    if (!string.IsNullOrEmpty(topGame?.BackgroundImage) &&
-                        !topGame.BackgroundImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.BackgroundImage);
-                    }
-
-                    if (string.IsNullOrEmpty(bgPath) &&
-                        !string.IsNullOrEmpty(topGame?.CoverImage) &&
-                        !topGame.CoverImage.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.CoverImage);
-                    }
-
-                    if (string.IsNullOrEmpty(bgPath) &&
-                        !string.IsNullOrEmpty(topGame?.Icon) &&
-                        !topGame.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bgPath = PlayniteApi.Database.GetFullFilePath(topGame.Icon);
-                    }
-
-                    s.ThisYearTopGameBackgroundPath = string.IsNullOrEmpty(bgPath) ? string.Empty : bgPath;
+                    s.ThisYearTopGameBackgroundPath = GetBestHubCardBackgroundPath(topGame);
                 }
                 else
                 {
@@ -20564,11 +23385,18 @@ namespace AnikiHelper
                 });
             }
 
-            var recentPlayedPool = recentPlayedList.Take(5).ToList();
+            var selectedRecentPlayed = recentPlayedList.FirstOrDefault();
 
-            s.RecentPlayedBackgroundPath = recentPlayedPool.Count > 0
-                ? GetBestHubCardBackgroundPath(recentPlayedPool[hubRandom.Next(recentPlayedPool.Count)])
-                : string.Empty;
+            if (selectedRecentPlayed != null)
+            {
+                s.RecentPlayedGameId = selectedRecentPlayed.Id;
+                s.RecentPlayedBackgroundPath = GetBestHubCardBackgroundPath(selectedRecentPlayed);
+            }
+            else
+            {
+                s.RecentPlayedGameId = Guid.Empty;
+                s.RecentPlayedBackgroundPath = string.Empty;
+            }
 
             if (!runtimeOnly)
             {
@@ -20687,6 +23515,11 @@ namespace AnikiHelper
                     });
                 }
             }
+
+            // The Last Played card is bound to SessionGameBackgroundPath, not to
+            // RecentPlayedBackgroundPath. Re-resolve it from SessionGameId so a
+            // background changed in Desktop mode is reflected in Fullscreen.
+            RefreshSessionGameBackgroundPath();
 
             // Recalcule les 4 cartes Hub "Recommended from your library"
             RecalcHubLibraryRecommendedGamesSafe();

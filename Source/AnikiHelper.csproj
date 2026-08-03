@@ -36,6 +36,14 @@
       <SpecificVersion>False</SpecificVersion>
       <Private>True</Private>
     </Reference>
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>packages\Microsoft.Web.WebView2.1.0.4078.44\lib\net462\Microsoft.Web.WebView2.Core.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Microsoft.Web.WebView2.Wpf">
+      <HintPath>packages\Microsoft.Web.WebView2.1.0.4078.44\lib\net462\Microsoft.Web.WebView2.Wpf.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="SQLNado, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>packages\SQLNado.dll</HintPath>
       <Private>True</Private>
@@ -74,7 +82,11 @@
     <Compile Include="Services\EasterEgg\KonamiCodeService.cs" />
     <Compile Include="Services\InGameOverlay\AnikiInGameOverlayWindow.cs" />
     <Compile Include="Services\InGameOverlay\AnikiOverlayInputListener.cs" />
+    <Compile Include="Services\InGameOverlay\GamepadMouseService.cs" />
+    <Compile Include="Services\InGameOverlay\AnikiVirtualKeyboardView.cs" />
     <Compile Include="Services\InGameOverlay\InGameOverlayHotkeyService.cs" />
+    <Compile Include="Services\FirstSetup\AnikiFirstSetupModels.cs" />
+    <Compile Include="Services\FirstSetup\AnikiFirstSetupViewModel.cs" />
     <Compile Include="Services\InGameOverlay\InGameOverlayService.cs" />
     <Compile Include="Services\MediaGallery\AnikiMemoryGroup.cs" />
     <Compile Include="Services\SteamFriends\SteamFriendsGameImageResolver.cs" />
@@ -85,6 +97,9 @@
     <Compile Include="Services\UI\NavigationFixService.cs" />
     <Compile Include="Services\UI\SettingsWindowStyler.cs" />
     <Compile Include="Services\Video\AnikiVideoOverlayWindow.cs" />
+    <Compile Include="Services\WebBrowser\AnikiWebFavorite.cs" />
+    <Compile Include="Services\WebBrowser\AnikiWebBrowserHomeView.cs" />
+    <Compile Include="Services\WebBrowser\AnikiWebBrowserService.cs" />
     <Compile Include="Services\UI\AnikiWindowManager.cs" />
     <Compile Include="Services\Controller\AnikiControllerCommandsControl.cs" />
     <Compile Include="Services\Controller\AnikiControllerInput.cs" />
@@ -92,6 +107,7 @@
     <Compile Include="Services\UI\DynamicAuto.cs" />
     <Compile Include="Services\Audio\EventSoundService.cs" />
     <Compile Include="Services\UI\FastScrollViewerBehavior.cs" />
+    <Compile Include="Services\UI\ImageMemoryCache.cs" />
     <Compile Include="Services\Video\FullscreenShutdownVideoHook.cs" />
     <Compile Include="Services\MediaGallery\AnikiMediaGameItem.cs" />
     <Compile Include="Services\MediaGallery\AnikiMediaItem.cs" />
@@ -136,7 +152,6 @@
     <Compile Include="Services\SteamFriends\SteamNonGameAppFilter.cs" />
     <Compile Include="Services\SteamFriends\SteamFriendsWebApiClient.cs" />
     <Compile Include="Services\News\SteamUpdateLiteService.cs" />
-    <Compile Include="Services\Achievements\SuccessStoryBridge.cs" />
     <Compile Include="Services\UI\VisualPackBackgroundComposer.cs" />
     <Compile Include="Views\AnikiHelperSettingsView.xaml.cs">
       <DependentUpon>AnikiHelperSettingsView.xaml</DependentUpon>
@@ -184,4 +199,9 @@
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Import Project="packages\Microsoft.Web.WebView2.1.0.4078.44\build\Microsoft.Web.WebView2.targets" Condition="Exists('packages\Microsoft.Web.WebView2.1.0.4078.44\build\Microsoft.Web.WebView2.targets')" />
+  <Target Name="EnsureWebView2NuGetPackage" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('packages\Microsoft.Web.WebView2.1.0.4078.44\build\Microsoft.Web.WebView2.targets')"
+           Text="Microsoft.Web.WebView2 1.0.4078.44 is missing. Restore NuGet packages before building Aniki Helper." />
+  </Target>
 </Project>

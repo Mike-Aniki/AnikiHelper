@@ -4,7 +4,7 @@
 
     <sys:String x:Key="AppTitle">Aniki Helper</sys:String>
     <sys:String x:Key="AppSubtitle">Settings</sys:String>
-    <sys:String x:Key="AppInfo">Aniki Helper is designed for Aniki-branded themes. Advanced features only work with Aniki themes.</sys:String>
+    <sys:String x:Key="AppInfo">Aniki Helper provides Steam services, external plugin integrations and Aniki exclusive features for compatible themes.</sys:String>
     
     <sys:String x:Key="MoreOptionsDesktop">More options are available in the plugin settings from Playnite desktop mode.</sys:String>
     <sys:String x:Key="GroupAdditionalFeatures">Additional features</sys:String>
@@ -125,11 +125,21 @@
     <sys:String x:Key="ResetBtnTooltip">Deletes the current month tracking data and starts again from now.</sys:String>
     <sys:String x:Key="ResetBtntip">Do not use this unless you really want to erase this month’s tracking. Monthly stats for the current month will restart from zero after reset.</sys:String>
 
-    <sys:String x:Key="ExportMonthlyBackupBtn">Export history</sys:String>
-    <sys:String x:Key="ImportMonthlyBackupBtn">Import history</sys:String>
-    <sys:String x:Key="ExportMonthlyBackupTooltip">Exports all monthly tracking data to a backup file.</sys:String>
-    <sys:String x:Key="ImportMonthlyBackupTooltip">Imports a previously saved monthly tracking backup.</sys:String>
-    <sys:String x:Key="MonthlyBackupHelp">Use these buttons to back up or restore all monthly tracking data. This is useful before reinstalling Playnite or resetting your library.</sys:String>
+    <sys:String x:Key="ExportMonthlyBackupBtn">Export Monthly Stats</sys:String>
+    <sys:String x:Key="ImportMonthlyBackupBtn">Import Monthly Stats</sys:String>
+    <sys:String x:Key="ExportMonthlyBackupTooltip">Exports all Monthly Stats data to a JSON backup file.</sys:String>
+    <sys:String x:Key="ImportMonthlyBackupTooltip">Restores Monthly Stats data from a previously exported JSON backup.</sys:String>
+    <sys:String x:Key="MonthlyBackupHelp">Export or restore the monthly play statistics saved by Aniki Helper. This is useful before reinstalling Playnite or resetting your library.</sys:String>
+    <sys:String x:Key="MonthlyBackup_SectionTitle">Monthly statistics</sys:String>
+    <sys:String x:Key="MonthlyBackup_ScopeNote">This backup only contains Monthly Stats data. It does not affect your theme configuration, Steam account, plugins, games or media.</sys:String>
+    <sys:String x:Key="DangerZone_Title">Danger zone</sys:String>
+    <sys:String x:Key="MonthlyDeleteAll_Help">Permanently delete all Monthly Stats data saved by Aniki Helper. Tracking for the current month will restart from the moment the data is deleted.</sys:String>
+    <sys:String x:Key="MonthlyDeleteAll_Warning">This action cannot be undone unless you previously exported a backup.</sys:String>
+    <sys:String x:Key="DeleteAllMonthlyStatsBtn">Delete all Monthly Stats</sys:String>
+    <sys:String x:Key="DeleteAllMonthlyStatsTooltip">Permanently deletes all monthly statistics and restarts current-month tracking from now.</sys:String>
+    <sys:String x:Key="MonthlyDeleteAll_Confirm">Are you sure you want to permanently delete all Monthly Stats data? Tracking for the current month will restart from now. This action cannot be undone unless you exported a backup.</sys:String>
+    <sys:String x:Key="MonthlyDeleteAll_Success">All Monthly Stats data has been deleted. Tracking restarts from now.</sys:String>
+    <sys:String x:Key="MonthlyDeleteAll_Error">Error while deleting Monthly Stats data:</sys:String>
 
     <!-- ========= VIDEO FEATURES ========= -->
     <sys:String x:Key="Video">Video</sys:String>
@@ -151,6 +161,8 @@
     <sys:String x:Key="EventSounds_Help">If enabled, disable UI/event sounds from the PlayniteSounds plugin to avoid duplicate audio.</sys:String>
 
     <!-- ========= GameOverlay FEATURES ========= -->
+    <sys:String x:Key="KeyboardMouse_Tab">Keyboard &amp; Mouse</sys:String>
+    <sys:String x:Key="KeyboardMouse_Intro">Use the virtual keyboard and control the Windows mouse directly with your controller. These features work independently from the in-game overlay and remain available while Playnite Fullscreen is running.</sys:String>
     <sys:String x:Key="InGameOverlay_Tab">In-Game Overlay</sys:String>
     <sys:String x:Key="InGameOverlay_Title">In-Game Overlay</sys:String>
     <sys:String x:Key="InGameOverlay_Desc">Display an Aniki quick action panel on top of the current game.</sys:String>
@@ -170,10 +182,33 @@
     <sys:String x:Key="InGameOverlay_ControllerShortcut_BackY">Back + Y</sys:String>
     <sys:String x:Key="InGameOverlay_ControllerShortcut_Guide">Guide button</sys:String>
     <sys:String x:Key="InGameOverlay_ControllerShortcut_Disabled">Disabled</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboard_Title">Virtual keyboard</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboard_Desc">Choose the virtual keyboard used by Aniki Helper. It can be opened from the overlay button or with its direct controller shortcut while Playnite Fullscreen is running.</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardProvider_Title">Keyboard provider</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardProvider_Aniki">Aniki Keyboard</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardProvider_Windows">Windows Keyboard</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardProvider_Help">The Windows keyboard uses the last layout selected in Windows. Select the Gamepad layout once in its settings. Availability depends on the Windows version.</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardShortcut_Title">Direct shortcut</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardShortcut_L3R3Hold">Hold LS + RS (default)</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardShortcut_BackX">Back / Select / View + X</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardShortcut_GuideX">Guide + X</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardShortcut_Disabled">Disabled</sys:String>
+    <sys:String x:Key="InGameOverlay_VirtualKeyboardShortcut_Help">Hold LS + RS for 600 ms. Guide + X may be intercepted by Steam, Xbox Game Bar, Windows, or controller tools.</sys:String>
+
+    <sys:String x:Key="InGameOverlay_GamepadMouse_Title">Gamepad Mouse</sys:String>
+    <sys:String x:Key="InGameOverlay_GamepadMouse_Desc">Use the controller as a Windows mouse while Playnite Fullscreen is running. Right stick moves the pointer, left stick scrolls quickly, A is left click, X is right click, and LT / RT provide precise scrolling.</sys:String>
+    <sys:String x:Key="InGameOverlay_GamepadMouseShortcut_Title">Activation shortcut</sys:String>
+    <sys:String x:Key="InGameOverlay_GamepadMouseShortcut_BackR3">Hold Back + RS (default)</sys:String>
+    <sys:String x:Key="InGameOverlay_GamepadMouseShortcut_StartL3">Hold Start + LS</sys:String>
+    <sys:String x:Key="InGameOverlay_GamepadMouseShortcut_GuideY">Hold Guide + Y</sys:String>
+    <sys:String x:Key="InGameOverlay_GamepadMouseShortcut_Disabled">Disabled</sys:String>
+    <sys:String x:Key="InGameOverlay_GamepadMouseShortcut_Help">Hold the selected shortcut for 600 ms to enable or disable Gamepad Mouse. A can be held while moving the right stick for drag and drop. Guide + Y may be intercepted by Steam, Xbox Game Bar, Windows, or controller tools.</sys:String>
+    <sys:String x:Key="LOCGamepadMouseEnabledToast">Gamepad Mouse enabled</sys:String>
+    <sys:String x:Key="LOCGamepadMouseDisabledToast">Gamepad Mouse disabled</sys:String>
 
     <sys:String x:Key="InGameOverlay_GameBehavior_Title">Game behavior while overlay is open</sys:String>
     <sys:String x:Key="InGameOverlay_GameBehavior_DoNothing">Default: Do nothing</sys:String>
-    <sys:String x:Key="InGameOverlay_GameBehavior_SuspendGame">Experimental: Suspend game while overlay is open</sys:String>
+    <sys:String x:Key="InGameOverlay_GameBehavior_SuspendGame">Suspend game while overlay is open</sys:String>
     <sys:String x:Key="InGameOverlay_GameBehavior_Help">Choose whether Aniki Helper should leave the game running normally or temporarily freeze the game process while the overlay is open to avoid double inputs.</sys:String>
     <sys:String x:Key="InGameOverlay_GameBehavior_Warning">Warning: not recommended for online games, multiplayer games, anti-cheat protected games, or games launched as administrator.</sys:String>
     <sys:String x:Key="InGameOverlay_NeverSuspendList_Title">Never suspend games</sys:String>
@@ -405,26 +440,38 @@
 
     <!-- Steam account / connection -->
     <sys:String x:Key="SteamAccount_GroupTitle">Steam account connection</sys:String>
-    <sys:String x:Key="SteamAccount_GroupDesc">Link Steam to unlock My Wishlist, For You and Steam Friends.</sys:String>
+    <sys:String x:Key="SteamAccount_GroupDesc">Connect once to use Steam Friends, My Wishlist, For You and personalized Steam recommendations.</sys:String>
     <sys:String x:Key="SteamAccount_ConnectButton">Connect to Steam</sys:String>
     <sys:String x:Key="SteamAccount_ReconnectButton">Reconnect to Steam</sys:String>
     <sys:String x:Key="SteamAccount_CheckButton">Check connection</sys:String>
     <sys:String x:Key="SteamAccount_DisconnectButton">Disconnect</sys:String>
     <sys:String x:Key="SteamAccount_StatusLabel">Connection status</sys:String>
-    <sys:String x:Key="SteamAccount_SteamIdLabel">SteamID:</sys:String>
+    <sys:String x:Key="SteamAccount_SteamIdLabel">Steam account:</sys:String>
     <sys:String x:Key="SteamAccount_ConfiguredBadge">CONFIGURED</sys:String>
     <sys:String x:Key="SteamAccount_MissingBadge">MISSING</sys:String>
     <sys:String x:Key="SteamAccount_OptionalBadge">OPTIONAL</sys:String>
     <sys:String x:Key="SteamAccount_ConnectedTitle">Connected to Steam</sys:String>
-    <sys:String x:Key="SteamAccount_ConnectedDesc">Your Steam Store session is active. Personalized Store sections are ready to use.</sys:String>
+    <sys:String x:Key="SteamAccount_ConnectedDesc">Your Steam session is active. Steam Friends, My Wishlist and For You are ready to use.</sys:String>
     <sys:String x:Key="SteamAccount_DisconnectedTitle">Not connected to Steam</sys:String>
-    <sys:String x:Key="SteamAccount_DisconnectedDesc">Sign in to enable My Wishlist, For You and other personalized Steam Store features.</sys:String>
+    <sys:String x:Key="SteamAccount_DisconnectedDesc">Connect your Steam account. The official Steam login page opens and closes automatically after sign-in.</sys:String>
     <sys:String x:Key="SteamAccount_ProfileLabel">Detected Steam profile / SteamID</sys:String>
     <sys:String x:Key="SteamAccount_ApiKeyTitle">Steam Web API key</sys:String>
     <sys:String x:Key="SteamAccount_ApiKeyDesc">Required for Steam Friends and used to improve Store recommendations with your owned and recently played games. The Store can still work without it, but friend data and some personalization features will be unavailable.</sys:String>
     <sys:String x:Key="SteamAccount_ManualSteamIdTitle">Advanced SteamID fallback</sys:String>
     <sys:String x:Key="SteamAccount_ManualSteamIdDesc">Optional. Use this only if automatic SteamID detection fails.</sys:String>
-    <sys:String x:Key="SteamAccount_PrivacyNotice">Steam Friends requires a public Steam profile and friends list. Private profiles may return no friend data.</sys:String>
+    <sys:String x:Key="SteamAccount_PrivacyNotice">No Steam Web API key is required, and your Steam friends list does not need to be public.</sys:String>
+    <sys:String x:Key="SteamAccount_UnifiedInfoTitle">One Steam connection for everything</sys:String>
+    <sys:String x:Key="SteamAccount_UnifiedInfoDesc">The same connection powers Steam Friends, My Wishlist, For You and your personalized recommendations. If the session expires, simply connect again.</sys:String>
+    <sys:String x:Key="SteamAccount_UnifiedInfoPrivacy">No API key required. Your Steam friends list can stay private.</sys:String>
+    <sys:String x:Key="SteamAccount_TokenMissingTitle">Steam services are not ready</sys:String>
+    <sys:String x:Key="SteamAccount_TokenMissingDesc">Your Steam account is connected, but the session needs to be refreshed. Use Check connection or disconnect and connect again.</sys:String>
+    <sys:String x:Key="SteamFullscreen_DisconnectedSummary">Steam login is available from Aniki Helper settings in Playnite Desktop mode.</sys:String>
+    <sys:String x:Key="SteamFullscreen_PrivacyHelp">Connect there, return to Fullscreen, then select Check connection.</sys:String>
+    <sys:String x:Key="SteamFullscreen_ServicesLabel">Steam services</sys:String>
+    <sys:String x:Key="SteamFullscreen_ServicesReady">Ready</sys:String>
+    <sys:String x:Key="SteamFullscreen_ServicesMissing">Refresh needed</sys:String>
+    <sys:String x:Key="SteamFullscreen_ConnectedSummary">Use Check connection if the displayed status is outdated or if a Steam feature stops working.</sys:String>
+
     <sys:String x:Key="SteamFullscreen_AccountLabel">Steam account linked</sys:String>
     <sys:String x:Key="SteamFullscreen_SteamIdLabel">SteamID detected or configured</sys:String>
     <sys:String x:Key="SteamFullscreen_ApiKeyLabel">Steam Web API key</sys:String>
@@ -458,8 +505,8 @@
     <sys:String x:Key="LOCSteamFriends_PlayedCache_Done">Friends played games refreshed: {0} friends scanned.</sys:String>
     <sys:String x:Key="LOCSteamFriends_PlayedCache_DoneMarker">refreshed</sys:String>
     <sys:String x:Key="LOCSteamFriends_PlayedCache_Error">Failed to refresh friends played games.</sys:String>
-    <sys:String x:Key="LOCSteamFriends_PlayedCache_MissingConfig">Missing Steam API key or Steam account.</sys:String>
-    <sys:String x:Key="LOCSteamFriends_PlayedCache_NoFriends">No Steam friends returned by Steam API.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_MissingConfig">Connect your Steam account in Aniki Helper settings.</sys:String>
+    <sys:String x:Key="LOCSteamFriends_PlayedCache_NoFriends">No Steam friends were returned by the connected Steam session.</sys:String>
     <sys:String x:Key="LOCSteamFriends_PlayedCache_Empty">Friends played games cache not created yet.</sys:String>
     <sys:String x:Key="LOCSteamFriends_PlayedCache_Stale">Friends played games cache is old. Last refresh: {0}.</sys:String>
     <sys:String x:Key="LOCSteamFriends_PlayedCache_Loaded">Friends played games cache loaded. Last refresh: {0}.</sys:String>
@@ -567,4 +614,191 @@
     <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_Source">Source</sys:String>
     <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_Global">Global</sys:String>
     <sys:String x:Key="GameLaunchSplash_CustomPriority_Target_None">None</sys:String>
+
+    <!-- In-game virtual keyboard -->
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboard">Virtual Keyboard</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardTitle">Virtual Keyboard</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardHint">A: select   X: delete   Y: space   Start: send   B: cancel</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardShift">Shift</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardSpace">Space</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardBackspace">Delete</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardSend">Send</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardSendEnter">Send + Enter</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardPlaceholder">Enter text...</sys:String>
+    <sys:String x:Key="LOCInGameOverlayVirtualKeyboardMode">Layout</sys:String>
+
+
+
+    <!-- Theme configuration backup -->
+    <sys:String x:Key="ThemeConfiguration_SectionTitle">Theme configuration</sys:String>
+    <sys:String x:Key="ThemeConfiguration_Help">Export the ThemeSettings.json file that stores your theme customization, or replace it with a configuration saved by you or shared by another user. The imported configuration will be used the next time Fullscreen mode is opened.</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ScopeNote">This backup only concerns the theme options configuration file. It does not include Steam login, other Aniki Helper settings, monthly statistics, installed plugins, game data or media.</sys:String>
+    <sys:String x:Key="ExportThemeConfigurationBtn">Export configuration</sys:String>
+    <sys:String x:Key="ImportThemeConfigurationBtn">Import configuration</sys:String>
+    <sys:String x:Key="ExportThemeConfigurationTooltip">Save the current theme customization options and presets to a JSON file.</sys:String>
+    <sys:String x:Key="ImportThemeConfigurationTooltip">Replace the plugin's ThemeSettings.json file with the selected configuration.</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ExportDialogTitle">Export theme configuration</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ImportDialogTitle">Import theme configuration</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ImportConfirm">Importing this file will replace the current theme customization options and presets. Other Aniki Helper settings will not be changed. Continue?</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ExportSuccess">Theme configuration exported successfully.</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ImportSuccess">Theme configuration imported successfully. It will be used the next time Fullscreen mode is opened.</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ExportError">Error while exporting the theme configuration:</sys:String>
+    <sys:String x:Key="ThemeConfiguration_ImportError">Error while importing the theme configuration:</sys:String>
+
+    <!-- Reorganized settings navigation -->
+    <sys:String x:Key="SettingsNav_Home">Home</sys:String>
+    <sys:String x:Key="SettingsNav_ThemeFeatures">Theme features</sys:String>
+    <sys:String x:Key="SettingsNav_Steam">Steam</sys:String>
+    <sys:String x:Key="SettingsNav_FullscreenTools">Exclusive Features</sys:String>
+    <sys:String x:Key="SettingsNav_Advanced">Advanced</sys:String>
+    <sys:String x:Key="SettingsNav_StartupHub">Startup &amp; Hub</sys:String>
+    <sys:String x:Key="SettingsNav_MediaAudio">Media &amp; audio</sys:String>
+    <sys:String x:Key="SettingsNav_GalleryAchievements">Gallery &amp; achievements</sys:String>
+    <sys:String x:Key="SettingsNav_Statistics">Statistics</sys:String>
+    <sys:String x:Key="SettingsNav_News">News</sys:String>
+    <sys:String x:Key="SettingsNav_CustomResources">Custom resources</sys:String>
+    <sys:String x:Key="SettingsNav_Account">Account</sys:String>
+    <sys:String x:Key="SettingsNav_Friends">Friends</sys:String>
+    <sys:String x:Key="SettingsNav_Store">Store</sys:String>
+    <sys:String x:Key="SettingsNav_Updates">Updates</sys:String>
+    <sys:String x:Key="SettingsNav_CurrentPlayers">Current players</sys:String>
+    <sys:String x:Key="SettingsNav_SplashScreen">Splash screen</sys:String>
+    <sys:String x:Key="SettingsNav_Overlay">In-game overlay</sys:String>
+    <sys:String x:Key="SettingsNav_KeyboardMouse">Keyboard &amp; mouse</sys:String>
+    <sys:String x:Key="SettingsNav_ThemeConfiguration">Backup and restore</sys:String>
+    <sys:String x:Key="SettingsNav_ColorProcessing">Color processing</sys:String>
+    <sys:String x:Key="SettingsNav_Diagnostics">Diagnostics</sys:String>
+    <sys:String x:Key="SettingsHome_Intro">Configure Steam services, external plugin integrations and exclusive features designed to enhance the Playnite Fullscreen experience with compatible themes.</sys:String>
+    <sys:String x:Key="SettingsHome_ThemeFeaturesDesc">Configure the data and media that compatible themes can display: Hub content, audio, galleries, achievements, statistics, news and custom resources.</sys:String>
+    <sys:String x:Key="SettingsHome_ThemeFeaturesHint">Open Theme features to configure these integrations.</sys:String>
+    <sys:String x:Key="SettingsHome_SteamDesc">Connect your Steam account and configure friends, Store recommendations, updates and current-player data.</sys:String>
+    <sys:String x:Key="SettingsHome_SteamConnected">Connected to Steam</sys:String>
+    <sys:String x:Key="SettingsHome_SteamDisconnected">Steam is not connected.</sys:String>
+    <sys:String x:Key="SettingsHome_FullscreenDesc">Configure tools that remain available while Playnite Fullscreen is running: splash screens, the in-game overlay, virtual keyboard, gamepad mouse and the controller-friendly web browser.</sys:String>
+    <sys:String x:Key="SettingsHome_FullscreenHint">These tools work independently from a specific compatible theme.</sys:String>
+    <sys:String x:Key="SettingsHome_AdvancedDesc">Manage theme configuration and Monthly Stats backups, color processing, caches and diagnostic options intended for troubleshooting or advanced use.</sys:String>
+    <sys:String x:Key="SettingsHome_AdvancedHint">Most users do not need to change these settings.</sys:String>
+    <sys:String x:Key="SettingsHome_CompatibilityNote">Some features only appear when the active Fullscreen theme integrates Aniki Helper. The plugin is not limited to Aniki ReMake.</sys:String>
+    <sys:String x:Key="SettingsPage_StartupHubDesc">Configure startup behavior and the application shortcuts exposed to compatible theme Hubs.</sys:String>
+    <sys:String x:Key="SettingsPage_MediaAudioDesc">Configure event sounds and the introduction and shutdown videos used by compatible themes.</sys:String>
+    <sys:String x:Key="SettingsPage_GalleryAchievementsDesc">Configure screenshot providers, media thumbnails and achievement-memory caches used by compatible themes.</sys:String>
+    <sys:String x:Key="SettingsPage_StatisticsDesc">Configure library statistics and monthly playtime tracking used by compatible themes.</sys:String>
+    <sys:String x:Key="SettingsPage_NewsDesc">Configure Aniki News scanning and optional custom news sources.</sys:String>
+    <sys:String x:Key="SettingsPage_CustomResourcesDesc">Configure custom filter, source and cover-banner resources exposed to compatible themes.</sys:String>
+    <sys:String x:Key="SettingsPage_AccountDesc">Connect and manage the Steam account used by all Steam integrations.</sys:String>
+    <sys:String x:Key="SettingsPage_FriendsDesc">Configure Steam Friends display, notifications and played-game cache behavior.</sys:String>
+    <sys:String x:Key="SettingsPage_StoreDesc">Configure Steam Store recommendations, language and regional settings.</sys:String>
+    <sys:String x:Key="SettingsPage_UpdatesDesc">Configure Steam update checking and the initial update cache.</sys:String>
+    <sys:String x:Key="SettingsPage_CurrentPlayersDesc">Configure live Steam current-player counts.</sys:String>
+    <sys:String x:Key="SettingsPage_SplashScreenDesc">Configure the media displayed while a game is starting.</sys:String>
+    <sys:String x:Key="SettingsPage_OverlayDesc">Configure the in-game overlay, its shortcuts and game-process behavior.</sys:String>
+    <sys:String x:Key="SettingsPage_KeyboardMouseDesc">Use the virtual keyboard and control the Windows mouse directly with your controller while Playnite Fullscreen is running.</sys:String>
+    <sys:String x:Key="SettingsPage_ThemeConfigurationDesc">Back up or restore your Fullscreen theme configuration and Aniki Helper Monthly Stats data.</sys:String>
+    <sys:String x:Key="SettingsPage_ColorProcessingDesc">Configure automatic background-color processing and its cache.</sys:String>
+    <sys:String x:Key="SettingsPage_DiagnosticsDesc">Enable diagnostic logging and troubleshooting options when requested for support.</sys:String>
+
+    <sys:String x:Key="SettingsHome_FullscreenThemeTitle">Fullscreen theme</sys:String>
+    <sys:String x:Key="SettingsHome_ActiveTheme">Active theme</sys:String>
+    <sys:String x:Key="SettingsHome_HelperIntegration">Aniki Helper integration</sys:String>
+    <sys:String x:Key="SettingsHome_Compatible">Compatible</sys:String>
+    <sys:String x:Key="SettingsHome_NoCompatibleTheme">No compatible theme detected</sys:String>
+    <sys:String x:Key="SettingsHome_NoCompatibleThemeNote">Some plugin features may not be visible with the currently selected Fullscreen theme.</sys:String>
+    <sys:String x:Key="SettingsHome_ConfigureSteam">Configure Steam</sys:String>
+    <sys:String x:Key="SettingsHome_MediaIntegrationsTitle">External Plugin Integrations</sys:String>
+    <sys:String x:Key="SettingsHome_MediaIntegrationsNote">These external plugins are optional. Their status is shown here for convenience.</sys:String>
+    <sys:String x:Key="SettingsHome_SplashScreen">Splash Screen</sys:String>
+    <sys:String x:Key="SettingsHome_Overlay">Overlay</sys:String>
+    <sys:String x:Key="SettingsHome_VirtualKeyboard">Virtual keyboard</sys:String>
+    <sys:String x:Key="SettingsHome_GamepadMouse">Gamepad Mouse</sys:String>
+    <sys:String x:Key="SettingsHome_ConfigureFullscreenTools">Configure Exclusive Features</sys:String>
+    <sys:String x:Key="SettingsStatus_Installed">Installed</sys:String>
+    <sys:String x:Key="SettingsStatus_NotInstalled">Not installed</sys:String>
+    <sys:String x:Key="SettingsStatus_Enabled">Enabled</sys:String>
+    <sys:String x:Key="SettingsStatus_Disabled">Disabled</sys:String>
+
+    <sys:String x:Key="SettingsHome_ConfigureThemeFeatures">Configure theme features</sys:String>
+    <sys:String x:Key="SettingsHome_WelcomeHub">Welcome Hub at startup</sys:String>
+    <sys:String x:Key="SettingsHome_HubApplications">Hub applications</sys:String>
+    <sys:String x:Key="SettingsHome_EventSounds">Event sounds</sys:String>
+    <sys:String x:Key="SettingsHome_StartupVideo">Startup video</sys:String>
+    <sys:String x:Key="SettingsHome_AnikiNews">Aniki News</sys:String>
+    <sys:String x:Key="SettingsHome_SteamFriends">Steam Friends</sys:String>
+    <sys:String x:Key="SettingsHome_SteamStore">Steam Store</sys:String>
+    <sys:String x:Key="SettingsHome_SteamUpdates">Update checking</sys:String>
+    <sys:String x:Key="SettingsHome_CurrentPlayers">Current players</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotProvider">Screenshot provider</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotProviderNote">Choose either Screenshots Visualizer or Screenshot Utilities. Only one provider is required. Screenshot Utilities also requires its Local Provider.</sys:String>
+
+    <sys:String x:Key="SettingsHome_Install">Install</sys:String>
+    <sys:String x:Key="SettingsHome_ChooseAndInstall">Choose and install</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotLocalProvider">Local Provider</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotChoice_Title">Install a screenshot provider</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotChoice_Message">Choose the screenshot provider you want to install. Only one provider is required.</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotChoice_Visualizer">Screenshots Visualizer</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotChoice_Utilities">Screenshot Utilities</sys:String>
+    <sys:String x:Key="SettingsHome_ScreenshotChoice_Cancel">Cancel</sys:String>
+    <sys:String x:Key="SettingsHome_AddonInstallError">Playnite could not open the extension installer.</sys:String>
+
+    <!-- Controller-friendly WebView2 browser -->
+    <sys:String x:Key="SettingsNav_WebBrowser">Web browser</sys:String>
+    <sys:String x:Key="SettingsPage_WebBrowserDesc">Manage favorites and the dedicated browser data used in Fullscreen mode.</sys:String>
+    <sys:String x:Key="WebBrowser_SectionTitle">Web browser</sys:String>
+    <sys:String x:Key="WebBrowser_FavoritesSettingsTitle">Fullscreen favorites</sys:String>
+    <sys:String x:Key="WebBrowser_FavoritesSettingsHelp">Add the websites that will appear as controller-friendly cards on the browser home screen in Fullscreen mode.</sys:String>
+    <sys:String x:Key="WebBrowser_FavoriteNameLabel">Name</sys:String>
+    <sys:String x:Key="WebBrowser_FavoriteNameTooltip">Example: Discord</sys:String>
+    <sys:String x:Key="WebBrowser_FavoriteUrlLabel">Web address</sys:String>
+    <sys:String x:Key="WebBrowser_FavoriteUrlTooltip">Example: https://discord.com/app</sys:String>
+    <sys:String x:Key="WebBrowser_AddFavoriteButton">Add favorite</sys:String>
+    <sys:String x:Key="WebBrowser_NoFavoritesDesktop">No favorite has been configured yet.</sys:String>
+    <sys:String x:Key="WebBrowser_MoveFavoriteUp">Move up</sys:String>
+    <sys:String x:Key="WebBrowser_MoveFavoriteDown">Move down</sys:String>
+    <sys:String x:Key="WebBrowser_DeleteFavoriteButton">Delete</sys:String>
+    <sys:String x:Key="WebBrowser_FavoritesApplyNote">Changes are used the next time the browser home screen is opened. Names and addresses can also be edited directly in the list.</sys:String>
+    <sys:String x:Key="WebBrowser_FavoriteInvalidUrl">Enter a valid HTTP or HTTPS address.</sys:String>
+    <sys:String x:Key="WebBrowser_FavoriteAlreadyExists">This address is already in your favorites.</sys:String>
+    <sys:String x:Key="WebBrowser_DataTitle">Browser data</sys:String>
+    <sys:String x:Key="WebBrowser_CacheHelp">Clear temporary website files if a page is displaying incorrectly or using too much disk space.</sys:String>
+    <sys:String x:Key="WebBrowser_ClearCacheButton">Clear web cache</sys:String>
+    <sys:String x:Key="WebBrowser_ClearCacheNote">This keeps cookies and website sessions, so you should remain signed in.</sys:String>
+    <sys:String x:Key="WebBrowser_ResetDataHelp">Delete all data stored by the Aniki browser, including cookies, sessions, history and cache.</sys:String>
+    <sys:String x:Key="WebBrowser_ResetDataButton">Delete all browser data</sys:String>
+    <sys:String x:Key="WebBrowser_SessionNote">Website sign-ins, cookies and cache are stored in a dedicated WebView2 profile for Aniki Helper. The plugin does not read or export account tokens.</sys:String>
+    <sys:String x:Key="WebBrowser_OpenHomeButton">Open web browser</sys:String>
+    <sys:String x:Key="WebBrowser_FullscreenHelp">Open the controller-friendly browser home screen with search and your saved favorites.</sys:String>
+    <sys:String x:Key="WebBrowser_HomeTitle">Web Browser</sys:String>
+    <sys:String x:Key="WebBrowser_HomeDescription">Search the web or open one of your favorites.</sys:String>
+    <sys:String x:Key="WebBrowser_SearchPlaceholder">Search or enter a web address</sys:String>
+    <sys:String x:Key="WebBrowser_SearchButton">Open</sys:String>
+    <sys:String x:Key="WebBrowser_FavoritesTitle">Favorites</sys:String>
+    <sys:String x:Key="WebBrowser_NoFavorites">No favorites yet. Add them from Aniki Helper settings in Desktop mode.</sys:String>
+    <sys:String x:Key="WebBrowser_HomeControllerLegend">D-Pad / LS  Navigate     RS  Cursor     A  Select / Click     X  Keyboard     B  Close     View  Close immediately</sys:String>
+    <sys:String x:Key="WebBrowser_OneFavorite">1 favorite</sys:String>
+    <sys:String x:Key="WebBrowser_FavoriteCount">{0} favorites</sys:String>
+    <sys:String x:Key="WebBrowser_WindowTitle">Aniki Web Browser</sys:String>
+    <sys:String x:Key="WebBrowser_ControllerLegend">RS  Cursor     LS  Scroll     A  Click     LB  Previous     RB  Next     B  Back / Home     View  Close     X  Keyboard     Y  Address     Start  Enter</sys:String>
+    <sys:String x:Key="WebBrowser_LegendSelect">Select</sys:String>
+    <sys:String x:Key="WebBrowser_LegendPrevious">Previous</sys:String>
+    <sys:String x:Key="WebBrowser_LegendNext">Next</sys:String>
+    <sys:String x:Key="WebBrowser_LegendEnter">Enter</sys:String>
+    <sys:String x:Key="WebBrowser_LegendBackHome">Back / Home</sys:String>
+    <sys:String x:Key="WebBrowser_LegendCloseView">Close web view</sys:String>
+    <sys:String x:Key="WebBrowser_LegendKeyboard">Keyboard</sys:String>
+    <sys:String x:Key="WebBrowser_AddressPrompt">Enter an address or a search</sys:String>
+    <sys:String x:Key="WebBrowser_OpenError">The web browser could not be opened.</sys:String>
+    <sys:String x:Key="WebBrowser_NavigationError">The web address could not be opened.</sys:String>
+    <sys:String x:Key="WebBrowser_InvalidAddress">Enter a valid HTTP or HTTPS web address.</sys:String>
+    <sys:String x:Key="WebBrowser_RuntimeMissing">Microsoft Edge WebView2 Runtime is required to use the browser.</sys:String>
+    <sys:String x:Key="WebBrowser_Initializing">Initializing web browser…</sys:String>
+    <sys:String x:Key="WebBrowser_Loading">Loading…</sys:String>
+    <sys:String x:Key="WebBrowser_LoadFailed">Page failed to load</sys:String>
+    <sys:String x:Key="WebBrowser_BlockedProtocol">Blocked unsupported link</sys:String>
+    <sys:String x:Key="WebBrowser_DownloadBlocked">Downloads are disabled</sys:String>
+    <sys:String x:Key="WebBrowser_ProcessFailed">Browser process stopped</sys:String>
+    <sys:String x:Key="WebBrowser_CacheCleared">The web browser cache has been cleared. Your website sessions were kept.</sys:String>
+    <sys:String x:Key="WebBrowser_CacheClearFailed">The web browser cache could not be cleared.</sys:String>
+    <sys:String x:Key="WebBrowser_ResetDataConfirm">This will delete cookies, saved sessions, browsing history, cache and all other Aniki browser data. You will be signed out of every website. Continue?</sys:String>
+    <sys:String x:Key="WebBrowser_ResetDataTitle">Reset browser data</sys:String>
+    <sys:String x:Key="WebBrowser_DataReset">All Aniki web browser data has been deleted.</sys:String>
+    <sys:String x:Key="WebBrowser_DataResetFailed">The web browser data could not be deleted.</sys:String>
 </ResourceDictionary>

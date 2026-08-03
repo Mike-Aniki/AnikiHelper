@@ -14,6 +14,30 @@ namespace AnikiHelper.Services
 {
     public class SteamUpcomingGamesService
     {
+        private static readonly HttpClient SearchHttpClient = CreateSearchHttpClient(TimeSpan.FromSeconds(15));
+        private static readonly HttpClient RecommendedHttpClient = CreateSearchHttpClient(TimeSpan.FromSeconds(10));
+        private static readonly HttpClient ImageHttpClient = CreateImageHttpClient();
+
+        private static HttpClient CreateSearchHttpClient(TimeSpan timeout)
+        {
+            var client = new HttpClient();
+            client.Timeout = timeout;
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            return client;
+        }
+
+        private static HttpClient CreateImageHttpClient()
+        {
+            var client = new HttpClient();
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
+            return client;
+        }
+
         private readonly ILogger logger;
 
         private void DebugLog(string message)
@@ -98,19 +122,8 @@ namespace AnikiHelper.Services
 
             var targetCachePath = GetSearchCachePath("popularcomingsoon", language, region);
 
-            using (var client = new HttpClient())
             {
-                client.Timeout = TimeSpan.FromSeconds(15);
-
-                client.DefaultRequestHeaders.UserAgent.ParseAdd(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
-                );
-
-                client.DefaultRequestHeaders.Accept.ParseAdd(
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                );
-
-                client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+                var client = SearchHttpClient;
 
                 const int pageSize = 100;
                 const int maxWishlistedPages = 4;
@@ -376,19 +389,8 @@ namespace AnikiHelper.Services
             var combined = new List<SteamUpcomingGameItem>();
             var seenAppIds = new HashSet<int>();
 
-            using (var client = new HttpClient())
             {
-                client.Timeout = TimeSpan.FromSeconds(10);
-
-                client.DefaultRequestHeaders.UserAgent.ParseAdd(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
-                );
-
-                client.DefaultRequestHeaders.Accept.ParseAdd(
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                );
-
-                client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+                var client = RecommendedHttpClient;
 
                 var termIndex = 0;
 
@@ -578,19 +580,8 @@ namespace AnikiHelper.Services
         {
             DebugLog($"[{logName}] RefreshSearchListAsync START");
 
-            using (var client = new HttpClient())
             {
-                client.Timeout = TimeSpan.FromSeconds(15);
-
-                client.DefaultRequestHeaders.UserAgent.ParseAdd(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
-                );
-
-                client.DefaultRequestHeaders.Accept.ParseAdd(
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                );
-
-                client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+                var client = SearchHttpClient;
 
                 const int pageSize = 100;
                 const int maxPages = 3;
@@ -1039,12 +1030,8 @@ namespace AnikiHelper.Services
                     }
                 }
 
-                using (var client = new HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromSeconds(15);
-                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
-
-                    using (var response = await client.GetAsync(imageUrl))
+                    using (var response = await ImageHttpClient.GetAsync(imageUrl))
                     {
                         if (!response.IsSuccessStatusCode)
                         {

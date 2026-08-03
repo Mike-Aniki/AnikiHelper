@@ -53,6 +53,24 @@
             <TextBlock Text="{DynamicResource StatsHelp}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
+            <!-- WEB BROWSER -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource SettingsNav_WebBrowser}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <TextBlock Text="{DynamicResource WebBrowser_FullscreenHelp}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:ButtonEx Content="{DynamicResource WebBrowser_OpenHomeButton}"
+                             Command="{Binding Settings.OpenWebBrowserHomeCommand}"
+                             Height="52"
+                             MinWidth="360"
+                             HorizontalAlignment="Left"
+                             Margin="10,10,0,14"/>
+
             <!-- MEDIA GALLERY -->
             <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
                 <TextBlock Text="{DynamicResource MediaGallery_Title}"
@@ -183,249 +201,149 @@
             <TextBlock Text="{DynamicResource SteamAccount_GroupDesc}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
-            <!-- Steam configuration summary -->
+            <!-- Steam account connection -->
             <Border Margin="0,10,0,14"
-        Padding="16,14"
-        CornerRadius="10"
-        Background="{DynamicResource BackgroundMenu}"
-        BorderBrush="{DynamicResource SeparatorBrush}"
-        BorderThickness="1">
-
+                    Padding="18,16"
+                    CornerRadius="10"
+                    Background="{DynamicResource BackgroundMenu}"
+                    BorderBrush="{DynamicResource SeparatorBrush}"
+                    BorderThickness="1">
                 <StackPanel>
 
-                    <!-- Steam account -->
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0"
-                       Text="{DynamicResource SteamFullscreen_AccountLabel}"
-                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
-                       VerticalAlignment="Center"/>
-
-                        <Grid Grid.Column="1"
-                  VerticalAlignment="Center">
-
-                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusMissing}"
-                           FontFamily="{DynamicResource FontMain}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextDetailBrush}">
-
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Visible"/>
-
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.SteamAccountConnected}"
-                                             Value="True">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-
-                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusReady}"
-                           FontFamily="{DynamicResource FontMain}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextHighlightBrush}">
-
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.SteamAccountConnected}"
-                                             Value="True">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-
-                        </Grid>
-                    </Grid>
-
-                    <!-- Steam ID -->
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0"
-                       Text="{DynamicResource SteamFullscreen_SteamIdLabel}"
-                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
-                       VerticalAlignment="Center"/>
-
-                        <Grid Grid.Column="1"
-                  VerticalAlignment="Center">
-
-                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusMissing}"
-                           FontFamily="{DynamicResource FontMain}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextDetailBrush}">
-
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Visible"/>
-
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamId}"
-                                             Value="True">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-
-                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusReady}"
-                           FontFamily="{DynamicResource FontMain}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextHighlightBrush}">
-
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamId}"
-                                             Value="True">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-
-                        </Grid>
-                    </Grid>
-
-                    <!-- Steam API key -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0"
-                       Text="{DynamicResource SteamFullscreen_ApiKeyLabel}"
-                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
-                       VerticalAlignment="Center"/>
-
-                        <Grid Grid.Column="1"
-                  VerticalAlignment="Center">
-
-                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusMissing}"
-                           FontFamily="{DynamicResource FontMain}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextDetailBrush}">
-
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Visible"/>
-
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
-                                             Value="True">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-
-                            <TextBlock Text="{DynamicResource SteamFullscreen_StatusReady}"
-                           FontFamily="{DynamicResource FontMain}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextHighlightBrush}">
-
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
-                                             Value="True">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-
-                        </Grid>
-                    </Grid>
-
-                    <!-- Complete configuration -->
-                    <TextBlock Text="{DynamicResource SteamFullscreen_ConfigurationReady}"
-                   FontFamily="{DynamicResource FontMain}"
-                   FontSize="13"
-                   Foreground="{DynamicResource TextHighlightBrush}"
-                   TextWrapping="Wrap"
-                   Margin="0,14,0,0">
-
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Visibility" Value="Collapsed"/>
-
-                                <Style.Triggers>
-                                    <MultiDataTrigger>
-                                        <MultiDataTrigger.Conditions>
-                                            <Condition Binding="{Binding Settings.SteamAccountConnected}"
-                                           Value="True"/>
-                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamId}"
-                                           Value="True"/>
-                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
-                                           Value="True"/>
-                                        </MultiDataTrigger.Conditions>
-
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                    </MultiDataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-
-                    <!-- Incomplete configuration -->
-                    <TextBlock Text="{DynamicResource SteamFullscreen_ConfigurationMissing}"
-                   FontFamily="{DynamicResource FontMain}"
-                   FontSize="13"
-                   Foreground="{DynamicResource TextDetailBrush}"
-                   TextWrapping="Wrap"
-                   Margin="0,14,0,0">
-
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                    <!-- Disconnected state -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
                                 <Setter Property="Visibility" Value="Visible"/>
-
                                 <Style.Triggers>
-                                    <MultiDataTrigger>
-                                        <MultiDataTrigger.Conditions>
-                                            <Condition Binding="{Binding Settings.SteamAccountConnected}"
-                                           Value="True"/>
-                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamId}"
-                                           Value="True"/>
-                                            <Condition Binding="{Binding Settings.SteamFriendsHasSteamApiKey}"
-                                           Value="True"/>
-                                        </MultiDataTrigger.Conditions>
-
+                                    <DataTrigger Binding="{Binding Settings.SteamAccountConnected}" Value="True">
                                         <Setter Property="Visibility" Value="Collapsed"/>
-                                    </MultiDataTrigger>
+                                    </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                        </StackPanel.Style>
+
+                        <TextBlock Text="{DynamicResource SteamAccount_DisconnectedTitle}"
+                                   Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                                   Margin="0"/>
+                        <TextBlock Text="{DynamicResource SteamFullscreen_DisconnectedSummary}"
+                                   Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                                   Margin="0,8,0,0"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{DynamicResource SteamFullscreen_PrivacyHelp}"
+                                   FontFamily="{DynamicResource FontMain}"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource TextHighlightBrush}"
+                                   Margin="0,8,0,0"
+                                   TextWrapping="Wrap"/>
+
+                        <pctrls:ButtonEx Content="{DynamicResource SteamAccount_CheckButton}"
+                                         Command="{Binding Settings.CheckSteamAccountCommand}"
+                                         Height="52"
+                                         MinWidth="300"
+                                         Margin="0,16,0,0"
+                                         HorizontalAlignment="Left"/>
+
+                    </StackPanel>
+
+                    <!-- Connected state -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Settings.SteamAccountConnected}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <TextBlock Text="{DynamicResource SteamAccount_ConnectedTitle}"
+                                   Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                                   Margin="0"/>
+                        <TextBlock Text="{Binding Settings.SteamAccountStatus}"
+                                   Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                                   Margin="0,8,0,0"
+                                   TextWrapping="Wrap"/>
+
+                        <Border Margin="0,14,0,0"
+                                Padding="12,10"
+                                CornerRadius="8"
+                                BorderThickness="1">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#14FFB000"/>
+                                    <Setter Property="BorderBrush" Value="#44FFB000"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Settings.SteamAccountServicesReady}" Value="True">
+                                            <Setter Property="Background" Value="#1436D17A"/>
+                                            <Setter Property="BorderBrush" Value="#5536D17A"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Text="{DynamicResource SteamFullscreen_ServicesLabel}"
+                                           Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                                           VerticalAlignment="Center"/>
+
+                                <Grid Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{DynamicResource SteamFullscreen_ServicesMissing}"
+                                               FontFamily="{DynamicResource FontMain}"
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextDetailBrush}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Settings.SteamAccountServicesReady}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <TextBlock Text="{DynamicResource SteamFullscreen_ServicesReady}"
+                                               FontFamily="{DynamicResource FontMain}"
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextHighlightBrush}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Settings.SteamAccountServicesReady}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <TextBlock Text="{DynamicResource SteamFullscreen_ConnectedSummary}"
+                                   Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                                   Margin="0,10,0,0"
+                                   TextWrapping="Wrap"/>
+
+                        <pctrls:ButtonEx Content="{DynamicResource SteamAccount_CheckButton}"
+                                         Command="{Binding Settings.CheckSteamAccountCommand}"
+                                         Height="52"
+                                         MinWidth="300"
+                                         Margin="0,16,0,0"
+                                         HorizontalAlignment="Left"/>
+                    </StackPanel>
 
                 </StackPanel>
             </Border>
@@ -1034,6 +952,38 @@
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
             <TextBlock Text="{DynamicResource InGameOverlay_Hotkey_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,20,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            Margin="0,0,20,0">
+                    <TextBlock Text="{DynamicResource InGameOverlay_GamepadMouse_Title}"
+                               Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                               Margin="0"/>
+
+                    <TextBlock Text="{DynamicResource InGameOverlay_GamepadMouse_Desc}"
+                               Style="{DynamicResource TextAnikiHelperSettingsStyleMini}"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <pctrls:ComboBoxEx Grid.Column="1"
+                                   SelectedValue="{Binding Settings.InGameOverlayGamepadMouseShortcut, UpdateSourceTrigger=PropertyChanged}"
+                                   SelectedValuePath="Tag"
+                                   Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_GamepadMouseShortcut_BackR3}" Tag="BackR3"/>
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_GamepadMouseShortcut_StartL3}" Tag="StartL3"/>
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_GamepadMouseShortcut_GuideY}" Tag="GuideY"/>
+                    <ComboBoxItem Content="{DynamicResource InGameOverlay_GamepadMouseShortcut_Disabled}" Tag="Disabled"/>
+                </pctrls:ComboBoxEx>
+            </Grid>
+
+            <TextBlock Text="{DynamicResource InGameOverlay_GamepadMouseShortcut_Help}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
             <Grid Margin="10,20,0,14">

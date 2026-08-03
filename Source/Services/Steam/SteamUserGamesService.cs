@@ -42,14 +42,14 @@ namespace AnikiHelper.Services
             };
         }
 
-        public async Task<HashSet<int>> GetOwnedGameAppIdsAsync(string apiKey, string steamIdInput, TimeSpan maxAge)
+        public async Task<HashSet<int>> GetOwnedGameAppIdsAsync(string accessToken, string steamId64, TimeSpan maxAge)
         {
             var result = new HashSet<int>();
 
             try
             {
-                var steamId64 = await ResolveSteamId64Async(apiKey, steamIdInput).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(steamId64))
+                steamId64 = NormalizeSteamId64(steamId64);
+                if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(steamId64))
                 {
                     return result;
                 }
@@ -71,9 +71,9 @@ namespace AnikiHelper.Services
                 }
 
                 var url =
-                    $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={Uri.EscapeDataString(apiKey)}&steamid={Uri.EscapeDataString(steamId64)}&include_appinfo=0&include_played_free_games=1";
+                    $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?access_token={Uri.EscapeDataString(accessToken)}&steamid={Uri.EscapeDataString(steamId64)}&include_appinfo=0&include_played_free_games=1";
 
-                var json = await httpClient.GetStringAsync(url).ConfigureAwait(false);
+                var json = await GetAuthenticatedJsonAsync(url, "owned games").ConfigureAwait(false);
                 var root = JsonConvert.DeserializeObject<OwnedGamesResponseRoot>(json);
 
                 var appIds = root?.Response?.Games?
@@ -97,12 +97,12 @@ namespace AnikiHelper.Services
             return result;
         }
 
-        public async Task<List<SteamUserRecentGameSeed>> GetRecentlyPlayedGameSeedsAsync(string apiKey, string steamIdInput, int count, TimeSpan maxAge)
+        public async Task<List<SteamUserRecentGameSeed>> GetRecentlyPlayedGameSeedsAsync(string accessToken, string steamId64, int count, TimeSpan maxAge)
         {
             try
             {
-                var steamId64 = await ResolveSteamId64Async(apiKey, steamIdInput).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(steamId64))
+                steamId64 = NormalizeSteamId64(steamId64);
+                if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(steamId64))
                 {
                     return new List<SteamUserRecentGameSeed>();
                 }
@@ -117,9 +117,9 @@ namespace AnikiHelper.Services
 
                 var safeCount = Math.Max(1, Math.Min(20, count));
                 var url =
-                    $"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?key={Uri.EscapeDataString(apiKey)}&steamid={Uri.EscapeDataString(steamId64)}&count={safeCount}";
+                    $"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?access_token={Uri.EscapeDataString(accessToken)}&steamid={Uri.EscapeDataString(steamId64)}&count={safeCount}";
 
-                var json = await httpClient.GetStringAsync(url).ConfigureAwait(false);
+                var json = await GetAuthenticatedJsonAsync(url, "recently played games").ConfigureAwait(false);
                 var root = JsonConvert.DeserializeObject<RecentlyPlayedResponseRoot>(json);
 
                 var seeds = root?.Response?.Games?
@@ -147,73 +147,39 @@ namespace AnikiHelper.Services
             }
         }
 
-        private async Task<string> ResolveSteamId64Async(string apiKey, string input)
+        private async Task<string> GetAuthenticatedJsonAsync(string url, string operation)
         {
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                return null;
-            }
-
-            var value = input.Trim();
-            if (value.Length == 17 && value.All(char.IsDigit))
-            {
-                return value;
-            }
-
-            var profilesMarker = "/profiles/";
-            var idxProfiles = value.IndexOf(profilesMarker, StringComparison.OrdinalIgnoreCase);
-            if (idxProfiles >= 0)
-            {
-                var after = value.Substring(idxProfiles + profilesMarker.Length);
-                var digits = new string(after.TakeWhile(char.IsDigit).ToArray());
-                if (!string.IsNullOrWhiteSpace(digits))
-                {
-                    return digits;
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(apiKey))
-            {
-                return null;
-            }
-
-            string vanity;
-            var idMarker = "/id/";
-            var idxId = value.IndexOf(idMarker, StringComparison.OrdinalIgnoreCase);
-            if (idxId >= 0)
-            {
-                var after = value.Substring(idxId + idMarker.Length);
-                vanity = new string(after.TakeWhile(c => char.IsLetterOrDigit(c) || c == '_' || c == '-').ToArray());
-            }
-            else
-            {
-                vanity = value;
-            }
-
-            if (string.IsNullOrWhiteSpace(vanity))
-            {
-                return null;
-            }
-
             try
             {
-                var url =
-                    $"https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/?key={Uri.EscapeDataString(apiKey)}&vanityurl={Uri.EscapeDataString(vanity)}";
-
-                var json = await httpClient.GetStringAsync(url).ConfigureAwait(false);
-                var root = JsonConvert.DeserializeObject<ResolveVanityResponseRoot>(json);
-
-                if (root?.Response?.Success == 1 && !string.IsNullOrWhiteSpace(root.Response.SteamId))
+                using (var response = await httpClient.GetAsync(url).ConfigureAwait(false))
                 {
-                    return root.Response.SteamId;
+                    var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return body ?? string.Empty;
+                    }
+
+                    throw new InvalidOperationException(
+                        $"Steam {operation} request failed with HTTP {(int)response.StatusCode}.");
                 }
             }
-            catch (Exception ex)
+            catch (TaskCanceledException)
             {
-                logger?.Warn(ex, "[Steam User Games] Failed to resolve Steam vanity URL.");
+                throw new TimeoutException($"Steam {operation} request timed out.");
             }
+            catch (HttpRequestException)
+            {
+                // Do not include the request URI in logs because it contains the access token.
+                throw new InvalidOperationException($"Steam {operation} request failed because of a network error.");
+            }
+        }
 
-            return null;
+        private static string NormalizeSteamId64(string value)
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+            return normalized.Length == 17 && normalized.All(char.IsDigit)
+                ? normalized
+                : string.Empty;
         }
 
         private string GetCachePath(string kind, string steamId64)

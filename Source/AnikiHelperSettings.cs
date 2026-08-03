@@ -26,6 +26,8 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using System.Reflection;
 using AnikiHelper.Services.DuplicateHider;
+using AnikiHelper.Services.FirstSetup;
+using AnikiHelper.Services.WebBrowser;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Windows.Media;
@@ -245,62 +247,6 @@ namespace AnikiHelper
         public string ReasonKey { get; set; } = string.Empty;
         public string BannerText { get; set; } = string.Empty;
     }
-
-    public class RecentAchievementItem
-    {
-        public string Game { get; set; }
-        public string Title { get; set; }
-        public string Desc { get; set; }
-        public DateTime Unlocked { get; set; }
-        public string UnlockedString => Unlocked.ToString("dd/MM/yyyy HH:mm");
-        public string IconPath { get; set; }
-    }
-
-    // DTOs SuccessStory
-
-    internal class SsGame { public string Name { get; set; } }
-
-    internal class SsItem
-    {
-        public string Name { get; set; }
-        public string Title { get; set; }
-        public string Description { get; set; }
-        public string Desc { get; set; }
-        public string DateUnlocked { get; set; }
-        public long? UnlockTime { get; set; }
-        public string UnlockTimestamp { get; set; }
-        public string LastUnlock { get; set; }
-        public string UrlUnlocked { get; set; }
-        public string IconUnlocked { get; set; }
-        public string ImageUrl { get; set; }
-        public string IsUnlock { get; set; }
-        public string Earned { get; set; }
-        public string Unlocked { get; set; }
-        public double? RarityValue { get; set; }
-        public double? Percent { get; set; }
-        public double? Percentage { get; set; }
-        public string Rarity { get; set; }
-        public string RarityName { get; set; }
-    }
-
-    internal class SsFile
-    {
-        public string Name { get; set; }
-        public SsGame Game { get; set; }
-        public List<SsItem> Items { get; set; }
-        public List<SsItem> Achievements { get; set; }
-    }
-
-    public class RareAchievementItem
-    {
-        public string Game { get; set; }
-        public string Title { get; set; }
-        public double Percent { get; set; }
-        public string PercentString => $"{Percent:0.##}%";
-        public DateTime Unlocked { get; set; }
-        public string IconPath { get; set; }
-    }
-
     public class DiskUsageItem
     {
         public string Label { get; set; }
@@ -659,11 +605,10 @@ namespace AnikiHelper
         private bool achievementMemoriesRefreshRunning;
 
         [DontSerialize]
-        private ILogger logger;
+        private bool deferredStartupCacheWarmupQueued;
 
         [DontSerialize]
-        public RelayCommand RefreshSuccessStoryCommand { get; }
-
+        private ILogger logger;
         [DontSerialize]
         public RelayCommand ClearInGameOverlayNeverSuspendGamesCommand { get; }
 
@@ -1214,6 +1159,25 @@ namespace AnikiHelper
         private int currentGameMediaLoadVersion = 0;
 
         [DontSerialize]
+        private readonly object unifiedMediaGameCacheLock = new object();
+
+        [DontSerialize]
+        private readonly Dictionary<Guid, UnifiedMediaGameCacheEntry> unifiedMediaGameCache =
+            new Dictionary<Guid, UnifiedMediaGameCacheEntry>();
+
+        [DontSerialize]
+        private readonly Dictionary<Guid, Task<List<AnikiMediaItem>>> unifiedMediaGameLoads =
+            new Dictionary<Guid, Task<List<AnikiMediaItem>>>();
+
+        private static readonly TimeSpan UnifiedMediaGameCacheDuration = TimeSpan.FromSeconds(8);
+
+        private sealed class UnifiedMediaGameCacheEntry
+        {
+            public DateTime CreatedUtc { get; set; }
+            public List<AnikiMediaItem> Items { get; set; }
+        }
+
+        [DontSerialize]
         private bool currentGameMediaPageLoading;
 
         [DontSerialize]
@@ -1361,6 +1325,9 @@ namespace AnikiHelper
 
         [DontSerialize]
         public AnikiDynamicProperties Options { get; } = new AnikiDynamicProperties();
+
+        [DontSerialize]
+        public AnikiFirstSetupViewModel FirstSetup { get; set; }
 
         [DontSerialize]
         private string aspectRatio = "dsp169";
@@ -1732,6 +1699,36 @@ namespace AnikiHelper
         public AnikiWindowCommandProvider OpenChildWindow { get; }
 
         [DontSerialize]
+        public RelayCommand OpenWebBrowserCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenWebBrowserHomeCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand CloseWebBrowserCommand { get; }
+
+        [DontSerialize]
+        public AnikiWindowCommandProvider OpenWebBrowser { get; }
+
+        [DontSerialize]
+        public RelayCommand AddWebFavoriteCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<object> RemoveWebFavoriteCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<object> MoveWebFavoriteUpCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand<object> MoveWebFavoriteDownCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ClearWebBrowserCacheCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ResetWebBrowserDataCommand { get; }
+
+        [DontSerialize]
         public RelayCommand OpenInGameOverlayCommand { get; }
 
         [DontSerialize]
@@ -1746,14 +1743,13 @@ namespace AnikiHelper
         public RelayCommand OpenWhatsNewCommand { get; }
 
         [DontSerialize]
+        public RelayCommand OpenFirstSetupCommand { get; }
+
+        [DontSerialize]
         public RelayCommand OpenNotificationsCommand { get; }
 
         [DontSerialize]
         public RelayCommand OpenAchievementsCommand { get; }
-
-        [DontSerialize]
-        public RelayCommand RefreshRecentAchievementsCommand { get; }
-
         [DontSerialize]
         public RelayCommand RefreshInstalledAchievementsCommand { get; }
 
@@ -2427,6 +2423,17 @@ namespace AnikiHelper
         }
 
         public string InstalledPluginVersion { get; set; } = "";
+
+        // One-time migration marker: SteamGridDB Hero compatibility mode is forced off once
+        // after updating to the Helper version that introduced this correction.
+        public int SteamBannerResetMigrationVersion { get; set; } = 0;
+
+        // Persistent queue used when the first setup schedules Playnite add-on installations.
+        // The queue survives a Playnite restart so the installation flow can resume safely.
+        public List<string> PendingFirstSetupAddonInstallIds { get; set; } = new List<string>();
+        public int PendingFirstSetupAddonInstallIndex { get; set; } = 0;
+        public bool PendingFirstSetupAddonInstallCurrentLaunched { get; set; } = false;
+
         public bool VersionCheckReady { get; set; } = true;
         public bool IsPluginUpdateRequired { get; set; } = false;
         public string RequiredAnikiHelperVersion { get; set; } = "";
@@ -3072,6 +3079,57 @@ namespace AnikiHelper
         [DontSerialize]
         private bool SteamApiKeyStorageNeedsSave { get; set; }
 
+        private const string SteamWebApiTokenEncryptionPrefix = "dpapi:steam-web-token:v1:";
+
+        private static readonly byte[] SteamWebApiTokenEntropy =
+            Encoding.UTF8.GetBytes("AnikiHelper.SteamWebApiToken.v1");
+
+        private string steamWebApiToken = string.Empty;
+
+        // Runtime token obtained from the user's existing Steam WebLogin session.
+        // It replaces the user-created Steam Web API key for friends and player data.
+        // Keep it internal so Fullscreen themes cannot bind to and expose the bearer token.
+        [DontSerialize]
+        [JsonIgnore]
+        internal string SteamWebApiToken
+        {
+            get => steamWebApiToken;
+            set
+            {
+                var normalizedValue = value ?? string.Empty;
+                if (string.Equals(steamWebApiToken, normalizedValue, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                SetValue(ref steamWebApiToken, normalizedValue);
+
+                if (TryEncryptSteamWebApiToken(normalizedValue, out var encryptedValue))
+                {
+                    SteamWebApiTokenEncrypted = encryptedValue;
+                }
+                else
+                {
+                    SteamWebApiTokenEncrypted = string.Empty;
+                    logger?.Error("[AnikiHelper] Steam WebLogin token could not be encrypted. It will only remain available for the current session.");
+                }
+
+                NotifySteamFriendsConfigurationPropertiesChanged();
+                OnPropertyChanged(nameof(SteamAccountServicesReady));
+            }
+        }
+
+        // Only this DPAPI-protected value is serialized to config.json.
+        private string steamWebApiTokenEncrypted = string.Empty;
+        public string SteamWebApiTokenEncrypted
+        {
+            get => steamWebApiTokenEncrypted;
+            set => steamWebApiTokenEncrypted = value ?? string.Empty;
+        }
+
+        [DontSerialize]
+        private bool SteamWebApiTokenStorageNeedsSave { get; set; }
+
         private string steamId64 = string.Empty;
         public string SteamId64
         {
@@ -3091,13 +3149,22 @@ namespace AnikiHelper
             set
             {
                 SetValue(ref steamAccountSteamId64, value ?? string.Empty);
+                OnPropertyChanged(nameof(SteamAccountDisplayName));
                 NotifySteamFriendsConfigurationPropertiesChanged();
             }
         }
 
-
         [DontSerialize]
-        public bool SteamFriendsHasSteamApiKey => !string.IsNullOrWhiteSpace(SteamApiKey);
+        public string SteamAccountDisplayName =>
+            !string.IsNullOrWhiteSpace(SelfName)
+                ? SelfName
+                : (SteamAccountSteamId64 ?? string.Empty);
+
+
+        // Compatibility alias for older theme bindings. It now represents an
+        // authenticated Steam WebLogin token, not a user-created API key.
+        [DontSerialize]
+        public bool SteamFriendsHasSteamApiKey => !string.IsNullOrWhiteSpace(SteamWebApiToken);
 
         [DontSerialize]
         public bool SteamFriendsHasSteamId =>
@@ -3105,7 +3172,13 @@ namespace AnikiHelper
             !string.IsNullOrWhiteSpace(SteamId64);
 
         [DontSerialize]
-        public bool SteamFriendsHasRequiredConfig => SteamFriendsHasSteamApiKey && SteamFriendsHasSteamId;
+        public bool SteamAccountServicesReady =>
+            SteamAccountConnected &&
+            SteamFriendsHasSteamId &&
+            !string.IsNullOrWhiteSpace(SteamWebApiToken);
+
+        [DontSerialize]
+        public bool SteamFriendsHasRequiredConfig => SteamAccountServicesReady;
 
         [DontSerialize]
         public bool SteamFriendsFeatureDisabled => SteamFriendsEnabled != true;
@@ -3175,19 +3248,19 @@ namespace AnikiHelper
                     return "Steam Friends is disabled in Aniki Helper settings.";
                 }
 
-                if (!SteamFriendsHasSteamApiKey && !SteamFriendsHasSteamId)
+                if (!SteamAccountConnected)
                 {
-                    return "Steam Friends is enabled, but your Steam API key and SteamID64 / profile URL are missing.";
-                }
-
-                if (!SteamFriendsHasSteamApiKey)
-                {
-                    return "Steam Friends is enabled, but your Steam API key is missing.";
+                    return "Connect your Steam account in Aniki Helper settings to use Steam Friends.";
                 }
 
                 if (!SteamFriendsHasSteamId)
                 {
-                    return "Steam Friends is enabled, but no SteamID64 or Steam profile URL is configured.";
+                    return "The connected Steam account could not be identified. Check the Steam connection.";
+                }
+
+                if (string.IsNullOrWhiteSpace(SteamWebApiToken))
+                {
+                    return "The Steam session is connected, but friend services are not ready. Click Check connection or reconnect Steam.";
                 }
 
                 return string.Empty;
@@ -3223,6 +3296,7 @@ namespace AnikiHelper
             OnPropertyChanged(nameof(SteamFriendsHasSteamApiKey));
             OnPropertyChanged(nameof(SteamFriendsHasSteamId));
             OnPropertyChanged(nameof(SteamFriendsHasRequiredConfig));
+            OnPropertyChanged(nameof(SteamAccountServicesReady));
             OnPropertyChanged(nameof(SteamFriendsFeatureDisabled));
             OnPropertyChanged(nameof(SteamFriendsMissingConfiguration));
             OnPropertyChanged(nameof(SteamFriendsReady));
@@ -3250,7 +3324,12 @@ namespace AnikiHelper
         public bool SteamAccountConnected
         {
             get => steamAccountConnected;
-            set => SetValue(ref steamAccountConnected, value);
+            set
+            {
+                SetValue(ref steamAccountConnected, value);
+                NotifySteamFriendsConfigurationPropertiesChanged();
+                OnPropertyChanged(nameof(SteamAccountServicesReady));
+            }
         }
 
         [DontSerialize]
@@ -3303,6 +3382,10 @@ namespace AnikiHelper
         [DontSerialize]
         public ObservableCollection<SteamFriendPlayedGameDto> SteamFriendsWhoPlayedCurrentGame { get; private set; } = new ObservableCollection<SteamFriendPlayedGameDto>();
 
+        // Limited collection intended for compact theme displays (first 7 friends only).
+        [DontSerialize]
+        public ObservableCollection<SteamFriendPlayedGameDto> SteamFriendsWhoPlayedCurrentGameVisible { get; private set; } = new ObservableCollection<SteamFriendPlayedGameDto>();
+
         [DontSerialize]
         public ObservableCollection<FriendPresenceDto> SteamFriendsPlayingCurrentGame { get; private set; } = new ObservableCollection<FriendPresenceDto>();
 
@@ -3329,6 +3412,32 @@ namespace AnikiHelper
             get => steamFriendsWhoPlayedCount;
             set => SetValue(ref steamFriendsWhoPlayedCount, value);
         }
+
+        private int steamFriendsWhoPlayedRemainingCount;
+        [DontSerialize]
+        public int SteamFriendsWhoPlayedRemainingCount
+        {
+            get => steamFriendsWhoPlayedRemainingCount;
+            set
+            {
+                if (steamFriendsWhoPlayedRemainingCount == value)
+                {
+                    return;
+                }
+
+                SetValue(ref steamFriendsWhoPlayedRemainingCount, value);
+                OnPropertyChanged(nameof(SteamFriendsWhoPlayedHasMore));
+                OnPropertyChanged(nameof(SteamFriendsWhoPlayedRemainingText));
+            }
+        }
+
+        [DontSerialize]
+        public bool SteamFriendsWhoPlayedHasMore => SteamFriendsWhoPlayedRemainingCount > 0;
+
+        [DontSerialize]
+        public string SteamFriendsWhoPlayedRemainingText => SteamFriendsWhoPlayedHasMore
+            ? $"+{SteamFriendsWhoPlayedRemainingCount}"
+            : string.Empty;
 
         private string steamFriendsWhoPlayedSummary;
         [DontSerialize]
@@ -3420,6 +3529,11 @@ namespace AnikiHelper
             if (SteamFriendsWhoPlayedCurrentGame == null)
             {
                 SteamFriendsWhoPlayedCurrentGame = new ObservableCollection<SteamFriendPlayedGameDto>();
+            }
+
+            if (SteamFriendsWhoPlayedCurrentGameVisible == null)
+            {
+                SteamFriendsWhoPlayedCurrentGameVisible = new ObservableCollection<SteamFriendPlayedGameDto>();
             }
 
             if (SteamFriendsPlayingCurrentGame == null)
@@ -3565,7 +3679,11 @@ namespace AnikiHelper
         public string SelfName
         {
             get => selfName;
-            set => SetValue(ref selfName, value);
+            set
+            {
+                SetValue(ref selfName, value);
+                OnPropertyChanged(nameof(SteamAccountDisplayName));
+            }
         }
 
         private string selfState = "offline";
@@ -4042,13 +4160,6 @@ namespace AnikiHelper
         public ObservableCollection<QuickItem> RecentPlayed { get; } = new ObservableCollection<QuickItem>();
         public ObservableCollection<QuickItem> RecentAdded { get; } = new ObservableCollection<QuickItem>();
         public ObservableCollection<QuickItem> NeverPlayed { get; } = new ObservableCollection<QuickItem>();
-
-        // Recent Trophy (Top 3)
-        public ObservableCollection<RecentAchievementItem> RecentAchievements { get; } = new ObservableCollection<RecentAchievementItem>();
-
-        // Rare Trophy (Top 3)
-        public ObservableCollection<RareAchievementItem> RareTop { get; } = new ObservableCollection<RareAchievementItem>();
-
         // Latest Steam game updates (Top 10)
         public ObservableCollection<SteamRecentUpdateItem> SteamRecentUpdates { get; } = new ObservableCollection<SteamRecentUpdateItem>();
         public ObservableCollection<SteamGameNewsItem> SteamGameNews { get; } = new ObservableCollection<SteamGameNewsItem>();
@@ -4071,19 +4182,6 @@ namespace AnikiHelper
             get => inGameOverlayNeverSuspendGameItems;
             private set => SetValue(ref inGameOverlayNeverSuspendGameItems, value ?? new ObservableCollection<AnikiOverlayNeverSuspendGameItem>());
         }
-
-        // Watcher SuccessStory
-        private FileSystemWatcher achievementsWatcher;
-        private Timer debounceTimer;
-
-        // Cache SuccessStory root (évite de rescanner le disque trop souvent)
-        [DontSerialize]
-        private string cachedSsRoot;
-
-        [DontSerialize]
-        private DateTime cachedSsRootCheckedUtc = DateTime.MinValue;
-
-
         #region Options (bindables)
         public bool EnableDebugLogs
         {
@@ -4720,6 +4818,43 @@ namespace AnikiHelper
             set => SetValue(ref shutdownVideoEnabled, value);
         }
 
+        // Kept for migration from the first browser prototype. The Fullscreen browser
+        // now opens on its native favorites home page instead of a fixed URL.
+        private string webBrowserHomeUrl = string.Empty;
+        public string WebBrowserHomeUrl
+        {
+            get => webBrowserHomeUrl ?? string.Empty;
+            set => SetValue(ref webBrowserHomeUrl, value ?? string.Empty);
+        }
+
+        private ObservableCollection<AnikiWebFavorite> webBrowserFavorites =
+            new ObservableCollection<AnikiWebFavorite>();
+        public ObservableCollection<AnikiWebFavorite> WebBrowserFavorites
+        {
+            get => webBrowserFavorites ?? (webBrowserFavorites = new ObservableCollection<AnikiWebFavorite>());
+            set => SetValue(
+                ref webBrowserFavorites,
+                value ?? new ObservableCollection<AnikiWebFavorite>());
+        }
+
+        [DontSerialize]
+        private string newWebFavoriteName = string.Empty;
+        [DontSerialize]
+        public string NewWebFavoriteName
+        {
+            get => newWebFavoriteName ?? string.Empty;
+            set => SetValue(ref newWebFavoriteName, value ?? string.Empty);
+        }
+
+        [DontSerialize]
+        private string newWebFavoriteUrl = string.Empty;
+        [DontSerialize]
+        public string NewWebFavoriteUrl
+        {
+            get => newWebFavoriteUrl ?? string.Empty;
+            set => SetValue(ref newWebFavoriteUrl, value ?? string.Empty);
+        }
+
         private bool inGameOverlayEnabled = false;
         public bool InGameOverlayEnabled
         {
@@ -4739,6 +4874,103 @@ namespace AnikiHelper
         {
             get => string.IsNullOrWhiteSpace(inGameOverlayControllerShortcut) ? "StartBack" : inGameOverlayControllerShortcut;
             set => SetValue(ref inGameOverlayControllerShortcut, string.IsNullOrWhiteSpace(value) ? "StartBack" : value);
+        }
+
+        private string inGameOverlayVirtualKeyboardProvider = "Aniki";
+        public string InGameOverlayVirtualKeyboardProvider
+        {
+            get
+            {
+                return string.Equals(inGameOverlayVirtualKeyboardProvider, "Windows", StringComparison.OrdinalIgnoreCase)
+                    ? "Windows"
+                    : "Aniki";
+            }
+            set
+            {
+                var normalized = string.Equals(value, "Windows", StringComparison.OrdinalIgnoreCase)
+                    ? "Windows"
+                    : "Aniki";
+
+                SetValue(ref inGameOverlayVirtualKeyboardProvider, normalized);
+            }
+        }
+
+        private string inGameOverlayVirtualKeyboardShortcut = "L3R3Hold";
+        public string InGameOverlayVirtualKeyboardShortcut
+        {
+            get
+            {
+                switch (inGameOverlayVirtualKeyboardShortcut)
+                {
+                    case "BackX":
+                    case "GuideX":
+                    case "Disabled":
+                        return inGameOverlayVirtualKeyboardShortcut;
+
+                    case "L3R3Hold":
+                    default:
+                        return "L3R3Hold";
+                }
+            }
+            set
+            {
+                string normalized;
+
+                switch (value)
+                {
+                    case "BackX":
+                    case "GuideX":
+                    case "Disabled":
+                        normalized = value;
+                        break;
+
+                    case "L3R3Hold":
+                    default:
+                        normalized = "L3R3Hold";
+                        break;
+                }
+
+                SetValue(ref inGameOverlayVirtualKeyboardShortcut, normalized);
+            }
+        }
+
+        private string inGameOverlayGamepadMouseShortcut = "BackR3";
+        public string InGameOverlayGamepadMouseShortcut
+        {
+            get
+            {
+                switch (inGameOverlayGamepadMouseShortcut)
+                {
+                    case "StartL3":
+                    case "GuideY":
+                    case "Disabled":
+                        return inGameOverlayGamepadMouseShortcut;
+
+                    case "BackR3":
+                    default:
+                        return "BackR3";
+                }
+            }
+            set
+            {
+                string normalized;
+
+                switch (value)
+                {
+                    case "StartL3":
+                    case "GuideY":
+                    case "Disabled":
+                        normalized = value;
+                        break;
+
+                    case "BackR3":
+                    default:
+                        normalized = "BackR3";
+                        break;
+                }
+
+                SetValue(ref inGameOverlayGamepadMouseShortcut, normalized);
+            }
         }
 
         private string inGameOverlayGameBehavior = "DoNothing";
@@ -4971,6 +5203,86 @@ namespace AnikiHelper
 
         public AnikiHelperSettings() { }
 
+        private static bool TryEncryptSteamWebApiToken(string clearText, out string encryptedValue)
+        {
+            encryptedValue = string.Empty;
+
+            if (string.IsNullOrEmpty(clearText))
+            {
+                return true;
+            }
+
+            try
+            {
+                var clearBytes = Encoding.UTF8.GetBytes(clearText);
+                var protectedBytes = ProtectedData.Protect(
+                    clearBytes,
+                    SteamWebApiTokenEntropy,
+                    DataProtectionScope.CurrentUser);
+
+                encryptedValue = SteamWebApiTokenEncryptionPrefix + Convert.ToBase64String(protectedBytes);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryDecryptSteamWebApiToken(string encryptedValue, out string clearText)
+        {
+            clearText = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(encryptedValue))
+            {
+                return true;
+            }
+
+            if (!encryptedValue.StartsWith(SteamWebApiTokenEncryptionPrefix, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            try
+            {
+                var base64Value = encryptedValue.Substring(SteamWebApiTokenEncryptionPrefix.Length);
+                var protectedBytes = Convert.FromBase64String(base64Value);
+                var clearBytes = ProtectedData.Unprotect(
+                    protectedBytes,
+                    SteamWebApiTokenEntropy,
+                    DataProtectionScope.CurrentUser);
+
+                clearText = Encoding.UTF8.GetString(clearBytes);
+                return true;
+            }
+            catch
+            {
+                clearText = string.Empty;
+                return false;
+            }
+        }
+
+        private void RestoreSteamWebApiTokenFromConfig()
+        {
+            steamWebApiToken = string.Empty;
+            SteamWebApiTokenStorageNeedsSave = false;
+
+            if (string.IsNullOrWhiteSpace(SteamWebApiTokenEncrypted))
+            {
+                return;
+            }
+
+            if (TryDecryptSteamWebApiToken(SteamWebApiTokenEncrypted, out var decryptedValue))
+            {
+                steamWebApiToken = decryptedValue ?? string.Empty;
+                return;
+            }
+
+            SteamWebApiTokenEncrypted = string.Empty;
+            SteamWebApiTokenStorageNeedsSave = true;
+            logger?.Warn("[AnikiHelper] The saved Steam WebLogin token could not be decrypted on this Windows account. Reconnect Steam in Aniki Helper settings.");
+        }
+
         private static bool TryEncryptSteamApiKey(string clearText, out string encryptedValue)
         {
             encryptedValue = string.Empty;
@@ -5126,6 +5438,7 @@ namespace AnikiHelper
                     loadedSettings.logger = logger;
                     loadedSettings.RestoreSteamApiKeyFromConfig(
                         Path.Combine(plugin.GetPluginUserDataPath(), "config.json"));
+                    loadedSettings.RestoreSteamWebApiTokenFromConfig();
                 }
 
                 return loadedSettings;
@@ -5164,11 +5477,6 @@ namespace AnikiHelper
             this.plugin = plugin;
             logger = LogManager.GetLogger();
 
-            screenshotsVisualizerReader = new ScreenshotsVisualizerReader(plugin.PlayniteApi, logger);
-            screenshotUtilitiesReader = new ScreenshotUtilitiesReader(plugin.PlayniteApi, logger);
-            mediaThumbnailService = new AnikiMediaThumbnailService(plugin.GetPluginUserDataPath(), logger);
-            screenshotMediaCacheService = new ScreenshotMediaCacheService(plugin.PlayniteApi, plugin.GetPluginUserDataPath(), logger);
-
             SetAnikiThemeOptionCommand = new RelayCommand<string>(p => plugin?.SetAnikiThemeOption(p));
             ToggleAnikiThemeOptionCommand = new RelayCommand<string>(p => plugin?.ToggleAnikiThemeOption(p));
             SelectAnikiThemePresetCommand = new RelayCommand<string>(p => plugin?.SelectAnikiThemePreset(p));
@@ -5179,12 +5487,9 @@ namespace AnikiHelper
             ClearInGameOverlayNeverSuspendGamesCommand = new RelayCommand(ClearInGameOverlayNeverSuspendGames);
 
 
-            LoadHubLatestMediaFromCache();
-            LoadHubMemoryFromCache();
-            LoadHubAchievementMemoriesFromCacheWhenDatabaseReady();
-            EnsureAchievementMemoriesCacheExists();
-            LoadMediaGalleryGamesFromCache();
-
+            // Keep the constructor lightweight. Media, memories and achievement caches
+            // are warmed after the first fullscreen render, while the full Media Gallery
+            // remains lazy-loaded only when the user opens it.
             var saved = LoadSettingsSafe(plugin);
             if (saved != null)
             {
@@ -5221,8 +5526,13 @@ namespace AnikiHelper
                 SteamId64 = saved.SteamId64 ?? string.Empty;
                 SteamAccountSteamId64 = saved.SteamAccountSteamId64 ?? string.Empty;
                 SteamAccountProfileUrl = saved.SteamAccountProfileUrl ?? string.Empty;
+                SteamWebApiToken = saved.SteamWebApiToken ?? string.Empty;
                 SteamAccountConnected = !string.IsNullOrWhiteSpace(SteamAccountSteamId64);
-                SteamAccountStatus = SteamAccountConnected ? "Steam account remembered. Click Check Steam account to verify session." : "Not connected";
+                SteamAccountStatus = SteamAccountConnected
+                    ? (SteamAccountServicesReady
+                        ? "Steam account remembered. Steam services are ready."
+                        : "Steam account remembered. Click Check connection to refresh the Steam session.")
+                    : "Not connected";
                 ShowOffline = saved.ShowOffline;
                 NotifyOnGameStart = saved.NotifyOnGameStart;
                 NotifyOnConnect = saved.NotifyOnConnect;
@@ -5235,6 +5545,34 @@ namespace AnikiHelper
                 LoginRandomIndex = saved.LoginRandomIndex;
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
                 LastSeenWhatsNewVersion = saved.LastSeenWhatsNewVersion ?? string.Empty;
+                SteamBannerResetMigrationVersion = saved.SteamBannerResetMigrationVersion;
+                PendingFirstSetupAddonInstallIds = saved.PendingFirstSetupAddonInstallIds != null
+                    ? new List<string>(saved.PendingFirstSetupAddonInstallIds)
+                    : new List<string>();
+                PendingFirstSetupAddonInstallIndex = Math.Max(0, saved.PendingFirstSetupAddonInstallIndex);
+                PendingFirstSetupAddonInstallCurrentLaunched =
+                    saved.PendingFirstSetupAddonInstallCurrentLaunched;
+
+                WebBrowserHomeUrl = saved.WebBrowserHomeUrl ?? string.Empty;
+                WebBrowserFavorites = new ObservableCollection<AnikiWebFavorite>(
+                    (saved.WebBrowserFavorites ?? new ObservableCollection<AnikiWebFavorite>())
+                        .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Url))
+                        .Select(x => x.Clone()));
+
+                // Migrate the single URL used by v1/v2 into the first favorite.
+                if (WebBrowserFavorites.Count == 0 &&
+                    !string.IsNullOrWhiteSpace(WebBrowserHomeUrl))
+                {
+                    var migratedUrl = NormalizeWebFavoriteUrl(WebBrowserHomeUrl);
+                    if (!string.IsNullOrWhiteSpace(migratedUrl))
+                    {
+                        WebBrowserFavorites.Add(new AnikiWebFavorite
+                        {
+                            Name = GetWebFavoriteDefaultName(migratedUrl),
+                            Url = migratedUrl
+                        });
+                    }
+                }
 
                 InGameOverlayEnabled = saved.InGameOverlayEnabled;
 
@@ -5245,6 +5583,18 @@ namespace AnikiHelper
                 InGameOverlayControllerShortcut = string.IsNullOrWhiteSpace(saved.InGameOverlayControllerShortcut)
                     ? "StartBack"
                     : saved.InGameOverlayControllerShortcut;
+
+                InGameOverlayVirtualKeyboardProvider = string.IsNullOrWhiteSpace(saved.InGameOverlayVirtualKeyboardProvider)
+                    ? "Aniki"
+                    : saved.InGameOverlayVirtualKeyboardProvider;
+
+                InGameOverlayVirtualKeyboardShortcut = string.IsNullOrWhiteSpace(saved.InGameOverlayVirtualKeyboardShortcut)
+                    ? "L3R3Hold"
+                    : saved.InGameOverlayVirtualKeyboardShortcut;
+
+                InGameOverlayGamepadMouseShortcut = string.IsNullOrWhiteSpace(saved.InGameOverlayGamepadMouseShortcut)
+                    ? "BackR3"
+                    : saved.InGameOverlayGamepadMouseShortcut;
 
                 InGameOverlayGameBehavior = string.IsNullOrWhiteSpace(saved.InGameOverlayGameBehavior)
                     ? "DoNothing"
@@ -5393,7 +5743,6 @@ namespace AnikiHelper
 
             RefreshGameLaunchSplashCustomPriorityOptions();
             RefreshInGameOverlayNeverSuspendGameItems();
-            LoadOverlayApps();
 
             if (saved == null)
             {
@@ -5407,7 +5756,7 @@ namespace AnikiHelper
                     logger?.Warn(ex, "[AnikiHelper] Failed to create a new clean config.json.");
                 }
             }
-            else if (saved.SteamApiKeyStorageNeedsSave)
+            else if (saved.SteamApiKeyStorageNeedsSave || saved.SteamWebApiTokenStorageNeedsSave)
             {
                 try
                 {
@@ -5415,16 +5764,9 @@ namespace AnikiHelper
                 }
                 catch (Exception ex)
                 {
-                    logger?.Warn(ex, "[AnikiHelper] Failed to save the migrated Steam Web API key.");
+                    logger?.Warn(ex, "[AnikiHelper] Failed to save migrated Steam credentials.");
                 }
             }
-
-            // Bouton "Refresh SuccessStory"
-            RefreshSuccessStoryCommand = new RelayCommand(
-                async () => await SuccessStoryBridge.RefreshSelectedGameAsync(plugin.PlayniteApi),
-                () => plugin?.PlayniteApi?.MainView?.SelectedGames?.Any() == true
-            );
-
             RefreshMediaGalleryCommand = new RelayCommand(
                 () =>
                 {
@@ -5564,6 +5906,44 @@ namespace AnikiHelper
                 styleKey => new RelayCommand(() => plugin?.OpenChildWindow(styleKey))
             );
 
+            OpenWebBrowserCommand = new RelayCommand(
+                () => plugin?.OpenWebBrowserHome()
+            );
+
+            OpenWebBrowserHomeCommand = new RelayCommand(
+                () => plugin?.OpenWebBrowserHome()
+            );
+
+            CloseWebBrowserCommand = new RelayCommand(
+                () => plugin?.CloseWebBrowser()
+            );
+
+            OpenWebBrowser = new AnikiWindowCommandProvider(
+                address => new RelayCommand(() =>
+                {
+                    if (string.IsNullOrWhiteSpace(address) ||
+                        string.Equals(address.Trim(), "Home", StringComparison.OrdinalIgnoreCase))
+                    {
+                        plugin?.OpenWebBrowserHome();
+                    }
+                    else
+                    {
+                        plugin?.OpenWebBrowser(address);
+                    }
+                })
+            );
+
+            AddWebFavoriteCommand = new RelayCommand(AddWebFavorite);
+            RemoveWebFavoriteCommand = new RelayCommand<object>(RemoveWebFavorite);
+            MoveWebFavoriteUpCommand = new RelayCommand<object>(
+                favorite => MoveWebFavorite(favorite, -1));
+            MoveWebFavoriteDownCommand = new RelayCommand<object>(
+                favorite => MoveWebFavorite(favorite, 1));
+            ClearWebBrowserCacheCommand = new RelayCommand(
+                () => { _ = plugin?.ClearWebBrowserCacheAsync(); });
+            ResetWebBrowserDataCommand = new RelayCommand(
+                () => { _ = plugin?.ResetWebBrowserDataAsync(); });
+
             OpenInGameOverlayCommand = new RelayCommand(() => plugin?.OpenInGameOverlayFromThemeButton());
 
             OpenInGameOverlay = new AnikiWindowCommandProvider(
@@ -5619,6 +5999,8 @@ namespace AnikiHelper
 
             OpenWhatsNewCommand = new RelayCommand(() => plugin?.OpenWhatsNewFromMenu());
 
+            OpenFirstSetupCommand = new RelayCommand(() => plugin?.OpenFirstSetupFromHelpMenu());
+
             OpenNotificationsCommand = new RelayCommand(() => plugin?.OpenNotificationsMenuFromQuickAccess());
 
             OpenLockScreenCommand = new RelayCommand(() => plugin?.OpenLockScreenFromQuickAccess());
@@ -5634,10 +6016,6 @@ namespace AnikiHelper
             UpdateGameLibraryCommand = new RelayCommand(() => plugin?.UpdateGameLibraryFromQuickAccess());
 
             OpenAchievementsCommand = new RelayCommand(() => plugin?.OpenAchievementsFromQuickAccess());
-
-            RefreshRecentAchievementsCommand = new RelayCommand(() =>
-                plugin?.TriggerHiddenButtonAfterClosingTopWindow("HiddenRecentRefreshButton"));
-
             RefreshInstalledAchievementsCommand = new RelayCommand(() =>
                 plugin?.TriggerHiddenButtonAfterClosingTopWindow("HiddenInstalledRefreshButton"));
 
@@ -5766,14 +6144,147 @@ namespace AnikiHelper
                     }
                 }
             );
+        }
 
-            // Recent Trophy + watcher
-            LoadRecentAchievements(3);
-            LoadRareTop(3);
-            TryStartAchievementsWatcher();
+        public void QueueDeferredStartupCacheWarmup(int delayMs)
+        {
+            if (deferredStartupCacheWarmupQueued)
+            {
+                return;
+            }
 
-            // Startup storage
-            LoadDiskUsages();
+            deferredStartupCacheWarmupQueued = true;
+            delayMs = Math.Max(0, delayMs);
+
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                if (dispatcher == null)
+                {
+                    // No UI dispatcher is available yet. Keep only thread-safe work here;
+                    // the visual Hub caches will be loaded by their normal refresh paths.
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(2000).ConfigureAwait(false);
+                        LoadHubAchievementMemoriesFromCacheWhenDatabaseReady();
+                        EnsureAchievementMemoriesCacheExists();
+
+                        await Task.Delay(2000).ConfigureAwait(false);
+                        LoadDiskUsages();
+                    });
+                    return;
+                }
+
+                dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+                        if (delayMs > 0)
+                        {
+                            await Task.Delay(delayMs);
+                        }
+
+                        var sw = Stopwatch.StartNew();
+
+                        await LoadDeferredHubMediaCachesAsync();
+
+                        // Achievement cache inspection/rebuild and drive enumeration are
+                        // staggered so they don't all compete with the first Hub render.
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(2000).ConfigureAwait(false);
+                            LoadHubAchievementMemoriesFromCacheWhenDatabaseReady();
+                            EnsureAchievementMemoriesCacheExists();
+
+                            // Drive enumeration can be slow with disconnected/network drives.
+                            await Task.Delay(2000).ConfigureAwait(false);
+                            LoadDiskUsages();
+                        });
+
+                        logger?.Debug($"[AnikiHelper][Startup] Deferred cache warmup queued in {sw.ElapsedMilliseconds}ms.");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex, "[AnikiHelper] Deferred startup cache warmup failed.");
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to queue deferred startup cache warmup.");
+            }
+        }
+
+        private async Task LoadDeferredHubMediaCachesAsync()
+        {
+            try
+            {
+                if (screenshotMediaCacheService == null)
+                {
+                    screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                        plugin.PlayniteApi,
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                var cacheService = screenshotMediaCacheService;
+                List<AnikiMediaItem> latestItems = null;
+                List<AnikiMediaItem> memoryItems = null;
+                string memorySubtitle = string.Empty;
+
+                await Task.Run(() =>
+                {
+                    latestItems = cacheService.LoadLatestMediaCache()
+                        .Where(x => x != null)
+                        .ToList();
+
+                    var selectedMemory = cacheService.LoadMemoriesCache()
+                        .Where(x => x != null)
+                        .Where(x => x.Screenshots != null && x.Screenshots.Count > 0)
+                        .OrderByDescending(x => x.MemoryDate)
+                        .Take(20)
+                        .OrderBy(x => Guid.NewGuid())
+                        .FirstOrDefault();
+
+                    if (selectedMemory != null)
+                    {
+                        memoryItems = selectedMemory.Screenshots
+                            .Where(x => x != null)
+                            .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                            .Where(x => File.Exists(x.FilePath))
+                            .Take(4)
+                            .ToList();
+
+                        memorySubtitle = $"{selectedMemory.GameName} • {selectedMemory.MemoryDate:dd/MM/yyyy}";
+                    }
+                    else
+                    {
+                        memoryItems = latestItems
+                            .Where(x => !string.IsNullOrWhiteSpace(x.FilePath))
+                            .Where(x => File.Exists(x.FilePath))
+                            .Take(4)
+                            .ToList();
+                    }
+                }).ConfigureAwait(true);
+
+                ReplaceMediaCollection(HubLatestMediaItems, latestItems);
+                ReplaceMediaCollection(HubMemoryItems, memoryItems);
+                HubMemorySubtitle = memorySubtitle;
+
+                OnPropertyChanged(nameof(HubLatestMediaItems));
+                OnPropertyChanged(nameof(HasHubLatestMedia));
+                OnPropertyChanged(nameof(HubMemoryItems));
+                OnPropertyChanged(nameof(HasHubMemory));
+                OnPropertyChanged(nameof(HubMemorySubtitle));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Deferred Hub media cache load failed.");
+            }
         }
 
         public void RefreshMediaGallery()
@@ -5840,12 +6351,67 @@ namespace AnikiHelper
 
         private List<AnikiMediaItem> LoadUnifiedMediaItemsForGame(Guid gameId)
         {
-            var allItems = new List<AnikiMediaItem>();
+            return LoadUnifiedMediaItemsForGameAsync(gameId).GetAwaiter().GetResult();
+        }
 
+        private async Task<List<AnikiMediaItem>> LoadUnifiedMediaItemsForGameAsync(Guid gameId)
+        {
             if (gameId == Guid.Empty)
             {
-                return allItems;
+                return new List<AnikiMediaItem>();
             }
+
+            Task<List<AnikiMediaItem>> loadTask;
+
+            lock (unifiedMediaGameCacheLock)
+            {
+                UnifiedMediaGameCacheEntry cachedEntry;
+                if (unifiedMediaGameCache.TryGetValue(gameId, out cachedEntry)
+                    && cachedEntry?.Items != null
+                    && DateTime.UtcNow - cachedEntry.CreatedUtc <= UnifiedMediaGameCacheDuration)
+                {
+                    return new List<AnikiMediaItem>(cachedEntry.Items);
+                }
+
+                if (!unifiedMediaGameLoads.TryGetValue(gameId, out loadTask))
+                {
+                    loadTask = Task.Run(() => LoadUnifiedMediaItemsForGameCore(gameId));
+                    unifiedMediaGameLoads[gameId] = loadTask;
+                }
+            }
+
+            try
+            {
+                var loadedItems = await loadTask.ConfigureAwait(false);
+
+                lock (unifiedMediaGameCacheLock)
+                {
+                    unifiedMediaGameCache[gameId] = new UnifiedMediaGameCacheEntry
+                    {
+                        CreatedUtc = DateTime.UtcNow,
+                        Items = loadedItems ?? new List<AnikiMediaItem>()
+                    };
+                }
+
+                return new List<AnikiMediaItem>(loadedItems ?? new List<AnikiMediaItem>());
+            }
+            finally
+            {
+                lock (unifiedMediaGameCacheLock)
+                {
+                    Task<List<AnikiMediaItem>> currentTask;
+                    if (unifiedMediaGameLoads.TryGetValue(gameId, out currentTask)
+                        && ReferenceEquals(currentTask, loadTask))
+                    {
+                        unifiedMediaGameLoads.Remove(gameId);
+                    }
+                }
+            }
+        }
+
+        private List<AnikiMediaItem> LoadUnifiedMediaItemsForGameCore(Guid gameId)
+        {
+            var allItems = new List<AnikiMediaItem>();
 
             try
             {
@@ -5876,6 +6442,19 @@ namespace AnikiHelper
             }
 
             return NormalizeUnifiedMediaItems(allItems);
+        }
+
+        private void InvalidateUnifiedMediaItemsForGame(Guid gameId)
+        {
+            if (gameId == Guid.Empty)
+            {
+                return;
+            }
+
+            lock (unifiedMediaGameCacheLock)
+            {
+                unifiedMediaGameCache.Remove(gameId);
+            }
         }
 
         private List<AnikiMediaItem> NormalizeUnifiedMediaItems(IEnumerable<AnikiMediaItem> items)
@@ -6488,6 +7067,9 @@ namespace AnikiHelper
     DateTime? sessionStart,
     DateTime? sessionEnd)
         {
+            // This method follows a real provider refresh or a game stop.
+            // Force the next read to use the current JSON files instead of the short-lived cache.
+            InvalidateUnifiedMediaItemsForGame(gameId);
             var items = LoadUnifiedMediaItemsForGame(gameId);
 
             if (mediaThumbnailService == null)
@@ -8225,11 +8807,8 @@ namespace AnikiHelper
 
                 CurrentGameMediaLoading = true;
 
-                var items = await Task.Run(() =>
-                {
-                    var loadedItems = LoadUnifiedMediaItemsForGame(gameId);
-                    return ApplyThumbnailsToMediaItems(loadedItems);
-                });
+                var loadedItems = await LoadUnifiedMediaItemsForGameAsync(gameId);
+                var items = await Task.Run(() => ApplyThumbnailsToMediaItems(loadedItems));
 
                 Application.Current?.Dispatcher?.Invoke(() =>
                 {
@@ -8341,484 +8920,7 @@ namespace AnikiHelper
                 target.Add(item);
             }
         }
-
-        // Recent Trophy
-        public void RefreshRecentAchievements() => LoadRecentAchievements(3);
-
-        private string GetSuccessStoryRootCached()
-        {
-            try
-            {
-                var now = DateTime.UtcNow;
-
-                // Si on a déjà un chemin en cache, on le réutilise tant qu'il existe
-                // et qu'on ne veut pas recheck trop souvent (10 min)
-                if (!string.IsNullOrWhiteSpace(cachedSsRoot))
-                {
-                    if (Directory.Exists(cachedSsRoot))
-                    {
-                        if ((now - cachedSsRootCheckedUtc) < TimeSpan.FromMinutes(10))
-                        {
-                            return cachedSsRoot;
-                        }
-
-                        // Si ça fait + de 10 min, on revalide rapidement
-                        if (Directory.EnumerateFiles(cachedSsRoot, "*.json", SearchOption.AllDirectories).Any())
-                        {
-                            cachedSsRootCheckedUtc = now;
-                            return cachedSsRoot;
-                        }
-                    }
-                }
-
-                // Sinon, on recherche (ta méthode existante)
-                var found = FindSuccessStoryRoot();
-
-                cachedSsRoot = found;
-                cachedSsRootCheckedUtc = now;
-
-                return found;
-            }
-            catch (Exception ex)
-            {
-                logger?.Debug(ex, "[AnikiHelper] GetSuccessStoryRootCached failed.");
-                return null;
-            }
-        }
-
-
-        private string FindSuccessStoryRoot()
-        {
-            try
-            {
-                var root = plugin?.PlayniteApi?.Paths?.ExtensionsDataPath;
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return null;
-
-                var classic = Path.Combine(root, "cebe6d32-8c46-4459-b993-5a5189d60788", "SuccessStory");
-                if (Directory.Exists(classic) &&
-                    Directory.EnumerateFiles(classic, "*.json", SearchOption.AllDirectories).Any())
-                    return classic;
-
-                foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
-                {
-                    if (!dir.EndsWith("SuccessStory", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (Directory.EnumerateFiles(dir, "*.json", SearchOption.AllDirectories).Any())
-                        return dir;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger?.Debug(ex, "[AnikiHelper] FindSuccessStoryRoot failed.");
-            }
-            return null;
-
-        }
-
-        private IEnumerable<string> EnumerateSsCacheDirs(string ssRoot)
-        {
-            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            void Add(string p) { if (!string.IsNullOrWhiteSpace(p) && Directory.Exists(p)) set.Add(p); }
-
-            if (!string.IsNullOrWhiteSpace(ssRoot))
-                Add(Path.Combine(ssRoot, "CacheIcons"));
-
-            var cfg = plugin?.PlayniteApi?.Paths?.ConfigurationPath;
-            var extData = plugin?.PlayniteApi?.Paths?.ExtensionsDataPath;
-
-            if (!string.IsNullOrWhiteSpace(cfg))
-                Add(Path.Combine(cfg, "Cache", "SuccessStory"));
-
-            if (!string.IsNullOrWhiteSpace(cfg))
-            {
-                var root = Path.GetFullPath(Path.Combine(cfg, ".."));
-                Add(Path.Combine(root, "Cache", "SuccessStory"));
-            }
-
-            if (!string.IsNullOrWhiteSpace(extData))
-            {
-                var p1 = Directory.GetParent(extData)?.FullName;
-                if (!string.IsNullOrWhiteSpace(p1)) Add(Path.Combine(p1, "Cache", "SuccessStory"));
-                var p2 = Directory.GetParent(p1 ?? string.Empty)?.FullName;
-                if (!string.IsNullOrWhiteSpace(p2)) Add(Path.Combine(p2, "Cache", "SuccessStory"));
-            }
-
-            return set;
-        }
-
-        private static string Md5Hex(string s)
-        {
-            using (var md5 = MD5.Create())
-            {
-                var bytes = Encoding.UTF8.GetBytes(s ?? string.Empty);
-                var hash = md5.ComputeHash(bytes);
-                var sb = new StringBuilder(hash.Length * 2);
-                foreach (var b in hash) sb.Append(b.ToString("x2"));
-                return sb.ToString();
-            }
-        }
-
-        private string TryGetSsCachedImage(string url, string ssRoot)
-        {
-            if (string.IsNullOrWhiteSpace(url)) return null;
-            var key = Md5Hex(url);
-
-            foreach (var dir in EnumerateSsCacheDirs(ssRoot))
-            {
-                var noExt = Path.Combine(dir, key);
-                if (File.Exists(noExt)) return noExt;
-
-                foreach (var ext in new[] { ".png", ".jpg", ".jpeg", ".webp" })
-                {
-                    var p = noExt + ext;
-                    if (File.Exists(p)) return p;
-                }
-            }
-            return null;
-        }
-
-        private void LoadRecentAchievements(int take = 3)
-        {
-            List<RecentAchievementItem> computed;
-
-            try
-            {
-                if (plugin?.PlayniteApi == null) return;
-
-                var ssRoot = GetSuccessStoryRootCached();
-                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
-
-                string[] files;
-                try { files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray(); }
-                catch { return; }
-                if (files.Length == 0) return;
-
-                DateTime? ParseWhen(SsItem it)
-                {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && DateTime.TryParse(it.DateUnlocked, out var d1)) return d1;
-                    if (it.UnlockTime != null) return DateTimeOffset.FromUnixTimeSeconds(it.UnlockTime.Value).LocalDateTime;
-                    if (!string.IsNullOrWhiteSpace(it.UnlockTimestamp) && DateTime.TryParse(it.UnlockTimestamp, out var d2)) return d2;
-                    if (!string.IsNullOrWhiteSpace(it.LastUnlock) && DateTime.TryParse(it.LastUnlock, out var d3)) return d3;
-                    return null;
-                }
-
-                bool IsUnlocked(SsItem it)
-                {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && !it.DateUnlocked.StartsWith("0001-01-01")) return true;
-                    if (it.UnlockTime != null) return true;
-                    if (string.Equals(it.IsUnlock, "true", StringComparison.OrdinalIgnoreCase)) return true;
-                    if (string.Equals(it.Earned, "true", StringComparison.OrdinalIgnoreCase)) return true;
-                    if (string.Equals(it.Unlocked, "true", StringComparison.OrdinalIgnoreCase)) return true;
-                    return false;
-                }
-
-                var results = new List<RecentAchievementItem>();
-
-                foreach (var file in files)
-                {
-                    SsFile rootObj = null;
-                    try
-                    {
-                        var text = File.ReadAllText(file);
-                        rootObj = Serialization.FromJson<SsFile>(text);
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            var arrOnly = Serialization.FromJson<List<SsItem>>(File.ReadAllText(file));
-                            rootObj = new SsFile { Items = arrOnly };
-                        }
-                        catch { continue; }
-                    }
-
-                    if (rootObj == null) continue;
-
-                    var items = rootObj.Items ?? rootObj.Achievements ?? new List<SsItem>();
-                    if (items.Count == 0) continue;
-
-                    var gameName = !string.IsNullOrWhiteSpace(rootObj.Name)
-                        ? rootObj.Name
-                        : (rootObj.Game?.Name ?? Path.GetFileNameWithoutExtension(file));
-
-                    foreach (var it in items)
-                    {
-                        if (!IsUnlocked(it)) continue;
-
-                        var when = ParseWhen(it);
-                        if (when == null) continue;
-
-                        var title = !string.IsNullOrWhiteSpace(it.Name) ? it.Name
-                                   : !string.IsNullOrWhiteSpace(it.Title) ? it.Title
-                                   : "(Achievement)";
-
-                        var desc = !string.IsNullOrWhiteSpace(it.Description) ? it.Description : (it.Desc ?? "");
-
-                        var rawIcon = !string.IsNullOrWhiteSpace(it.UrlUnlocked) ? it.UrlUnlocked
-                                    : !string.IsNullOrWhiteSpace(it.IconUnlocked) ? it.IconUnlocked
-                                    : (it.ImageUrl ?? "");
-
-                        string icon = rawIcon;
-                        if (!string.IsNullOrWhiteSpace(rawIcon) &&
-                            rawIcon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var cached = TryGetSsCachedImage(rawIcon, ssRoot);
-                            if (!string.IsNullOrEmpty(cached))
-                                icon = cached;
-                        }
-
-                        results.Add(new RecentAchievementItem
-                        {
-                            Game = gameName,
-                            Title = title,
-                            Desc = desc,
-                            Unlocked = when.Value,
-                            IconPath = icon
-                        });
-                    }
-                }
-
-                computed = results
-                    .OrderByDescending(r => r.Unlocked)
-                    .Take(take)
-                    .ToList();
-            }
-            catch
-            {
-                return;
-            }
-
-            var dispatcher = Application.Current?.Dispatcher;
-            if (dispatcher == null) return;
-
-            void Apply()
-            {
-                RecentAchievements.Clear();
-                foreach (var it in computed)
-                    RecentAchievements.Add(it);
-            }
-
-            if (dispatcher.CheckAccess())
-            {
-                Apply();
-            }
-            else
-            {
-                dispatcher.BeginInvoke((Action)Apply);
-            }
-
-        }
-
-        public void RefreshRareAchievements() => LoadRareTop(3);
-
-        private void LoadRareTop(int take = 3)
-        {
-            List<RareAchievementItem> computed;
-
-            try
-            {
-                if (plugin?.PlayniteApi == null) return;
-
-                var ssRoot = GetSuccessStoryRootCached();
-                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
-
-                string[] files;
-                try { files = Directory.EnumerateFiles(ssRoot, "*.json", SearchOption.AllDirectories).ToArray(); }
-                catch { return; }
-                if (files.Length == 0) return;
-
-                DateTime? ParseWhen(SsItem it)
-                {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && DateTime.TryParse(it.DateUnlocked, out var d1)) return d1;
-                    if (it.UnlockTime != null) return DateTimeOffset.FromUnixTimeSeconds(it.UnlockTime.Value).LocalDateTime;
-                    if (!string.IsNullOrWhiteSpace(it.UnlockTimestamp) && DateTime.TryParse(it.UnlockTimestamp, out var d2)) return d2;
-                    if (!string.IsNullOrWhiteSpace(it.LastUnlock) && DateTime.TryParse(it.LastUnlock, out var d3)) return d3;
-                    return null;
-                }
-
-                bool IsUnlocked(SsItem it)
-                {
-                    if (!string.IsNullOrWhiteSpace(it.DateUnlocked) && !it.DateUnlocked.StartsWith("0001-01-01")) return true;
-                    if (it.UnlockTime != null) return true;
-                    if (string.Equals(it.IsUnlock, "true", StringComparison.OrdinalIgnoreCase)) return true;
-                    if (string.Equals(it.Earned, "true", StringComparison.OrdinalIgnoreCase)) return true;
-                    if (string.Equals(it.Unlocked, "true", StringComparison.OrdinalIgnoreCase)) return true;
-                    return false;
-                }
-
-                double? TryGetRarityPercent(SsItem it)
-                {
-                    if (it.RarityValue is double rv && rv >= 0 && rv <= 100) return rv;
-                    if (it.Percent is double p && p >= 0 && p <= 100) return p;
-                    if (it.Percentage is double pc && pc >= 0 && pc <= 100) return pc;
-
-                    string[] texts = { it.Rarity, it.RarityName };
-                    foreach (var txt in texts)
-                    {
-                        if (string.IsNullOrWhiteSpace(txt)) continue;
-                        var raw = txt.Replace("%", "").Trim();
-                        if (double.TryParse(raw, System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out var v))
-                        {
-                            if (v >= 0 && v <= 100) return v;
-                            if (v > 0 && v <= 1) return v * 100.0;
-                        }
-                    }
-                    return null;
-                }
-
-                var pool = new List<RareAchievementItem>();
-
-                foreach (var file in files)
-                {
-                    SsFile rootObj = null;
-                    try
-                    {
-                        var text = File.ReadAllText(file);
-                        rootObj = Serialization.FromJson<SsFile>(text);
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            var arrOnly = Serialization.FromJson<List<SsItem>>(File.ReadAllText(file));
-                            rootObj = new SsFile { Items = arrOnly };
-                        }
-                        catch { continue; }
-                    }
-
-                    if (rootObj == null) continue;
-
-                    var items = rootObj.Items ?? rootObj.Achievements ?? new List<SsItem>();
-                    if (items.Count == 0) continue;
-
-                    var gameName = !string.IsNullOrWhiteSpace(rootObj.Name)
-                        ? rootObj.Name
-                        : (rootObj.Game?.Name ?? Path.GetFileNameWithoutExtension(file));
-
-                    foreach (var it in items)
-                    {
-                        if (!IsUnlocked(it)) continue;
-                        var when = ParseWhen(it);
-                        if (when == null) continue;
-
-                        var r = TryGetRarityPercent(it);
-                        if (r == null) continue;
-
-                        var title = !string.IsNullOrWhiteSpace(it.Name) ? it.Name
-                                   : !string.IsNullOrWhiteSpace(it.Title) ? it.Title
-                                   : "(Achievement)";
-
-                        var rawIcon = !string.IsNullOrWhiteSpace(it.UrlUnlocked) ? it.UrlUnlocked
-                                    : !string.IsNullOrWhiteSpace(it.IconUnlocked) ? it.IconUnlocked
-                                    : (it.ImageUrl ?? "");
-
-                        string icon = rawIcon;
-                        if (!string.IsNullOrWhiteSpace(rawIcon) &&
-                            rawIcon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var cached = TryGetSsCachedImage(rawIcon, ssRoot);
-                            if (!string.IsNullOrEmpty(cached))
-                                icon = cached;
-                        }
-
-                        pool.Add(new RareAchievementItem
-                        {
-                            Game = gameName,
-                            Title = title,
-                            Percent = r.Value,
-                            IconPath = icon,
-                            Unlocked = when.Value
-                        });
-                    }
-                }
-
-                var cutoff = DateTime.Now.AddYears(-1);
-                computed = pool
-                    .Where(x => x.Unlocked > cutoff)
-                    .OrderBy(x => x.Percent)
-                    .ThenByDescending(x => x.Unlocked)
-                    .Take(take)
-                    .ToList();
-            }
-            catch
-            {
-                return;
-            }
-
-            var dispatcher = Application.Current?.Dispatcher;
-            if (dispatcher == null) return;
-
-            void Apply()
-            {
-                RareTop.Clear();
-                foreach (var it in computed)
-                    RareTop.Add(it);
-            }
-
-            if (dispatcher.CheckAccess())
-            {
-                Apply();
-            }
-            else
-            {
-                dispatcher.BeginInvoke((Action)Apply);
-            }
-
-        }
-
-        private void TryStartAchievementsWatcher()
-        {
-            try
-            {
-                if (plugin?.PlayniteApi == null) return;
-
-                var ssRoot = GetSuccessStoryRootCached();
-                if (string.IsNullOrEmpty(ssRoot) || !Directory.Exists(ssRoot)) return;
-
-                achievementsWatcher?.Dispose();
-                achievementsWatcher = new FileSystemWatcher(ssRoot, "*.json")
-                {
-                    IncludeSubdirectories = true,
-                    EnableRaisingEvents = true,
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime,
-                    InternalBufferSize = 64 * 1024
-                };
-
-                debounceTimer?.Dispose();
-                debounceTimer = new Timer(1500) { AutoReset = false };
-                debounceTimer.Elapsed += async (_, __) =>
-                {
-                    try
-                    {
-                        cachedSsRootCheckedUtc = DateTime.MinValue;
-
-                        LoadRecentAchievements(3);
-                        LoadRareTop(3);
-
-                        if (RecentAchievements.Count == 0)
-                        {
-                            await Task.Delay(1200);
-                            LoadRecentAchievements(3);
-                        }
-                    }
-                    catch { }
-                };
-
-                FileSystemEventHandler pulse = (_, __) => { debounceTimer.Stop(); debounceTimer.Start(); };
-                achievementsWatcher.Created += pulse;
-                achievementsWatcher.Changed += pulse;
-                achievementsWatcher.Deleted += pulse;
-                achievementsWatcher.Renamed += (_, __) => { debounceTimer.Stop(); debounceTimer.Start(); };
-            }
-            catch (Exception ex)
-            {
-                logger?.Warn(ex, "[AnikiHelper] Failed to start SuccessStory watcher.");
-            }
-        }
-
-
-
-        public bool IsInGameOverlaySuspendGameEnabled()
+public bool IsInGameOverlaySuspendGameEnabled()
         {
             return string.Equals(InGameOverlayGameBehavior, "SuspendGame", StringComparison.OrdinalIgnoreCase);
         }
@@ -8910,6 +9012,147 @@ namespace AnikiHelper
             }
 
             InGameOverlayNeverSuspendGameItems = items;
+        }
+
+        private void AddWebFavorite()
+        {
+            var normalizedUrl = NormalizeWebFavoriteUrl(NewWebFavoriteUrl);
+            if (string.IsNullOrWhiteSpace(normalizedUrl))
+            {
+                plugin?.PlayniteApi?.Dialogs?.ShowMessage(
+                    Loc("WebBrowser_FavoriteInvalidUrl", "Enter a valid HTTP or HTTPS address."),
+                    Loc("SettingsNav_WebBrowser", "Web Browser"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            var existing = WebBrowserFavorites.FirstOrDefault(x =>
+                x != null &&
+                string.Equals(
+                    NormalizeWebFavoriteUrl(x.Url),
+                    normalizedUrl,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (existing != null)
+            {
+                plugin?.PlayniteApi?.Dialogs?.ShowMessage(
+                    Loc("WebBrowser_FavoriteAlreadyExists", "This address is already in your favorites."),
+                    Loc("SettingsNav_WebBrowser", "Web Browser"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var name = (NewWebFavoriteName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = GetWebFavoriteDefaultName(normalizedUrl);
+            }
+
+            WebBrowserFavorites.Add(new AnikiWebFavorite
+            {
+                Name = name,
+                Url = normalizedUrl
+            });
+
+            NewWebFavoriteName = string.Empty;
+            NewWebFavoriteUrl = string.Empty;
+            SaveWebBrowserFavoritesNow();
+        }
+
+        private void RemoveWebFavorite(object favoriteObject)
+        {
+            var favorite = favoriteObject as AnikiWebFavorite;
+            if (favorite == null)
+            {
+                return;
+            }
+
+            WebBrowserFavorites.Remove(favorite);
+            SaveWebBrowserFavoritesNow();
+        }
+
+        private void MoveWebFavorite(object favoriteObject, int offset)
+        {
+            var favorite = favoriteObject as AnikiWebFavorite;
+            if (favorite == null || offset == 0)
+            {
+                return;
+            }
+
+            var currentIndex = WebBrowserFavorites.IndexOf(favorite);
+            var targetIndex = currentIndex + offset;
+            if (currentIndex < 0 || targetIndex < 0 || targetIndex >= WebBrowserFavorites.Count)
+            {
+                return;
+            }
+
+            WebBrowserFavorites.Move(currentIndex, targetIndex);
+            SaveWebBrowserFavoritesNow();
+        }
+
+        private void SaveWebBrowserFavoritesNow()
+        {
+            try
+            {
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][WebBrowser] Failed to save favorites.");
+            }
+        }
+
+        private static string NormalizeWebFavoriteUrl(string input)
+        {
+            var value = (input ?? string.Empty).Trim();
+            if (value.Length == 0)
+            {
+                return null;
+            }
+
+            if (!value.Contains("://"))
+            {
+                value = "https://" + value;
+            }
+
+            Uri uri;
+            if (!Uri.TryCreate(value, UriKind.Absolute, out uri))
+            {
+                return null;
+            }
+
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return uri.AbsoluteUri;
+        }
+
+        private static string GetWebFavoriteDefaultName(string address)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(address, UriKind.Absolute, out uri))
+            {
+                return "Website";
+            }
+
+            var host = (uri.Host ?? string.Empty).Trim();
+            if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+            {
+                host = host.Substring(4);
+            }
+
+            var firstPart = host.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(firstPart))
+            {
+                return "Website";
+            }
+
+            return char.ToUpperInvariant(firstPart[0]) + firstPart.Substring(1);
         }
 
         // ===== ISettings =====
@@ -9370,6 +9613,573 @@ namespace AnikiHelper
 
         public IPlayniteAPI Api => plugin?.PlayniteApi;
 
+        [DontSerialize]
+        public string HomePluginIconPath
+        {
+            get
+            {
+                try
+                {
+                    var assemblyFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                    var iconPath = Path.Combine(assemblyFolder ?? string.Empty, "icon.png");
+                    return File.Exists(iconPath) ? iconPath : null;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        private string Loc(string key, string fallback)
+        {
+            try
+            {
+                var value = Application.Current?.TryFindResource(key) as string;
+
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+            catch
+            {
+            }
+
+            return fallback;
+        }
+
+        private string homeActiveFullscreenThemeName = string.Empty;
+        public string HomeActiveFullscreenThemeName
+        {
+            get => homeActiveFullscreenThemeName;
+            private set => SetValue(ref homeActiveFullscreenThemeName, value ?? string.Empty);
+        }
+
+        private bool homeCompatibleThemeDetected;
+        public bool HomeCompatibleThemeDetected
+        {
+            get => homeCompatibleThemeDetected;
+            private set => SetValue(ref homeCompatibleThemeDetected, value);
+        }
+
+        private bool homePlayniteAchievementsInstalled;
+        public bool HomePlayniteAchievementsInstalled
+        {
+            get => homePlayniteAchievementsInstalled;
+            private set => SetValue(ref homePlayniteAchievementsInstalled, value);
+        }
+
+        private bool homeScreenshotsVisualizerInstalled;
+        public bool HomeScreenshotsVisualizerInstalled
+        {
+            get => homeScreenshotsVisualizerInstalled;
+            private set
+            {
+                if (homeScreenshotsVisualizerInstalled == value)
+                {
+                    return;
+                }
+
+                SetValue(ref homeScreenshotsVisualizerInstalled, value);
+                NotifyHomeScreenshotProviderStateChanged();
+            }
+        }
+
+        private bool homeScreenshotUtilitiesInstalled;
+        public bool HomeScreenshotUtilitiesInstalled
+        {
+            get => homeScreenshotUtilitiesInstalled;
+            private set
+            {
+                if (homeScreenshotUtilitiesInstalled == value)
+                {
+                    return;
+                }
+
+                SetValue(ref homeScreenshotUtilitiesInstalled, value);
+                NotifyHomeScreenshotProviderStateChanged();
+            }
+        }
+
+        private bool homeScreenshotUtilitiesLocalProviderInstalled;
+        public bool HomeScreenshotUtilitiesLocalProviderInstalled
+        {
+            get => homeScreenshotUtilitiesLocalProviderInstalled;
+            private set
+            {
+                if (homeScreenshotUtilitiesLocalProviderInstalled == value)
+                {
+                    return;
+                }
+
+                SetValue(ref homeScreenshotUtilitiesLocalProviderInstalled, value);
+                NotifyHomeScreenshotProviderStateChanged();
+            }
+        }
+
+        private bool homeUniPlaySongInstalled;
+        public bool HomeUniPlaySongInstalled
+        {
+            get => homeUniPlaySongInstalled;
+            private set => SetValue(ref homeUniPlaySongInstalled, value);
+        }
+
+        public bool HomeSelectedScreenshotProviderInstalled
+        {
+            get
+            {
+                if (Settings == null)
+                {
+                    return false;
+                }
+
+                return Settings.MediaGalleryProvider == AnikiMediaProviderMode.ScreenshotUtilitiesLocal
+                    ? HomeScreenshotUtilitiesInstalled && HomeScreenshotUtilitiesLocalProviderInstalled
+                    : HomeScreenshotsVisualizerInstalled;
+            }
+        }
+
+        public bool HomeAnyScreenshotProviderInstalled =>
+            HomeScreenshotsVisualizerInstalled || HomeScreenshotUtilitiesInstalled;
+
+        public bool HomeNoScreenshotProviderInstalled =>
+            !HomeScreenshotsVisualizerInstalled && !HomeScreenshotUtilitiesInstalled;
+
+        public bool HomeScreenshotUtilitiesNeedsLocalProvider =>
+            HomeScreenshotUtilitiesInstalled && !HomeScreenshotUtilitiesLocalProviderInstalled;
+
+        public string HomeScreenshotProviderDisplayName
+        {
+            get
+            {
+                if (HomeScreenshotsVisualizerInstalled && HomeScreenshotUtilitiesInstalled)
+                {
+                    return Settings?.MediaGalleryProviderName ?? string.Empty;
+                }
+
+                if (HomeScreenshotsVisualizerInstalled)
+                {
+                    return "Screenshots Visualizer";
+                }
+
+                if (HomeScreenshotUtilitiesInstalled)
+                {
+                    return "Screenshot Utilities";
+                }
+
+                return string.Empty;
+            }
+        }
+
+        private void NotifyHomeScreenshotProviderStateChanged()
+        {
+            OnPropertyChanged(nameof(HomeSelectedScreenshotProviderInstalled));
+            OnPropertyChanged(nameof(HomeAnyScreenshotProviderInstalled));
+            OnPropertyChanged(nameof(HomeNoScreenshotProviderInstalled));
+            OnPropertyChanged(nameof(HomeScreenshotUtilitiesNeedsLocalProvider));
+            OnPropertyChanged(nameof(HomeScreenshotProviderDisplayName));
+        }
+
+        public string HomeSteamAccountDisplayName
+        {
+            get
+            {
+                var name = Settings?.SelfName?.Trim();
+                if (string.IsNullOrWhiteSpace(name) || name.All(char.IsDigit))
+                {
+                    return string.Empty;
+                }
+
+                return name;
+            }
+        }
+
+        public bool HomeSteamAccountNameAvailable =>
+            !string.IsNullOrWhiteSpace(HomeSteamAccountDisplayName);
+
+        public bool HomeGamepadMouseEnabled
+        {
+            get => Settings != null &&
+                   !string.Equals(
+                       Settings.InGameOverlayGamepadMouseShortcut,
+                       "Disabled",
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        private const string PlayniteAchievementsAddonId = "PlayniteAchievements";
+        private const string UniPlaySongAddonId = "UniPlaySong.a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        private const string ScreenshotsVisualizerAddonId = "playnite-screenshotsvisualizer-plugin";
+        private const string ScreenshotUtilitiesAddonId = "ScreenshotUtilities_485d682f-73e9-4d54-b16f-b8dd49e88f90";
+        private const string ScreenshotUtilitiesLocalProviderAddonId = "ScreenshotUtilitiesLocalProvider_a049eff8-fd41-4dbc-9e35-01acc6b1a0cb";
+
+        public void InstallPlayniteAchievements()
+        {
+            OpenPlayniteAddonInstaller(PlayniteAchievementsAddonId);
+        }
+
+        public void InstallUniPlaySong()
+        {
+            OpenPlayniteAddonInstaller(UniPlaySongAddonId);
+        }
+
+        public void InstallScreenshotUtilitiesLocalProvider()
+        {
+            if (!HomeScreenshotUtilitiesInstalled)
+            {
+                OpenPlayniteAddonInstaller(ScreenshotUtilitiesAddonId);
+                return;
+            }
+
+            OpenPlayniteAddonInstaller(ScreenshotUtilitiesLocalProviderAddonId);
+        }
+
+        public void ChooseAndInstallScreenshotProvider()
+        {
+            if (Api?.Dialogs == null)
+            {
+                return;
+            }
+
+            var visualizerOption = new MessageBoxOption(
+                Loc("SettingsHome_ScreenshotChoice_Visualizer", "Screenshots Visualizer"));
+            var utilitiesOption = new MessageBoxOption(
+                Loc("SettingsHome_ScreenshotChoice_Utilities", "Screenshot Utilities"));
+            var cancelOption = new MessageBoxOption(
+                Loc("SettingsHome_ScreenshotChoice_Cancel", "Cancel"));
+
+            var options = new List<MessageBoxOption>
+            {
+                visualizerOption,
+                utilitiesOption,
+                cancelOption
+            };
+
+            var result = Api.Dialogs.ShowMessage(
+                Loc(
+                    "SettingsHome_ScreenshotChoice_Message",
+                    "Choose the screenshot provider you want to install. Only one provider is required."),
+                Loc("SettingsHome_ScreenshotChoice_Title", "Install a screenshot provider"),
+                MessageBoxImage.Information,
+                options);
+
+            if (result == visualizerOption)
+            {
+                Settings.MediaGalleryProvider = AnikiMediaProviderMode.ScreenshotsVisualizer;
+                plugin?.SavePluginSettings(Settings);
+                NotifyHomeScreenshotProviderStateChanged();
+                OpenPlayniteAddonInstaller(ScreenshotsVisualizerAddonId);
+            }
+            else if (result == utilitiesOption)
+            {
+                Settings.MediaGalleryProvider = AnikiMediaProviderMode.ScreenshotUtilitiesLocal;
+                plugin?.SavePluginSettings(Settings);
+                NotifyHomeScreenshotProviderStateChanged();
+                OpenPlayniteAddonInstaller(ScreenshotUtilitiesAddonId);
+            }
+        }
+
+        private void OpenPlayniteAddonInstaller(string addonId)
+        {
+            if (string.IsNullOrWhiteSpace(addonId))
+            {
+                return;
+            }
+
+            var uri = "playnite://playnite/installaddon/" + addonId.Trim();
+
+            try
+            {
+                // GlobalCommands is part of the running Playnite application and is not
+                // exposed by the SDK reference used by Aniki Helper. Resolve it at runtime
+                // so the plugin keeps building against Playnite.SDK only.
+                var globalCommandsType = AppDomain.CurrentDomain
+                    .GetAssemblies()
+                    .Select(assembly => assembly.GetType("Playnite.Commands.GlobalCommands", false))
+                    .FirstOrDefault(type => type != null);
+
+                var navigateMethod = globalCommandsType?
+                    .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                    .FirstOrDefault(method =>
+                    {
+                        if (!string.Equals(method.Name, "NavigateUrl", StringComparison.Ordinal))
+                        {
+                            return false;
+                        }
+
+                        var parameters = method.GetParameters();
+                        return parameters.Length == 1 && parameters[0].ParameterType == typeof(string);
+                    });
+
+                if (navigateMethod != null)
+                {
+                    navigateMethod.Invoke(null, new object[] { uri });
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[AnikiHelperSettingsViewModel] Playnite NavigateUrl failed: " + ex.Message);
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = uri,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                Api?.Dialogs?.ShowErrorMessage(
+                    Loc(
+                        "SettingsHome_AddonInstallError",
+                        "Playnite could not open the extension installer."),
+                    "Aniki Helper");
+
+                Debug.WriteLine("[AnikiHelperSettingsViewModel] Add-on install URI failed: " + ex.Message);
+            }
+        }
+
+        public void RefreshHomeDashboard()
+        {
+            try
+            {
+                RefreshHomeThemeStatus();
+
+                HomePlayniteAchievementsInstalled = IsExtensionInstalled(
+                    "PlayniteAchievements",
+                    "Playnite Achievements");
+
+                HomeScreenshotsVisualizerInstalled = IsExtensionInstalled(
+                    "playnite-screenshotsvisualizer-plugin",
+                    "ScreenshotsVisualizer",
+                    "Screenshots Visualizer",
+                    "c6c8276f-91bf-48e5-a1d1-4bee0b493488");
+
+                // Use the exact extension IDs here. Matching the generic name
+                // "Screenshot Utilities" also matched the Local Provider and caused
+                // false positives on the Home dashboard.
+                HomeScreenshotUtilitiesInstalled = IsExtensionInstalled(
+                    "485d682f-73e9-4d54-b16f-b8dd49e88f90");
+
+                HomeScreenshotUtilitiesLocalProviderInstalled = IsExtensionInstalled(
+                    "a049eff8-fd41-4dbc-9e35-01acc6b1a0cb");
+
+                HomeUniPlaySongInstalled =
+                    (Application.Current?.Properties?.Contains("UniPlaySongPlugin") == true) ||
+                    IsExtensionInstalled("UniPlaySong");
+
+                OnPropertyChanged(nameof(HomeGamepadMouseEnabled));
+                NotifyHomeScreenshotProviderStateChanged();
+                OnPropertyChanged(nameof(HomeSteamAccountDisplayName));
+                OnPropertyChanged(nameof(HomeSteamAccountNameAvailable));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[AnikiHelperSettingsViewModel] RefreshHomeDashboard failed: " + ex.Message);
+            }
+        }
+
+        private void RefreshHomeThemeStatus()
+        {
+            var themeId = Api?.ApplicationSettings?.FullscreenTheme;
+            var themeDirectory = FindFullscreenThemeDirectory(themeId);
+
+            HomeActiveFullscreenThemeName = ReadThemeDisplayName(themeDirectory, themeId);
+            HomeCompatibleThemeDetected = ThemeContainsAnikiHelperMarker(themeDirectory);
+        }
+
+        private string FindFullscreenThemeDirectory(string themeId)
+        {
+            if (string.IsNullOrWhiteSpace(themeId) || Api?.Paths == null)
+            {
+                return null;
+            }
+
+            var roots = new[]
+            {
+                Api.Paths.ConfigurationPath,
+                Api.Paths.ApplicationPath
+            };
+
+            foreach (var root in roots.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var directory = Path.Combine(root, "Themes", "Fullscreen", themeId);
+                if (Directory.Exists(directory))
+                {
+                    return directory;
+                }
+            }
+
+            return null;
+        }
+
+        private static string ReadThemeDisplayName(string themeDirectory, string fallbackThemeId)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(themeDirectory))
+                {
+                    var manifestPath = Path.Combine(themeDirectory, "theme.yaml");
+                    if (File.Exists(manifestPath))
+                    {
+                        var manifest = Serialization.FromYamlFile<Dictionary<string, object>>(manifestPath);
+                        if (manifest != null)
+                        {
+                            var nameEntry = manifest.FirstOrDefault(x =>
+                                string.Equals(x.Key, "Name", StringComparison.OrdinalIgnoreCase));
+
+                            var name = nameEntry.Value?.ToString();
+                            if (!string.IsNullOrWhiteSpace(name))
+                            {
+                                return name.Trim();
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return string.IsNullOrWhiteSpace(fallbackThemeId)
+                ? string.Empty
+                : fallbackThemeId.Trim();
+        }
+
+        private static bool ThemeContainsAnikiHelperMarker(string themeDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(themeDirectory) || !Directory.Exists(themeDirectory))
+            {
+                return false;
+            }
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(themeDirectory, "*.xaml", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        var content = File.ReadAllText(file);
+                        if (content.IndexOf("Aniki_ThemeMarker", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            return true;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private bool IsExtensionInstalled(params string[] markers)
+        {
+            if (markers == null || markers.Length == 0 || Api?.Paths == null)
+            {
+                return false;
+            }
+
+            var validMarkers = markers
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(NormalizeExtensionIdentity)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (validMarkers.Length == 0)
+            {
+                return false;
+            }
+
+            var extensionRoots = new[]
+            {
+                Path.Combine(Api.Paths.ConfigurationPath ?? string.Empty, "Extensions"),
+                Path.Combine(Api.Paths.ApplicationPath ?? string.Empty, "Extensions")
+            };
+
+            foreach (var root in extensionRoots.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    foreach (var manifestPath in Directory.EnumerateFiles(root, "extension.y*ml", SearchOption.AllDirectories))
+                    {
+                        try
+                        {
+                            var identities = new List<string>
+                            {
+                                Path.GetFileName(Path.GetDirectoryName(manifestPath))
+                            };
+
+                            var manifest = Serialization.FromYamlFile<Dictionary<string, object>>(manifestPath);
+                            if (manifest != null)
+                            {
+                                foreach (var key in new[] { "Id", "Name", "Module" })
+                                {
+                                    var entry = manifest.FirstOrDefault(x =>
+                                        string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase));
+
+                                    if (entry.Value != null)
+                                    {
+                                        identities.Add(entry.Value.ToString());
+                                    }
+                                }
+                            }
+
+                            var normalizedIdentities = identities
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .Select(NormalizeExtensionIdentity)
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .ToArray();
+
+                            if (validMarkers.Any(marker => normalizedIdentities.Any(identity =>
+                                string.Equals(identity, marker, StringComparison.OrdinalIgnoreCase) ||
+                                identity.Contains(marker) ||
+                                marker.Contains(identity))))
+                            {
+                                return true;
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            // Extension data folders can remain after uninstalling a plugin, so they are
+            // intentionally ignored. Only an installed extension manifest is authoritative.
+            return false;
+        }
+
+        private static string NormalizeExtensionIdentity(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return new string(value
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
+        }
+
         private static readonly HashSet<string> AutoSaveSettingNames = new HashSet<string>
         {
             nameof(AnikiHelperSettings.OpenWelcomeHubOnStartup),
@@ -9407,7 +10217,6 @@ namespace AnikiHelper
             nameof(AnikiHelperSettings.SteamId64),
             nameof(AnikiHelperSettings.SteamAccountSteamId64),
             nameof(AnikiHelperSettings.SteamAccountProfileUrl),
-            nameof(AnikiHelperSettings.SteamApiKey),
             nameof(AnikiHelperSettings.SteamFriendsEnabled),
 
             nameof(AnikiHelperSettings.GameLaunchSplashEnabled),
@@ -9429,9 +10238,13 @@ namespace AnikiHelper
             nameof(AnikiHelperSettings.GameLaunchSplashVideoSoundEnabled),
             nameof(AnikiHelperSettings.GameLaunchSplashVideoVolume),
 
+            nameof(AnikiHelperSettings.WebBrowserHomeUrl),
+
             nameof(AnikiHelperSettings.InGameOverlayEnabled),
             nameof(AnikiHelperSettings.InGameOverlayHotkey),
             nameof(AnikiHelperSettings.InGameOverlayControllerShortcut),
+            nameof(AnikiHelperSettings.InGameOverlayVirtualKeyboardProvider),
+            nameof(AnikiHelperSettings.InGameOverlayVirtualKeyboardShortcut),
             nameof(AnikiHelperSettings.InGameOverlayGameBehavior),
 
             nameof(AnikiHelperSettings.DynamicAutoPrecacheUserEnabled)
@@ -9454,6 +10267,7 @@ namespace AnikiHelper
             };
 
             Settings.PropertyChanged += Settings_PropertyChanged;
+            RefreshHomeDashboard();
         }
 
         private void Settings_PropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -9461,6 +10275,27 @@ namespace AnikiHelper
             if (string.IsNullOrEmpty(e.PropertyName))
             {
                 return;
+            }
+
+            if (string.Equals(
+                e.PropertyName,
+                nameof(AnikiHelperSettings.InGameOverlayGamepadMouseShortcut),
+                StringComparison.Ordinal))
+            {
+                OnPropertyChanged(nameof(HomeGamepadMouseEnabled));
+            }
+
+            if (string.Equals(e.PropertyName, nameof(AnikiHelperSettings.MediaGalleryProvider), StringComparison.Ordinal))
+            {
+                NotifyHomeScreenshotProviderStateChanged();
+            }
+
+            if (string.Equals(e.PropertyName, nameof(AnikiHelperSettings.SelfName), StringComparison.Ordinal) ||
+                string.Equals(e.PropertyName, nameof(AnikiHelperSettings.SteamAccountConnected), StringComparison.Ordinal) ||
+                string.Equals(e.PropertyName, nameof(AnikiHelperSettings.SteamAccountSteamId64), StringComparison.Ordinal))
+            {
+                OnPropertyChanged(nameof(HomeSteamAccountDisplayName));
+                OnPropertyChanged(nameof(HomeSteamAccountNameAvailable));
             }
 
             if (!AutoSaveSettingNames.Contains(e.PropertyName))
@@ -9533,6 +10368,19 @@ namespace AnikiHelper
             }
         }
 
+        public void DeleteAllMonthlyStats()
+        {
+            try
+            {
+                plugin?.DeleteAllMonthlyStats();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] DeleteAllMonthlyStats failed: " + ex.Message);
+                throw;
+            }
+        }
+
         public void ExportMonthlyBackup(string exportFilePath)
         {
             try
@@ -9555,6 +10403,32 @@ namespace AnikiHelper
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ImportMonthlyBackup failed: " + ex.Message);
+                throw;
+            }
+        }
+
+        public void ExportThemeConfiguration(string exportFilePath)
+        {
+            try
+            {
+                plugin?.ExportAnikiThemeConfiguration(exportFilePath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ExportThemeConfiguration failed: " + ex.Message);
+                throw;
+            }
+        }
+
+        public void ImportThemeConfiguration(string importFilePath)
+        {
+            try
+            {
+                plugin?.ImportAnikiThemeConfiguration(importFilePath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnikiHelperSettingsViewModel] ImportThemeConfiguration failed: " + ex.Message);
                 throw;
             }
         }

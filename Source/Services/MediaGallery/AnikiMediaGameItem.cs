@@ -25,7 +25,11 @@ namespace AnikiHelper.Services.MediaGallery
         public string CoverPath
         {
             get => coverPath;
-            set => SetValue(ref coverPath, value);
+            set
+            {
+                SetValue(ref coverPath, value);
+                OnPropertyChanged(nameof(HasCover));
+            }
         }
 
         private int mediaCount;

@@ -24,6 +24,7 @@ namespace AnikiHelper.Services.SteamFriends
         private readonly ILogger logger;
         private readonly string cacheDir;
         private readonly string recentPlayedCachePath;
+        private readonly string hubItemsCachePath;
         private readonly string friendsAchievementFeedCachePath;
         private readonly SteamFriendsGameImageResolver gameImageResolver;
 
@@ -33,10 +34,13 @@ namespace AnikiHelper.Services.SteamFriends
         private DateTime lastAchievementCacheWriteUtc = DateTime.MinValue;
         private bool recentPlayedRefreshRunning;
         private string lastHubSignature;
+        private string lastSavedHubCacheSignature;
+        private DateTime lastHubCacheWriteUtc = DateTime.MinValue;
         private readonly Dictionary<int, string> steamAppTypeCache = new Dictionary<int, string>();
 
         private List<FriendPresenceDto> lastPresenceSnapshot = new List<FriendPresenceDto>();
         private List<string> lastFriendIdsSnapshot = new List<string>();
+        private string lastSelfSteamId64;
 
         public FriendActivityHubService(
             AnikiHelperSettings settings,
@@ -55,6 +59,7 @@ namespace AnikiHelper.Services.SteamFriends
             Directory.CreateDirectory(cacheDir);
 
             recentPlayedCachePath = Path.Combine(cacheDir, "recent_played_daily.json");
+            hubItemsCachePath = Path.Combine(cacheDir, "hub_items.json");
             friendsAchievementFeedCachePath = Path.Combine(
                 extensionsDataPath,
                 FriendsAchievementFeedPluginId.ToString(),
@@ -63,6 +68,7 @@ namespace AnikiHelper.Services.SteamFriends
             settings?.EnsureFriendActivityHubRuntimeCollections();
             LoadRecentPlayedCacheFromDisk();
             ReloadAchievementCacheIfChanged();
+            LoadHubItemsCacheFromDisk();
         }
 
         public void ClearUnavailable()
@@ -75,7 +81,7 @@ namespace AnikiHelper.Services.SteamFriends
         }
 
         public void UpdateAfterPresenceRefresh(
-            string apiKey,
+            string accessToken,
             string selfSteamId64,
             IList<string> friendIds,
             IList<FriendPresenceDto> presences)
@@ -97,10 +103,11 @@ namespace AnikiHelper.Services.SteamFriends
                 {
                     lastPresenceSnapshot = safePresences;
                     lastFriendIdsSnapshot = safeFriendIds;
+                    lastSelfSteamId64 = selfSteamId64?.Trim();
                 }
 
                 if (settings?.SteamFriendsEnabled != true ||
-                    string.IsNullOrWhiteSpace(apiKey) ||
+                    string.IsNullOrWhiteSpace(accessToken) ||
                     string.IsNullOrWhiteSpace(selfSteamId64) ||
                     safeFriendIds.Count == 0)
                 {
@@ -110,7 +117,7 @@ namespace AnikiHelper.Services.SteamFriends
 
                 ReloadAchievementCacheIfChanged();
                 RebuildHubItems(safeFriendIds, safePresences, showPage: true);
-                StartDailyRecentPlayedRefreshIfNeeded(apiKey, safeFriendIds, safePresences);
+                StartDailyRecentPlayedRefreshIfNeeded(accessToken, safeFriendIds, safePresences);
             }
             catch (Exception ex)
             {
@@ -123,7 +130,7 @@ namespace AnikiHelper.Services.SteamFriends
         }
 
         private void StartDailyRecentPlayedRefreshIfNeeded(
-            string apiKey,
+            string accessToken,
             List<string> friendIds,
             List<FriendPresenceDto> presences)
         {
@@ -146,7 +153,7 @@ namespace AnikiHelper.Services.SteamFriends
             {
                 try
                 {
-                    await RefreshRecentPlayedDailyAsync(apiKey, friendIds, presences).ConfigureAwait(false);
+                    await RefreshRecentPlayedDailyAsync(accessToken, friendIds, presences).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -176,11 +183,11 @@ namespace AnikiHelper.Services.SteamFriends
         }
 
         private async Task RefreshRecentPlayedDailyAsync(
-            string apiKey,
+            string accessToken,
             List<string> friendIds,
             List<FriendPresenceDto> presences)
         {
-            if (string.IsNullOrWhiteSpace(apiKey) || friendIds == null || friendIds.Count == 0)
+            if (string.IsNullOrWhiteSpace(accessToken) || friendIds == null || friendIds.Count == 0)
             {
                 return;
             }
@@ -199,7 +206,7 @@ namespace AnikiHelper.Services.SteamFriends
                 await gate.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    var games = await steamClient.GetRecentlyPlayedGamesAsync(apiKey, steamId, RecentPlayedGamesPerFriend).ConfigureAwait(false);
+                    var games = await steamClient.GetRecentlyPlayedGamesAsync(accessToken, steamId, RecentPlayedGamesPerFriend).ConfigureAwait(false);
                     var game = await SelectFirstAllowedRecentGameAsync(games).ConfigureAwait(false);
                     if (game == null || game.AppId <= 0 || string.IsNullOrWhiteSpace(game.Name))
                     {
@@ -411,6 +418,7 @@ namespace AnikiHelper.Services.SteamFriends
             }
 
             var items = BuildFourCards(friendIds, presences);
+            SaveHubItemsCache(items);
 
             InvokeOnUi(() =>
             {
@@ -423,13 +431,14 @@ namespace AnikiHelper.Services.SteamFriends
         {
             var usedRecent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var usedPlaying = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var usedAchievements = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var result = new List<FriendActivityHubItem>();
 
             var recent1 = TakeRecentPlayed(usedRecent);
             result.Add(recent1 ?? CreatePlaceholder("Recent played", "No recent played activity yet."));
 
-            var achievement = TakeRecentAchievement(friendIds, presences);
+            var achievement = TakeRecentAchievement(friendIds, presences, usedAchievements);
             if (achievement != null)
             {
                 result.Add(achievement);
@@ -444,7 +453,10 @@ namespace AnikiHelper.Services.SteamFriends
             result.Add(playing1 ?? TakeRecentPlayed(usedRecent) ?? CreatePlaceholder("Currently playing", "No friend is currently in game."));
 
             var playing2 = TakeCurrentlyPlaying(presences, usedPlaying);
-            result.Add(playing2 ?? TakeRecentPlayed(usedRecent) ?? CreatePlaceholder("Currently playing", "No second friend is currently in game."));
+            result.Add(playing2
+                       ?? TakeRecentPlayed(usedRecent)
+                       ?? TakeRecentAchievement(friendIds, presences, usedAchievements)
+                       ?? CreateViewAllFriendsCard(presences));
 
             return result.Take(4).ToList();
         }
@@ -496,7 +508,10 @@ namespace AnikiHelper.Services.SteamFriends
             return null;
         }
 
-        private FriendActivityHubItem TakeRecentAchievement(List<string> friendIds, List<FriendPresenceDto> presences)
+        private FriendActivityHubItem TakeRecentAchievement(
+            List<string> friendIds,
+            List<FriendPresenceDto> presences,
+            HashSet<string> usedAchievements)
         {
             var allowedFriends = new HashSet<string>(friendIds ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
             var minUtc = DateTime.UtcNow.AddDays(-MaxAchievementAgeDays);
@@ -514,7 +529,7 @@ namespace AnikiHelper.Services.SteamFriends
                 .Where(x => allowedFriends.Count == 0 || allowedFriends.Contains(x.Entry.FriendSteamId.Trim()))
                 .Where(x => x.UnlockUtc.HasValue && x.UnlockUtc.Value >= minUtc)
                 .OrderByDescending(x => x.UnlockUtc.Value)
-                .FirstOrDefault();
+                .FirstOrDefault(x => usedAchievements == null || usedAchievements.Add(BuildAchievementKey(x.Entry)));
 
             if (entry == null)
             {
@@ -568,6 +583,38 @@ namespace AnikiHelper.Services.SteamFriends
                 achievementIcon = icon,
                 isPlaceholder = false,
                 activityUtc = entry.UnlockUtc
+            };
+        }
+
+        private static string BuildAchievementKey(FriendAchievementFeedEntry entry)
+        {
+            if (entry == null)
+            {
+                return string.Empty;
+            }
+
+            return (entry.FriendSteamId ?? string.Empty).Trim() + ":" +
+                   entry.AppId + ":" +
+                   (entry.AchievementApiName ?? entry.AchievementDisplayName ?? string.Empty).Trim();
+        }
+
+        private FriendActivityHubItem CreateViewAllFriendsCard(List<FriendPresenceDto> presences)
+        {
+            var avatar = presences?
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.avatar))
+                .Select(p => p.avatar)
+                .FirstOrDefault();
+
+            return new FriendActivityHubItem
+            {
+                slot = "ViewAllFriends",
+                activityType = "viewallfriends",
+                badgeText = "FRIENDS",
+                title = "View all friends",
+                subtitle = "Open your Steam friends list.",
+                friendAvatar = avatar,
+                footerIcon = avatar,
+                isPlaceholder = false
             };
         }
 
@@ -676,6 +723,168 @@ namespace AnikiHelper.Services.SteamFriends
             }
 
             return sb.ToString();
+        }
+
+        private void LoadHubItemsCacheFromDisk()
+        {
+            try
+            {
+                var currentSteamId64 = settings?.SteamAccountSteamId64?.Trim();
+                if (string.IsNullOrWhiteSpace(currentSteamId64) || !File.Exists(hubItemsCachePath))
+                {
+                    return;
+                }
+
+                var json = File.ReadAllText(hubItemsCachePath);
+                var cache = Serialization.FromJson<FriendActivityHubItemsCache>(json);
+                if (cache == null ||
+                    !string.Equals(cache.steamId64, currentSteamId64, StringComparison.OrdinalIgnoreCase) ||
+                    cache.items == null ||
+                    cache.items.Count == 0)
+                {
+                    return;
+                }
+
+                var cachedItems = cache.items
+                    .Where(item => item != null)
+                    .Take(4)
+                    .ToList();
+
+                lock (sync)
+                {
+                    lastSelfSteamId64 = cache.steamId64;
+                    lastSavedHubCacheSignature = BuildHubSignature(cachedItems);
+                    lastHubCacheWriteUtc = cache.updatedUtc;
+                }
+
+                var startupItems = cachedItems
+                    .Select(CloneForStartupCache)
+                    .ToList();
+
+                InvokeOnUi(() =>
+                {
+                    settings.ShowHubFriendActivityPage = startupItems.Count > 0;
+                    ReplaceHubItems(startupItems);
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FriendActivityHub] Failed to load cached Hub cards.");
+            }
+        }
+
+        private FriendActivityHubItem CloneForStartupCache(FriendActivityHubItem source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            return new FriendActivityHubItem
+            {
+                slot = source.slot,
+                activityType = source.activityType,
+                badgeText = source.badgeText,
+                title = source.title,
+                subtitle = source.subtitle,
+                friendName = source.friendName,
+                friendAvatar = KeepLocalCachedImage(source.friendAvatar),
+                friendSteamId = source.friendSteamId,
+                appid = source.appid,
+                gameName = source.gameName,
+                gameImage = KeepLocalCachedImage(source.gameImage),
+                achievementName = source.achievementName,
+                achievementIcon = KeepLocalCachedImage(source.achievementIcon),
+                isPlaceholder = source.isPlaceholder,
+                footerIcon = KeepLocalCachedImage(source.footerIcon),
+                activityUtc = source.activityUtc
+            };
+        }
+
+        private string KeepLocalCachedImage(string source)
+        {
+            if (string.IsNullOrWhiteSpace(source))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                if (File.Exists(source))
+                {
+                    return ToFileUri(source);
+                }
+
+                if (Uri.TryCreate(source, UriKind.Absolute, out var uri) &&
+                    uri.IsFile &&
+                    File.Exists(uri.LocalPath))
+                {
+                    return source;
+                }
+
+                return string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private void SaveHubItemsCache(List<FriendActivityHubItem> items)
+        {
+            try
+            {
+                var safeItems = items?.Where(item => item != null).Take(4).ToList()
+                    ?? new List<FriendActivityHubItem>();
+                if (safeItems.Count == 0)
+                {
+                    return;
+                }
+
+                var signature = BuildHubSignature(safeItems);
+
+                string steamId64;
+                lock (sync)
+                {
+                    if (string.Equals(signature, lastSavedHubCacheSignature, StringComparison.Ordinal) &&
+                        DateTime.UtcNow - lastHubCacheWriteUtc < TimeSpan.FromMinutes(10))
+                    {
+                        return;
+                    }
+
+                    steamId64 = lastSelfSteamId64;
+                }
+
+                if (string.IsNullOrWhiteSpace(steamId64))
+                {
+                    steamId64 = settings?.SteamAccountSteamId64?.Trim();
+                }
+
+                if (string.IsNullOrWhiteSpace(steamId64))
+                {
+                    return;
+                }
+
+                var cache = new FriendActivityHubItemsCache
+                {
+                    steamId64 = steamId64,
+                    updatedUtc = DateTime.UtcNow,
+                    items = safeItems
+                };
+
+                Directory.CreateDirectory(cacheDir);
+                File.WriteAllText(hubItemsCachePath, Serialization.ToJson(cache));
+
+                lock (sync)
+                {
+                    lastSavedHubCacheSignature = signature;
+                    lastHubCacheWriteUtc = cache.updatedUtc;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper][FriendActivityHub] Failed to save cached Hub cards.");
+            }
         }
 
         private void LoadRecentPlayedCacheFromDisk()
@@ -850,6 +1059,13 @@ namespace AnikiHelper.Services.SteamFriends
             {
                 RebuildHubItems(friendIds, presences, showPage: true);
             }
+        }
+
+        private sealed class FriendActivityHubItemsCache
+        {
+            public string steamId64 { get; set; }
+            public DateTime updatedUtc { get; set; }
+            public List<FriendActivityHubItem> items { get; set; } = new List<FriendActivityHubItem>();
         }
 
         private static string FormatMinutesToHours(int minutes)

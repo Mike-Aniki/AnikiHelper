@@ -35,6 +35,16 @@ namespace AnikiHelper
 
     public class SteamPlayerCountService
     {
+        private static readonly HttpClient HttpClient = CreateHttpClient();
+
+        private static HttpClient CreateHttpClient()
+        {
+            var client = new HttpClient();
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 AnikiHelper");
+            return client;
+        }
+
         private readonly Dictionary<string, SteamPlayerCacheEntry> cache
             = new Dictionary<string, SteamPlayerCacheEntry>();
 
@@ -69,9 +79,8 @@ namespace AnikiHelper
             {
                 var url = $"https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid={steamId}";
 
-                using (var client = new HttpClient())
                 {
-                    var json = await client.GetStringAsync(url);
+                    var json = await HttpClient.GetStringAsync(url);
                     var parsed = Serialization.FromJson<SteamPlayerCountApiResponse>(json);
 
                     var response = parsed?.response;

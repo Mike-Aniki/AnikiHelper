@@ -1163,9 +1163,19 @@ namespace AnikiHelperFullscreen.Views
             TryAddFallback("SteamStore_Country_Desc", "Country and currency used for Steam Store prices.");
 
             TryAddFallback("SteamAccount_GroupTitle", "Steam account connection");
-            TryAddFallback("SteamAccount_GroupDesc", "Connect Aniki Helper to Steam once so the plugin can detect your SteamID and use your connected Store session.");
+            TryAddFallback("SteamAccount_GroupDesc", "Connect once to use Steam Friends, My Wishlist, For You and personalized Steam recommendations.");
             TryAddFallback("SteamAccount_ConnectButton", "Connect to Steam");
-            TryAddFallback("SteamAccount_PrivacyNotice", "For Steam Friends, your Steam profile and friends list must be public.");
+            TryAddFallback("SteamAccount_CheckButton", "Check connection");
+            TryAddFallback("SteamAccount_DisconnectButton", "Disconnect");
+            TryAddFallback("SteamAccount_ConnectedTitle", "Connected to Steam");
+            TryAddFallback("SteamAccount_DisconnectedTitle", "Not connected to Steam");
+            TryAddFallback("SteamAccount_PrivacyNotice", "No Steam Web API key is required, and your Steam friends list does not need to be public.");
+            TryAddFallback("SteamFullscreen_DisconnectedSummary", "Connect once to enable Steam Friends, My Wishlist, For You and personalized recommendations.");
+            TryAddFallback("SteamFullscreen_PrivacyHelp", "No API key required. Your Steam friends list can stay private.");
+            TryAddFallback("SteamFullscreen_ServicesLabel", "Steam services");
+            TryAddFallback("SteamFullscreen_ServicesReady", "Ready");
+            TryAddFallback("SteamFullscreen_ServicesMissing", "Refresh needed");
+            TryAddFallback("SteamFullscreen_ConnectedSummary", "If Steam expires the session, use Check connection. You can reconnect at any time without creating an API key.");
             TryAddFallback("LOCSteamFriends_Title", "Steam Friends");
             TryAddFallback("LOCSteamFriends_Subtitle", "Shows your Steam friends status inside the Aniki theme.");
             TryAddFallback("LOCSteamFriends_Enable", "Enable Steam Friends integration");
