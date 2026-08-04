@@ -365,3 +365,13 @@ Packages:
       - Steam session tokens are securely protected with Windows DPAPI.
       - Reduced Steam Store requests to help prevent rate limiting.
       - Various performance improvements and optimizations.
+  - Version: 1.5.6
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-08-04
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.5.6/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_5_6.pext
+    Changelog:
+      - Added explanatory text about Steam login in the settings, along with a button to clear Playnite’s web cache.
+      - Added several Aniki ReMake features to the app slots in the settings.
+      - Improved Web View performance.
+      - The controller shortcut bar in Web View now automatically hides after a period of inactivity.
+      - Fixed the closing behavior of secondary windows.
