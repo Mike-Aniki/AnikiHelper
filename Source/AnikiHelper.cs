@@ -287,6 +287,29 @@ namespace AnikiHelper
         private const int GameLaunchSplashMaximumMinimumDurationMs = 600000;
         private const string CustomSplashTagName = "[Aniki] Custom Splash";
 
+        private sealed class GameReadyLaunchBaseline
+        {
+            public Guid GameId { get; set; }
+            public bool ProcessSnapshotAvailable { get; set; }
+            public bool WindowSnapshotAvailable { get; set; }
+            public HashSet<int> ProcessIds { get; set; } = new HashSet<int>();
+            public Dictionary<IntPtr, GameReadyBaselineWindowState> Windows { get; set; } =
+                new Dictionary<IntPtr, GameReadyBaselineWindowState>();
+        }
+
+        private sealed class GameReadyBaselineWindowState
+        {
+            public int ProcessId { get; set; }
+            public bool WasVisible { get; set; }
+            public bool WasIconic { get; set; }
+            public bool WasForeground { get; set; }
+            public bool CoverageAvailable { get; set; }
+            public double Coverage { get; set; }
+        }
+
+        private readonly object gameReadyLaunchBaselineLock = new object();
+        private GameReadyLaunchBaseline gameReadyLaunchBaseline;
+
         private bool uniPlaySongGameStartingPauseHeld;
         private Guid? uniPlaySongGameStartingPauseGameId;
 
@@ -17535,6 +17558,18 @@ namespace AnikiHelper
             public int Bottom;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct GameReadyMonitorInfo
+        {
+            public uint Size;
+            public GameReadyWindowRect Monitor;
+            public GameReadyWindowRect WorkArea;
+            public uint Flags;
+        }
+
+        private const uint MonitorDefaultToNearest = 0x00000002;
+        private const double GameReadyMinimumMonitorCoverage = 0.50;
+
         [DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
@@ -17546,6 +17581,12 @@ namespace AnikiHelper
 
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out GameReadyWindowRect lpRect);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint dwFlags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref GameReadyMonitorInfo lpmi);
 
 
         private bool TrySetUniPlaySongGameStartingPause(bool pause)
@@ -20594,6 +20635,7 @@ namespace AnikiHelper
             try
             {
                 base.OnGameStarting(args);
+                ClearGameReadyLaunchBaseline();
 
                 eventSoundService.PlayGameStarting();
 
@@ -20700,7 +20742,7 @@ namespace AnikiHelper
 
                 var autoDetectGameReady = Settings?.GameLaunchSplashAutoDetectReadyEnabled ?? true;
                 var maximumWait = Settings?.GameLaunchSplashMaximumWaitMs ?? GameLaunchSplashMaxWaitAfterGameStartedMs;
-                var launchFailureSafetyDuration = hasCustomDuration || !autoDetectGameReady
+                var launchFailureSafetyDuration = !autoDetectGameReady
                     ? minimumDuration
                     : Math.Max(minimumDuration, maximumWait);
 
@@ -20714,6 +20756,11 @@ namespace AnikiHelper
                     $"MaximumWait={maximumWait}, " +
                     $"LaunchFailureSafety={launchFailureSafetyDuration}"
                 );
+
+                if (autoDetectGameReady)
+                {
+                    CaptureGameReadyLaunchBaseline(game);
+                }
 
                 splashScreenRuntimeService.StartLaunchFailureSafety(launchFailureSafetyDuration);
                 DebugLog($"[AnikiHelper][Splash][Safety] Launch failure safety started. Duration={launchFailureSafetyDuration}ms");
@@ -20729,35 +20776,310 @@ namespace AnikiHelper
             }
         }
 
-        private bool IsGameLaunchSplashGameReady(Game game, int? startedProcessId)
+        private SplashScreenRuntimeService.GameReadyCandidate GetGameLaunchSplashReadyCandidate(Game game, int? startedProcessId)
         {
             try
             {
                 if (game == null)
                 {
-                    return false;
+                    return null;
                 }
 
                 IntPtr readyWindow;
                 if (startedProcessId.HasValue &&
                     TryFindGameReadyWindowForProcess(startedProcessId.Value, out readyWindow))
                 {
-                    DebugLog(
-                        $"[AnikiHelper][Splash][GameReady] " +
-                        $"Detected game window. Game='{game.Name}', " +
-                        $"ProcessId={startedProcessId.Value}, " +
-                        $"Handle={readyWindow}"
-                    );
-                    return true;
+                    return new SplashScreenRuntimeService.GameReadyCandidate(
+                        startedProcessId.Value,
+                        readyWindow,
+                        "ExactProcess");
                 }
 
-                return false;
+                return TryGetForegroundGameReadyFallbackCandidate(game, startedProcessId);
             }
             catch (Exception ex)
             {
                 DebugLog($"[AnikiHelper][Splash][GameReady] Detection failed. Game='{game?.Name ?? "NULL"}', Error={ex.Message}");
+                return null;
+            }
+        }
+
+        private void CaptureGameReadyLaunchBaseline(Game game)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            var baseline = new GameReadyLaunchBaseline
+            {
+                GameId = game.Id
+            };
+
+            try
+            {
+                foreach (var process in Process.GetProcesses())
+                {
+                    try
+                    {
+                        baseline.ProcessIds.Add(process.Id);
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+
+                baseline.ProcessSnapshotAvailable = true;
+            }
+            catch
+            {
+                baseline.ProcessSnapshotAvailable = false;
+            }
+
+            try
+            {
+                var foregroundWindow = GetForegroundWindow();
+                var windowSnapshotReliable = true;
+                var windowEnumerationSucceeded = EnumWindows((hWnd, lParam) =>
+                {
+                    try
+                    {
+                        if (hWnd == IntPtr.Zero)
+                        {
+                            return true;
+                        }
+
+                        uint windowProcessId;
+                        GetWindowThreadProcessId(hWnd, out windowProcessId);
+                        if (windowProcessId == 0)
+                        {
+                            return true;
+                        }
+
+                        var state = new GameReadyBaselineWindowState
+                        {
+                            ProcessId = (int)windowProcessId,
+                            WasVisible = IsWindowVisible(hWnd),
+                            WasIconic = IsIconic(hWnd),
+                            WasForeground = hWnd == foregroundWindow
+                        };
+
+                        GameReadyWindowRect rect;
+                        double coverage;
+                        if (GetWindowRect(hWnd, out rect) &&
+                            TryGetGameReadyWindowCoverage(hWnd, rect, out coverage))
+                        {
+                            state.CoverageAvailable = true;
+                            state.Coverage = coverage;
+                        }
+
+                        baseline.Windows[hWnd] = state;
+                    }
+                    catch
+                    {
+                        // A partial window snapshot must not be used to classify an old
+                        // window as new. Keep enumerating, but mark this snapshot unreliable.
+                        windowSnapshotReliable = false;
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+
+                baseline.WindowSnapshotAvailable = windowEnumerationSucceeded && windowSnapshotReliable;
+            }
+            catch
+            {
+                baseline.WindowSnapshotAvailable = false;
+            }
+
+            lock (gameReadyLaunchBaselineLock)
+            {
+                gameReadyLaunchBaseline = baseline;
+            }
+
+            DebugLog(
+                $"[AnikiHelper][Splash][GameReady] Launch baseline captured. Game='{game.Name}', " +
+                $"Processes={baseline.ProcessIds.Count}, Windows={baseline.Windows.Count}, " +
+                $"ProcessSnapshot={baseline.ProcessSnapshotAvailable}, WindowSnapshot={baseline.WindowSnapshotAvailable}");
+        }
+
+        private void ClearGameReadyLaunchBaseline(Guid? gameId = null)
+        {
+            lock (gameReadyLaunchBaselineLock)
+            {
+                if (!gameId.HasValue ||
+                    gameReadyLaunchBaseline == null ||
+                    gameReadyLaunchBaseline.GameId == gameId.Value)
+                {
+                    gameReadyLaunchBaseline = null;
+                }
+            }
+        }
+
+        private GameReadyLaunchBaseline GetGameReadyLaunchBaseline(Guid gameId)
+        {
+            lock (gameReadyLaunchBaselineLock)
+            {
+                if (gameReadyLaunchBaseline == null || gameReadyLaunchBaseline.GameId != gameId)
+                {
+                    return null;
+                }
+
+                return gameReadyLaunchBaseline;
+            }
+        }
+
+        private SplashScreenRuntimeService.GameReadyCandidate TryGetForegroundGameReadyFallbackCandidate(Game game, int? startedProcessId)
+        {
+            var baseline = GetGameReadyLaunchBaseline(game.Id);
+            if (baseline == null)
+            {
+                return null;
+            }
+
+            var foregroundWindow = GetForegroundWindow();
+            if (foregroundWindow == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            uint foregroundProcessId;
+            GetWindowThreadProcessId(foregroundWindow, out foregroundProcessId);
+            if (foregroundProcessId == 0 || foregroundProcessId > int.MaxValue)
+            {
+                return null;
+            }
+
+            var processId = (int)foregroundProcessId;
+
+            // When the expected process itself still owns foreground, keep waiting for
+            // its exact-PID window to satisfy the normal coverage gate.
+            if (startedProcessId.HasValue && processId == startedProcessId.Value)
+            {
+                return null;
+            }
+
+            if (!IsWindowVisible(foregroundWindow) || IsIconic(foregroundWindow))
+            {
+                return null;
+            }
+
+            string processName;
+            try
+            {
+                using (var process = Process.GetProcessById(processId))
+                {
+                    processName = process.ProcessName ?? string.Empty;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (IsIgnoredGameReadyFallbackProcess(processName))
+            {
+                return null;
+            }
+
+            GameReadyWindowRect rect;
+            if (!GetWindowRect(foregroundWindow, out rect))
+            {
+                return null;
+            }
+
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
+            if (width < 320 || height < 180)
+            {
+                return null;
+            }
+
+            var title = GetWindowTitleSafe(foregroundWindow);
+            if (IsIgnoredGameReadyTitle(title))
+            {
+                return null;
+            }
+
+            double monitorCoverage;
+            if (!TryGetGameReadyWindowCoverage(foregroundWindow, rect, out monitorCoverage))
+            {
+                return null;
+            }
+
+            if (monitorCoverage < GameReadyMinimumMonitorCoverage)
+            {
+                return null;
+            }
+
+            string transition;
+            if (!IsGameReadyLaunchTransition(baseline, processId, foregroundWindow, out transition))
+            {
+                return null;
+            }
+
+            return new SplashScreenRuntimeService.GameReadyCandidate(
+                processId,
+                foregroundWindow,
+                "ForegroundFallback:" + transition);
+        }
+
+        private bool IsGameReadyLaunchTransition(
+            GameReadyLaunchBaseline baseline,
+            int processId,
+            IntPtr hWnd,
+            out string transition)
+        {
+            transition = string.Empty;
+
+            if (baseline.ProcessSnapshotAvailable && !baseline.ProcessIds.Contains(processId))
+            {
+                transition = "NewProcess";
+                return true;
+            }
+
+            GameReadyBaselineWindowState previousWindow;
+            if (baseline.WindowSnapshotAvailable &&
+                (!baseline.Windows.TryGetValue(hWnd, out previousWindow) || previousWindow.ProcessId != processId))
+            {
+                transition = "NewWindow";
+                return true;
+            }
+
+            if (!baseline.WindowSnapshotAvailable ||
+                !baseline.Windows.TryGetValue(hWnd, out previousWindow) ||
+                previousWindow.ProcessId != processId)
+            {
                 return false;
             }
+
+            if (!previousWindow.WasForeground)
+            {
+                transition = "BecameForeground";
+                return true;
+            }
+
+            if (!previousWindow.WasVisible)
+            {
+                transition = "BecameVisible";
+                return true;
+            }
+
+            if (previousWindow.WasIconic)
+            {
+                transition = "Restored";
+                return true;
+            }
+
+            if (previousWindow.CoverageAvailable &&
+                previousWindow.Coverage < GameReadyMinimumMonitorCoverage)
+            {
+                transition = "CoverageIncreased";
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryFindGameReadyWindowForProcess(int processId, out IntPtr readyWindow)
@@ -20873,10 +21195,63 @@ namespace AnikiHelper
                     return false;
                 }
 
+                double monitorCoverage;
+                return TryGetGameReadyWindowCoverage(hWnd, rect, out monitorCoverage) &&
+                       monitorCoverage >= GameReadyMinimumMonitorCoverage;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool TryGetGameReadyWindowCoverage(
+            IntPtr hWnd,
+            GameReadyWindowRect windowRect,
+            out double coverage)
+        {
+            coverage = 0;
+
+            try
+            {
+                var monitor = MonitorFromWindow(hWnd, MonitorDefaultToNearest);
+                if (monitor == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                var monitorInfo = new GameReadyMonitorInfo
+                {
+                    Size = (uint)Marshal.SizeOf(typeof(GameReadyMonitorInfo))
+                };
+
+                if (!GetMonitorInfo(monitor, ref monitorInfo))
+                {
+                    return false;
+                }
+
+                var monitorRect = monitorInfo.Monitor;
+                var monitorWidth = monitorRect.Right - monitorRect.Left;
+                var monitorHeight = monitorRect.Bottom - monitorRect.Top;
+                if (monitorWidth <= 0 || monitorHeight <= 0)
+                {
+                    return false;
+                }
+
+                var intersectionLeft = Math.Max(windowRect.Left, monitorRect.Left);
+                var intersectionTop = Math.Max(windowRect.Top, monitorRect.Top);
+                var intersectionRight = Math.Min(windowRect.Right, monitorRect.Right);
+                var intersectionBottom = Math.Min(windowRect.Bottom, monitorRect.Bottom);
+                var intersectionWidth = Math.Max(0, intersectionRight - intersectionLeft);
+                var intersectionHeight = Math.Max(0, intersectionBottom - intersectionTop);
+
+                coverage = (double)intersectionWidth * intersectionHeight /
+                           ((double)monitorWidth * monitorHeight);
                 return true;
             }
             catch
             {
+                coverage = 0;
                 return false;
             }
         }
@@ -20918,6 +21293,8 @@ namespace AnikiHelper
                    name == "galaxyclient" ||
                    name == "battle.net" ||
                    name == "agent" ||
+                   name == "gamelaunchhelper" ||
+                   name == "gamingservicesui" ||
                    name == "explorer" ||
                    name == "discord" ||
                    name == "devenv" ||
@@ -20926,6 +21303,20 @@ namespace AnikiHelper
                    name == "chrome" ||
                    name == "firefox" ||
                    name == "msedge";
+        }
+
+        private bool IsIgnoredGameReadyFallbackProcess(string processName)
+        {
+            if (IsIgnoredGameReadyProcess(processName))
+            {
+                return true;
+            }
+
+            var name = (processName ?? string.Empty).Trim().ToLowerInvariant();
+
+            return name == "textinputhost" ||
+                   name == "systemsettings" ||
+                   name == "winstore.app";
         }
 
         private bool IsIgnoredGameReadyTitle(string title)
@@ -21897,7 +22288,7 @@ namespace AnikiHelper
                             $"MaximumWait={maximumWait}"
                         );
 
-                        if (hasCustomDuration || !autoDetectGameReady)
+                        if (!autoDetectGameReady)
                         {
                             await splashScreenRuntimeService.CloseAfterFixedDurationAsync(minimumDuration);
                             DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][Result] Fixed duration close finished. Game='{g?.Name ?? "NULL"}'");
@@ -21907,7 +22298,7 @@ namespace AnikiHelper
                             await splashScreenRuntimeService.CloseAfterGameStartedAsync(
                                 minimumDuration,
                                 maximumWait,
-                                () => IsGameLaunchSplashGameReady(g, startedProcessId),
+                                () => GetGameLaunchSplashReadyCandidate(g, startedProcessId),
                                 true);
 
                             DebugLog($"[AnikiHelper][Splash][CloseAfterGameStartedTask][Result] Auto game ready close finished. Game='{g?.Name ?? "NULL"}'");
@@ -21983,6 +22374,7 @@ namespace AnikiHelper
                 base.OnGameStopped(args);
 
                 var g = args?.Game;
+                ClearGameReadyLaunchBaseline(g?.Id);
 
                 eventSoundService.PlayGameStopped();
                 DebugLog($"[AnikiHelper][GameStopped][Sound] Game stopped sound requested. Game='{g?.Name ?? "NULL"}'");

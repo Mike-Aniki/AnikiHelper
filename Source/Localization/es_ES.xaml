@@ -299,7 +299,7 @@
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Duración mínima de visualización</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Define el tiempo mínimo durante el cual la pantalla de carga permanece visible. Aumenta este valor si desaparece demasiado rápido.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Detectar automáticamente cuándo la ventana del juego está lista</sys:String>
-    <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Cuando está activado, Aniki Helper mantiene la pantalla de carga visible hasta detectar la ventana real del juego. Los temporizadores personalizados por juego siguen teniendo prioridad.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Cuando está activado, Aniki Helper mantiene la pantalla de carga visible durante al menos la duración mínima configurada y después la cierra cuando detecta la ventana real del juego. Los temporizadores personalizados por juego sustituyen la duración mínima, pero siguen utilizando la detección automática.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Temporizador de cierre automático</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Define cuánto tiempo espera Aniki Helper a detectar la ventana real del juego. Si no se detecta ninguna ventana del juego, la pantalla de carga se cierra automáticamente después de este plazo.</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Restablecer</sys:String>

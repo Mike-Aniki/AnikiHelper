@@ -305,7 +305,7 @@
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Durée minimale d’affichage</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Définit le temps minimum pendant lequel le splash reste visible. Augmentez cette valeur si le splash disparaît trop vite.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Détecter automatiquement quand la fenêtre du jeu est prête</sys:String>
-    <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Quand cette option est activée, Aniki Helper garde le splash visible jusqu’à ce que la vraie fenêtre du jeu soit détectée. Les timers personnalisés par jeu restent prioritaires.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Quand cette option est activée, Aniki Helper garde le splash visible pendant au moins la durée minimale configurée, puis le ferme lorsque la vraie fenêtre du jeu est détectée. Les timers personnalisés par jeu remplacent la durée minimale, mais continuent d’utiliser la détection automatique.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Sécurité de fermeture automatique</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Définit le temps maximum pendant lequel Aniki Helper attend la vraie fenêtre du jeu. Si aucune fenêtre de jeu n’est détectée, le splash se ferme automatiquement après ce délai.</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Réinitialiser</sys:String>
