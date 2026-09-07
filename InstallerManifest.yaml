@@ -405,3 +405,10 @@ Packages:
       - Added 30-second and 45-second delay options for screensaver activation.
       - Added an option allowing the screensaver to play either dedicated ambient music or the currently selected Music track from the theme via UniPlaySong.
       - Various fixes and optimizations.
+  - Version: 1.6.6
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-09-07
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.6.6/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_6_6.pext
+    Changelog:
+      - Fixed LT,RT for Audio switcher view.
+      - Centered the game background in the screensaver.
