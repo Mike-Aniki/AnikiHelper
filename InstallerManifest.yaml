@@ -412,3 +412,15 @@ Packages:
     Changelog:
       - Fixed LT,RT for Audio switcher view.
       - Centered the game background in the screensaver.
+  - Version: 1.7.0
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-09-17
+    PackageUrl: https://github.com/Mike-Aniki/AnikiHelper/releases/download/v1.7.0/AnikiHelper_96a983a3-3f13-4dce-a474-4052b718bb52_1_7_0.pext
+    Changelog:
+      - Playnite 10.57 or newer is now required.
+      - Removed the custom SDL controller handling in favor of Playnite’s native controller input system.
+      - Improved the handling of Aniki controller shortcuts while a game is running.
+      - Added an option to display Aniki notifications above other applications, including while a game is running.
+      - Added a per-game exclusion list to individually disable the Aniki Splash Screen for selected games.
+      - Added a setting to define the maximum display duration of the game Splash Screen.
+      - Updated compatibility with the new Sound Packs created using the latest version of Aniki Pack Creator.
