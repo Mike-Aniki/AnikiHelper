@@ -293,6 +293,7 @@
     <sys:String x:Key="LOCInGameOverlayBackHint">B / Back за затваряне</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToPlaynite">Назад към Playnite</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToGame">Назад към играта</sys:String>
+    <sys:String x:Key="LOCInGameOverlayResumeGame">Продължи играта</sys:String>
     <sys:String x:Key="LOCInGameOverlayQuitGame">Изход от играта</sys:String>
     <sys:String x:Key="LOCInGameOverlayGame">Игра</sys:String>
     <sys:String x:Key="LOCInGameOverlayLastCaptures">Последни заснемания</sys:String>
@@ -359,18 +360,26 @@
     <sys:String x:Key="GameLaunchSplash_ShowLogo">Показвай логото на играта върху splash екрана</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Времетраене на стартовия екран</sys:String>
-    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Стартовият екран остава видим поне за минималната продължителност, след което се затваря автоматично веднага щом истинският прозорец на играта е готов. Ако засичането не успее, фиксиран защитен лимит от 90 секунди го затваря. Персонализираният таймер за отделна игра заменя само минималната продължителност.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Стартовият екран остава видим поне за минималната продължителност, след което се затваря автоматично веднага щом истинският прозорец на играта е готов. Ако засичането не успее, той се затваря след зададения максимален период на изчакване. Персонализираният таймер за отделна игра заменя само минималната продължителност.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Минимална продължителност на показване</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Определя колко дълго splash екранът остава видим минимум.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Автоматично разпознаване кога прозорецът на играта е готов</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Когато е включено, Aniki Helper държи стартовия екран видим поне за зададената минимална продължителност, след което го затваря при разпознаване на истинския прозорец на играта. Персонализираните таймери за отделни игри заменят минималната продължителност, но продължават да използват автоматичното разпознаване.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Таймер за безопасно автоматично затваряне</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Определя максималното време, което Aniki Helper изчаква преди автоматично да затвори splash екрана.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Title">Игри с изключен splash екран</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Help">Игрите, за които splash екранът е изключен от десен бутон → Aniki Helper → Splash Screen, се показват тук. Махнете отметката, за да го активирате отново за играта.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Clear">Изчисти списъка с изключени игри</sys:String>
+    <sys:String x:Key="LOCAnikiHelperDisableSplashThisGame">Изключи splash екрана за тази игра</sys:String>
+    <sys:String x:Key="LOCAnikiHelperEnableSplashThisGame">Активирай splash екрана за тази игра</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Нулиране</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Задай минимален таймер за тази игра</sys:String>
     <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Нулирай минималния таймер за тази игра</sys:String>
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Минимална продължителност на стартовия екран за тази игра, в секунди:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWait">Set maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMaximumWait">Reset maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWaitPrompt">Maximum automatic-detection wait for this game, in seconds:</sys:String>
     <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Невалидна стойност на таймера.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Активирай звук на splash видео</sys:String>
@@ -1601,6 +1610,9 @@
     <sys:String x:Key="CompletePack_ExportSuccess">Пълният пакет „{0}“ беше експортиран успешно.</sys:String>
     <sys:String x:Key="CompletePack_ExportError">Пълният пакет не можа да бъде експортиран:</sys:String>
     <sys:String x:Key="CompletePack_DeleteConfirm">Да се изтрие ли пълният пакет „{0}“ от библиотеката? Отделните му компонентни пакети ще останат инсталирани.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteChoice">Да се изтрие ли Complete Pack „{0}“?&#10;&#10;ДА = Изтрива Complete Pack и всички инсталирани Visual, Color, Login и Sound пакети, които съдържа.&#10;&#10;НЕ = Изтрива само Complete Pack и запазва включените пакети инсталирани.&#10;&#10;ОТКАЗ = Не изтрива нищо.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSharedWarning">Някои включени пакети се използват и от следните инсталирани Complete Pack пакети:&#10;&#10;{0}&#10;&#10;Изтриването на включените пакети ще премахне и тези инсталирани копия на компонентите. Другите Complete Pack пакети ще останат в библиотеката и могат да преинсталират компонентите си при повторно прилагане.&#10;&#10;Да се продължи ли?</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSuccessWithComponents">Complete Pack „{0}“ и включените в него пакети бяха изтрити.</sys:String>
     <sys:String x:Key="CompletePack_DeleteSuccess">Пълният пакет „{0}“ беше изтрит.</sys:String>
     <sys:String x:Key="CompletePack_DeleteError">Пълният пакет не можа да бъде изтрит:</sys:String>
     <sys:String x:Key="CompletePack_ComponentVisual">Visual</sys:String>
@@ -1635,6 +1647,7 @@
     <sys:String x:Key="CommunityPack_Refresh">Обнови</sys:String>
     <sys:String x:Key="CommunityPack_NoPreview">Няма преглед</sys:String>
     <sys:String x:Key="CommunityPack_Featured">ПРЕПОРЪЧАНО</sys:String>
+    <sys:String x:Key="CommunityPack_IncludedInComplete">✦ Включен в Complete Pack: {0}</sys:String>
     <sys:String x:Key="CommunityPack_Updating">Обновяване...</sys:String>
     <sys:String x:Key="CommunityPack_Installing">Инсталиране...</sys:String>
     <sys:String x:Key="CommunityPack_UpdatingStatus">Обновяване на {0}...</sys:String>
@@ -1674,4 +1687,54 @@
     <sys:String x:Key="PackCreator_CompleteDesc">Обединете няколко типа пакети и приложете съгласувана визия и звук с една стъпка.</sys:String>
     <sys:String x:Key="PackCreator_CommunityTitle">Споделяне с общността</sys:String>
     <sys:String x:Key="PackCreator_CommunityDesc">Когато пакетът ви е готов, използвайте Share Community Pack в Creator, за да отворите съответния формуляр за изпращане в GitHub. След одобрение пакетите могат да се инсталират директно от Aniki Helper.</sys:String>
+
+    <!-- Unified Community Packs Hub -->
+    <sys:String x:Key="CommunityPack_IncludesLabel">Този пакет включва:</sys:String>
+    <sys:String x:Key="CommunityHub_MenuTitle">Пакети от общността</sys:String>
+    <sys:String x:Key="CommunityHub_MenuDescription">Преглеждайте, инсталирайте, обновявайте и управлявайте Complete, Visual, Login, Color и Sound пакети, споделени от общността на Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_BrowseButton">✦ Преглед на пакетите от общността</sys:String>
+    <sys:String x:Key="CommunityHub_Title">Пакети от общността</sys:String>
+    <sys:String x:Key="CommunityHub_Description">Преглеждайте, инсталирайте и управлявайте Complete, Visual, Login, Color и Sound пакети от общността на Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_TabComplete">Пълни</sys:String>
+    <sys:String x:Key="CommunityHub_TabVisual">Visual</sys:String>
+    <sys:String x:Key="CommunityHub_TabLogin">Login</sys:String>
+    <sys:String x:Key="CommunityHub_TabColor">Цветове</sys:String>
+    <sys:String x:Key="CommunityHub_TabSound">Звуци</sys:String>
+    <sys:String x:Key="CommunityHub_SortFormat">Сортиране: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_SortNewest">Най-нови</sys:String>
+    <sys:String x:Key="CommunityHub_SortUpdated">Наскоро обновени</sys:String>
+    <sys:String x:Key="CommunityHub_SortPopular">Най-популярни</sys:String>
+    <sys:String x:Key="CommunityHub_SortName">Име A-Z</sys:String>
+    <sys:String x:Key="CommunityHub_SortNameDesc">Име Я-А</sys:String>
+    <sys:String x:Key="CommunityHub_FilterFormat">Показване: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_FilterAll">Всички</sys:String>
+    <sys:String x:Key="CommunityHub_FilterNew">Нови</sys:String>
+    <sys:String x:Key="CommunityHub_FilterUpdates">Обновявания</sys:String>
+    <sys:String x:Key="CommunityHub_FilterInstalled">Инсталирани</sys:String>
+    <sys:String x:Key="CommunityHub_NoFilterMatches">Няма пакети, които отговарят на текущия филтър.</sys:String>
+    <sys:String x:Key="CommunityHub_ReleasedFormat">Публикуван {0}</sys:String>
+    <sys:String x:Key="CommunityHub_UpdatedFormat">Обновен {0}</sys:String>
+    <sys:String x:Key="CommunityHub_NewBadge">НОВО</sys:String>
+    <sys:String x:Key="CommunityHub_PopularBadge">ПОПУЛЯРНО</sys:String>
+    <sys:String x:Key="CommunityPack_InstallConfirm">Искате ли да инсталирате „{0}“?</sys:String>
+
+    <!-- Random Login Pool -->
+    <sys:String x:Key="LoginRandomPool_ConfigureButton">Настройка на случаен избор</sys:String>
+    <sys:String x:Key="LoginRandomPool_Title">Случаен Login Pool</sys:String>
+    <sys:String x:Key="LoginRandomPool_Description">Изберете кои инсталирани фонове за вход могат да се избират случайно при стартиране.</sys:String>
+    <sys:String x:Key="LoginRandomPool_DefaultNote">Новите инсталирани фонове са включени по подразбиране. Lucky Day остава отделно.</sys:String>
+    <sys:String x:Key="LoginRandomPool_SelectAll">Избери всички</sys:String>
+    <sys:String x:Key="LoginRandomPool_ClearAll">Изчисти избора</sys:String>
+    <sys:String x:Key="LoginRandomPool_Toggle">Превключи</sys:String>
+    <sys:String x:Key="LoginRandomPool_BuiltIn">ВГРАДЕНО</sys:String>
+    <sys:String x:Key="LoginRandomPool_Community">ОБЩНОСТ</sys:String>
+    <sys:String x:Key="LoginRandomPool_Empty">Няма инсталирани подходящи фонове за вход.</sys:String>
+    <sys:String x:Key="LoginRandomPool_CountFormat">{0} / {1} избрани</sys:String>
+    <sys:String x:Key="SettingsNav_Notifications">Известия</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Enable">Глобално наслагване на известия</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Help">Показва известията на Aniki над всички приложения вместо вътре в темата.</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestButton">Тест на известие</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestMessage">Това е тестово известие от Aniki.</sys:String>
+    <sys:String x:Key="LOCNotificationTitleCommunityPacks">Пакети от общността</sys:String>
+    <sys:String x:Key="CommunityPack_NewNotification">Налични са нови пакети от общността.</sys:String>
 </ResourceDictionary>

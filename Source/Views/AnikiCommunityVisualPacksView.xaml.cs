@@ -5,17 +5,44 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace AnikiHelper
 {
+    /// <summary>
+    /// Keeps Community Shop cards at an exact 16:9 ratio while still allowing
+    /// the three-column grid to resize with the fullscreen viewport and DPI scale.
+    /// </summary>
+    public sealed class CommunityAspectRatioConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            var width = value is double ? (double)value : 0.0;
+            if (double.IsNaN(width) || double.IsInfinity(width) || width <= 0.0)
+            {
+                // Stable first measure; ActualWidth will update the binding after layout.
+                return 280.0;
+            }
+
+            return width * 9.0 / 16.0;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return Binding.DoNothing;
+        }
+    }
+
     public sealed class CommunityVisualPackViewItem : ObservableObject
     {
         public CommunityPackCatalogItem Source { get; set; }
@@ -28,7 +55,146 @@ namespace AnikiHelper
         public string AuthorDisplay => string.IsNullOrWhiteSpace(Source?.Author) ? string.Empty : Source.Author;
         public string VersionDisplay => string.IsNullOrWhiteSpace(Version) ? string.Empty : "v" + Version;
         public string PackType => CommunityPackService.NormalizePackType(Source?.Type);
+        public bool IsCompletePack => string.Equals(PackType, "complete", StringComparison.OrdinalIgnoreCase);
+        public bool HasVisualComponent => IsCompletePack && !string.IsNullOrWhiteSpace(Source?.ComponentIds?.Visual);
+        public bool HasLoginComponent => IsCompletePack && !string.IsNullOrWhiteSpace(Source?.ComponentIds?.Login);
+        public bool HasColorComponent => IsCompletePack && !string.IsNullOrWhiteSpace(Source?.ComponentIds?.Color);
+        public bool HasSoundComponent => IsCompletePack && !string.IsNullOrWhiteSpace(Source?.ComponentIds?.Sound);
+        public bool HasCompleteComponents => HasVisualComponent || HasLoginComponent || HasColorComponent || HasSoundComponent;
+
+        public string CompleteComponentsDisplay
+        {
+            get
+            {
+                var components = new List<string>();
+                if (HasVisualComponent) components.Add(GetLocalizedString("CommunityHub_TabVisual", "Visual"));
+                if (HasLoginComponent) components.Add(GetLocalizedString("CommunityHub_TabLogin", "Login"));
+                if (HasColorComponent) components.Add(GetLocalizedString("CommunityHub_TabColor", "Colors"));
+                if (HasSoundComponent) components.Add(GetLocalizedString("CommunityHub_TabSound", "Sounds"));
+                return string.Join("  •  ", components);
+            }
+        }
+
+        public string PackTypeDisplay
+        {
+            get
+            {
+                switch (PackType)
+                {
+                    case "visual":
+                        return GetLocalizedString("CommunityPack_TypeVisual", "Visual Pack");
+                    case "color":
+                        return GetLocalizedString("CommunityPack_TypeColor", "Color Pack");
+                    case "login":
+                        return GetLocalizedString("CommunityPack_TypeLogin", "Login Pack");
+                    case "sound":
+                        return GetLocalizedString("CommunityPack_TypeSound", "Sound Pack");
+                    case "complete":
+                        return GetLocalizedString("CommunityPack_TypeComplete", "Complete Pack");
+                    default:
+                        return PackType;
+                }
+            }
+        }
+
+        public string AuthorLine => string.IsNullOrWhiteSpace(AuthorDisplay)
+            ? string.Empty
+            : string.Format(
+                GetLocalizedString("CommunityPack_ByAuthorFormat", "By {0}"),
+                AuthorDisplay);
+
+        private long downloadCount;
+        public long DownloadCount
+        {
+            get => downloadCount;
+            set
+            {
+                if (downloadCount == value) return;
+                SetValue(ref downloadCount, value);
+                OnPropertyChanged(nameof(DownloadCountDisplay));
+            }
+        }
+
+        public string DownloadCountDisplay => string.Format(
+            GetLocalizedString("CommunityPack_DownloadsFormat", "{0:N0} downloads"),
+            DownloadCount);
+
         public bool ShowPreview => true;
+        public string ParentCompletePackName => Source?.ParentCompletePackName ?? string.Empty;
+
+        public bool IsNew { get; set; }
+
+        public DateTime PublishedDate => ParseCatalogDate(Source?.PublishedAt);
+        public DateTime UpdatedDate => ParseCatalogDate(Source?.UpdatedAt);
+
+        public string ReleaseDateDisplay
+        {
+            get
+            {
+                var published = PublishedDate;
+                var updated = UpdatedDate;
+
+                // Keep metadata compact: when a pack has been updated, the latest
+                // update date replaces the original release date instead of showing both.
+                if (updated != DateTime.MinValue &&
+                    (published == DateTime.MinValue || updated.Date > published.Date))
+                {
+                    return string.Format(
+                        GetLocalizedString("CommunityHub_UpdatedFormat", "Updated {0}"),
+                        updated.ToString("d", CultureInfo.CurrentCulture));
+                }
+
+                if (published == DateTime.MinValue)
+                {
+                    return string.Empty;
+                }
+
+                return string.Format(
+                    GetLocalizedString("CommunityHub_ReleasedFormat", "Released {0}"),
+                    published.ToString("d", CultureInfo.CurrentCulture));
+            }
+        }
+
+        private static DateTime ParseCatalogDate(string value)
+        {
+            DateTime parsed;
+            if (DateTime.TryParse(
+                    value ?? string.Empty,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal,
+                    out parsed))
+            {
+                return parsed;
+            }
+
+            return DateTime.MinValue;
+        }
+        public bool HasParentCompletePack => !string.IsNullOrWhiteSpace(ParentCompletePackName);
+        public string ParentCompletePackDisplay => HasParentCompletePack
+            ? string.Format(
+                GetLocalizedString("CommunityPack_IncludedInComplete", "✦ Included in Complete Pack: {0}"),
+                ParentCompletePackName)
+            : string.Empty;
+        public string ParentCompletePackDisplayWithoutIcon
+        {
+            get
+            {
+                var value = ParentCompletePackDisplay ?? string.Empty;
+                return value.TrimStart('✦', '★', '☆', ' ');
+            }
+        }
+
+        private static string GetLocalizedString(string key, string fallback)
+        {
+            try
+            {
+                return Application.Current?.TryFindResource(key) as string ?? fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
 
         private ImageSource previewImage;
         public ImageSource PreviewImage
@@ -114,12 +280,63 @@ namespace AnikiHelper
         public bool CanAction => !IsBusy && (!IsInstalled || UpdateAvailable);
         public bool CanUninstall => !IsBusy && IsInstalled;
         public bool HasInstallOrUpdateAction => !IsInstalled || UpdateAvailable;
+
+        private bool isPopular;
+        public bool IsPopular
+        {
+            get => isPopular;
+            set => SetValue(ref isPopular, value);
+        }
+    }
+
+    public sealed class CommunityPackTabItem : ObservableObject
+    {
+        public string PackType { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+
+        private int count;
+        public int Count
+        {
+            get => count;
+            set => SetValue(ref count, value);
+        }
+
+        private int newCount;
+        public int NewCount
+        {
+            get => newCount;
+            set
+            {
+                if (newCount == value) return;
+                SetValue(ref newCount, value);
+                OnPropertyChanged(nameof(HasNew));
+            }
+        }
+
+        public bool HasNew => NewCount > 0;
+
+        private bool isSelected;
+        public bool IsSelected
+        {
+            get => isSelected;
+            set => SetValue(ref isSelected, value);
+        }
     }
 
     public sealed class CommunityVisualPacksViewModel : ObservableObject
     {
         public ObservableCollection<CommunityVisualPackViewItem> Packs { get; } =
             new ObservableCollection<CommunityVisualPackViewItem>();
+
+        public ObservableCollection<CommunityPackTabItem> Tabs { get; } =
+            new ObservableCollection<CommunityPackTabItem>();
+
+        private string sortText = string.Empty;
+        public string SortText
+        {
+            get => sortText;
+            set => SetValue(ref sortText, value ?? string.Empty);
+        }
 
         private string statusText = string.Empty;
         public string StatusText
@@ -141,6 +358,57 @@ namespace AnikiHelper
             get => isEmpty;
             set => SetValue(ref isEmpty, value);
         }
+
+        private bool isLoading;
+        public bool IsLoading
+        {
+            get => isLoading;
+            set => SetValue(ref isLoading, value);
+        }
+
+        private string activeSectionTitle = string.Empty;
+        public string ActiveSectionTitle
+        {
+            get => activeSectionTitle;
+            set => SetValue(ref activeSectionTitle, value ?? string.Empty);
+        }
+
+        private string footerPrimaryActionText = string.Empty;
+        public string FooterPrimaryActionText
+        {
+            get => footerPrimaryActionText;
+            set => SetValue(ref footerPrimaryActionText, value ?? string.Empty);
+        }
+
+        private bool isDialogOpen;
+        public bool IsDialogOpen
+        {
+            get => isDialogOpen;
+            set => SetValue(ref isDialogOpen, value);
+        }
+
+        private CommunityVisualPackViewItem selectedPack;
+        public CommunityVisualPackViewItem SelectedPack
+        {
+            get => selectedPack;
+            set => SetValue(ref selectedPack, value);
+        }
+
+        private bool isDetailsOpen;
+        public bool IsDetailsOpen
+        {
+            get => isDetailsOpen;
+            set => SetValue(ref isDetailsOpen, value);
+        }
+
+        public string DetailsTitle { get; set; } = string.Empty;
+        public string DetailsReportText { get; set; } = string.Empty;
+        public string DetailsBackText { get; set; } = string.Empty;
+
+        public ICommand BackCommand { get; set; }
+        public ICommand PreviousCategoryCommand { get; set; }
+        public ICommand NextCategoryCommand { get; set; }
+        public ICommand SortShortcutCommand { get; set; }
 
         private string windowTitle = string.Empty;
         public string WindowTitle

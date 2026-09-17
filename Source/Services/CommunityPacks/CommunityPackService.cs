@@ -44,6 +44,21 @@ namespace AnikiHelper.Services.CommunityPacks
         public string Sound { get; set; }
     }
 
+    public sealed class CommunityPackComponentIds
+    {
+        [JsonProperty("visual")]
+        public string Visual { get; set; }
+
+        [JsonProperty("color")]
+        public string Color { get; set; }
+
+        [JsonProperty("login")]
+        public string Login { get; set; }
+
+        [JsonProperty("sound")]
+        public string Sound { get; set; }
+    }
+
     public sealed class CommunityPackCatalogItem
     {
         [JsonProperty("type")]
@@ -72,6 +87,18 @@ namespace AnikiHelper.Services.CommunityPacks
 
         [JsonProperty("downloadUrl")]
         public string DownloadUrl { get; set; }
+
+        [JsonProperty("componentIds")]
+        public CommunityPackComponentIds ComponentIds { get; set; }
+
+        [JsonProperty("parentCompletePackId")]
+        public string ParentCompletePackId { get; set; }
+
+        [JsonProperty("generatedFromCompletePack")]
+        public bool GeneratedFromCompletePack { get; set; }
+
+        [JsonIgnore]
+        public string ParentCompletePackName { get; set; }
 
         [JsonProperty("publishedAt")]
         public string PublishedAt { get; set; }
@@ -132,6 +159,13 @@ namespace AnikiHelper.Services.CommunityPacks
         public bool WasAlreadyInLibrary { get; set; }
     }
 
+    internal sealed class LocalPackIdentity
+    {
+        public string LocalId { get; set; }
+        public string StablePackId { get; set; }
+        public string Version { get; set; }
+    }
+
     public sealed class CommunityPackService : IDisposable
     {
         public const string CatalogUrl = "https://raw.githubusercontent.com/Mike-Aniki/AnikiCommunityPacks/main/catalog.json";
@@ -150,6 +184,7 @@ namespace AnikiHelper.Services.CommunityPacks
         private readonly ILogger logger;
         private readonly HttpClient http;
         private readonly string packType;
+        private readonly string pluginUserDataPath;
         private readonly string cacheRoot;
         private readonly string previewCacheRoot;
         private readonly string catalogCachePath;
@@ -167,8 +202,9 @@ namespace AnikiHelper.Services.CommunityPacks
             this.api = api ?? throw new ArgumentNullException(nameof(api));
             this.logger = logger;
             this.packType = NormalizePackType(packType);
+            this.pluginUserDataPath = pluginUserDataPath ?? string.Empty;
 
-            cacheRoot = AnikiPackStorage.GetAreaRoot(pluginUserDataPath, "CommunityPacks");
+            cacheRoot = AnikiPackStorage.GetAreaRoot(this.pluginUserDataPath, "CommunityPacks");
             previewCacheRoot = Path.Combine(cacheRoot, "Previews");
             catalogCachePath = Path.Combine(cacheRoot, "catalog.json");
             installationsPath = Path.Combine(cacheRoot, "Installations", this.packType + ".json");
@@ -187,7 +223,19 @@ namespace AnikiHelper.Services.CommunityPacks
 
         public string PackType => packType;
 
-        public async Task<CommunityPackCatalogResult> GetCatalogAsync(CancellationToken cancellationToken)
+        public Task<CommunityPackCatalogResult> GetCatalogAsync(CancellationToken cancellationToken)
+        {
+            return GetCatalogCoreAsync(cancellationToken, includeAllTypes: false);
+        }
+
+        public Task<CommunityPackCatalogResult> GetAllCatalogAsync(CancellationToken cancellationToken)
+        {
+            return GetCatalogCoreAsync(cancellationToken, includeAllTypes: true);
+        }
+
+        private async Task<CommunityPackCatalogResult> GetCatalogCoreAsync(
+            CancellationToken cancellationToken,
+            bool includeAllTypes)
         {
             ThrowIfDisposed();
             string json = null;
@@ -226,11 +274,33 @@ namespace AnikiHelper.Services.CommunityPacks
             }
 
             var catalog = JsonConvert.DeserializeObject<CommunityPackCatalog>(json) ?? new CommunityPackCatalog();
+            var allPacks = catalog.Packs ?? new List<CommunityPackCatalogItem>();
+            var completePacksById = allPacks
+                .Where(x => x != null &&
+                            string.Equals(x.Type, "complete", StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(x.Id))
+                .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in allPacks)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.ParentCompletePackId))
+                {
+                    continue;
+                }
+
+                CommunityPackCatalogItem parent;
+                if (completePacksById.TryGetValue(item.ParentCompletePackId, out parent))
+                {
+                    item.ParentCompletePackName = parent?.Name ?? string.Empty;
+                }
+            }
+
             return new CommunityPackCatalogResult
             {
                 UsedCachedCatalog = usedCache,
-                Packs = (catalog.Packs ?? new List<CommunityPackCatalogItem>())
-                    .Where(x => string.Equals(x?.Type, packType, StringComparison.OrdinalIgnoreCase))
+                Packs = allPacks
+                    .Where(x => includeAllTypes || string.Equals(x?.Type, packType, StringComparison.OrdinalIgnoreCase))
                     .OrderByDescending(x => x.Featured)
                     .ThenByDescending(x => ParseDateSafe(x.UpdatedAt))
                     .ThenBy(x => x.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
@@ -299,21 +369,69 @@ namespace AnikiHelper.Services.CommunityPacks
         {
             ThrowIfDisposed();
             var index = LoadInstallationIndex();
-            var localIds = GetLocalPackIds();
+            var localPacks = GetLocalPackIdentities();
+            var localById = localPacks
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.LocalId))
+                .GroupBy(x => x.LocalId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+
             var changed = index.Packs.RemoveAll(x =>
                 x == null ||
                 string.IsNullOrWhiteSpace(x.CommunityId) ||
                 string.IsNullOrWhiteSpace(x.LocalPackId) ||
-                !localIds.Contains(x.LocalPackId)) > 0;
+                !localById.ContainsKey(x.LocalPackId)) > 0;
+
+            foreach (var record in index.Packs)
+            {
+                LocalPackIdentity local;
+                if (record == null ||
+                    string.IsNullOrWhiteSpace(record.LocalPackId) ||
+                    !localById.TryGetValue(record.LocalPackId, out local))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(local.Version) &&
+                    !string.Equals(record.Version, local.Version, StringComparison.OrdinalIgnoreCase))
+                {
+                    record.Version = local.Version;
+                    changed = true;
+                }
+            }
 
             if (changed)
             {
                 SaveInstallationIndex(index);
             }
 
-            return index.Packs
+            var result = index.Packs
                 .GroupBy(x => x.CommunityId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.InstalledUtc).First(), StringComparer.OrdinalIgnoreCase);
+
+            // Complete Packs import their child packs directly into the same local
+            // libraries as individually installed packs. Also recognize those packs
+            // (and manual imports) by their stable manifest ID so the Community pages
+            // immediately show them as installed without forcing a re-download.
+            foreach (var local in localPacks)
+            {
+                if (local == null ||
+                    string.IsNullOrWhiteSpace(local.LocalId) ||
+                    string.IsNullOrWhiteSpace(local.StablePackId) ||
+                    result.ContainsKey(local.StablePackId))
+                {
+                    continue;
+                }
+
+                result[local.StablePackId] = new CommunityPackInstallation
+                {
+                    CommunityId = local.StablePackId,
+                    LocalPackId = local.LocalId,
+                    Version = local.Version ?? string.Empty,
+                    InstalledUtc = DateTime.MinValue
+                };
+            }
+
+            return result;
         }
 
         public async Task<CommunityPackInstallResult> InstallOrUpdateAsync(CommunityPackCatalogItem item, CancellationToken cancellationToken)
@@ -333,6 +451,26 @@ namespace AnikiHelper.Services.CommunityPacks
             var installationIndex = LoadInstallationIndex();
             var existing = installationIndex.Packs.FirstOrDefault(x =>
                 x != null && string.Equals(x.CommunityId, item.Id, StringComparison.OrdinalIgnoreCase));
+
+            if (existing == null)
+            {
+                var matchingLocalPack = GetLocalPackIdentities().FirstOrDefault(x =>
+                    x != null &&
+                    !string.IsNullOrWhiteSpace(x.StablePackId) &&
+                    string.Equals(x.StablePackId, item.Id, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingLocalPack != null)
+                {
+                    existing = new CommunityPackInstallation
+                    {
+                        CommunityId = item.Id,
+                        LocalPackId = matchingLocalPack.LocalId,
+                        Version = matchingLocalPack.Version ?? string.Empty,
+                        InstalledUtc = DateTime.MinValue
+                    };
+                }
+            }
+
             var localIds = GetLocalPackIds();
             if (existing != null && !localIds.Contains(existing.LocalPackId))
             {
@@ -373,11 +511,18 @@ namespace AnikiHelper.Services.CommunityPacks
                     }
                 }
 
+                logger?.Info($"[AnikiHelper][CommunityPacks] Download completed for '{item.Name}' ({item.Type}/{item.Id} {item.Version}).");
                 ValidateDownloadedManifest(tempZip, item);
+                logger?.Info($"[AnikiHelper][CommunityPacks] Manifest validated for '{item.Name}'.");
 
                 CommonImportResult importResult = null;
                 var dispatcher = Application.Current?.Dispatcher;
-                Action importAction = () => importResult = ImportPackage(tempZip, wasUpdate);
+                Action importAction = () =>
+                {
+                    logger?.Info($"[AnikiHelper][CommunityPacks] Starting local import for '{item.Name}'.");
+                    importResult = ImportPackage(tempZip, wasUpdate);
+                    logger?.Info($"[AnikiHelper][CommunityPacks] Local import completed for '{item.Name}' -> '{importResult?.LocalId ?? "<null>"}'.");
+                };
                 if (dispatcher != null && !dispatcher.CheckAccess())
                 {
                     dispatcher.Invoke(importAction);
@@ -435,8 +580,14 @@ namespace AnikiHelper.Services.CommunityPacks
 
                 if (wasVisualActive && !string.IsNullOrWhiteSpace(importResult.LocalId))
                 {
-                    Action reapply = () => plugin.ApplyCustomVisualPack(importResult.LocalId);
-                    if (dispatcher != null && !dispatcher.CheckAccess()) dispatcher.Invoke(reapply); else reapply();
+                    // Preserve which Visual Pack is active without touching live theme resources.
+                    // The normal refresh/apply path runs after the Community Hub closes.
+                    Action preserveActive = () =>
+                    {
+                        var visualService = new VisualPackImportService(api, pluginUserDataPath, logger);
+                        visualService.SetActivePack(importResult.LocalId);
+                    };
+                    if (dispatcher != null && !dispatcher.CheckAccess()) dispatcher.Invoke(preserveActive); else preserveActive();
                 }
 
                 installationIndex = LoadInstallationIndex();
@@ -449,7 +600,13 @@ namespace AnikiHelper.Services.CommunityPacks
                     InstalledUtc = DateTime.UtcNow
                 });
                 SaveInstallationIndex(installationIndex);
-                RefreshPackUi();
+
+                // Do NOT refresh/apply Theme Settings while the Community Hub is still open.
+                // The underlying Fullscreen Settings window remains alive behind this modal window,
+                // and live resource/preset refreshes during an import can destabilize WPF/Playnite.
+                // FullscreenSettingsView.OnCommunityPacksWindowClosed already refreshes every pack
+                // library once, after this modal Hub has been torn down.
+                logger?.Info($"[AnikiHelper][CommunityPacks] Installation index saved for '{item.Name}'. UI refresh deferred until Community Hub closes.");
 
                 return new CommunityPackInstallResult
                 {
@@ -465,7 +622,49 @@ namespace AnikiHelper.Services.CommunityPacks
             }
         }
 
+        public CompletePackDeleteAnalysis AnalyzeCompletePackUninstall(string communityId)
+        {
+            ThrowIfDisposed();
+            if (!string.Equals(packType, "complete", StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(communityId))
+            {
+                return new CompletePackDeleteAnalysis();
+            }
+
+            var installationIndex = LoadInstallationIndex();
+            var existing = installationIndex.Packs.FirstOrDefault(x =>
+                x != null && string.Equals(x.CommunityId, communityId, StringComparison.OrdinalIgnoreCase));
+
+            if (existing == null)
+            {
+                var matchingLocalPack = GetLocalPackIdentities().FirstOrDefault(x =>
+                    x != null &&
+                    !string.IsNullOrWhiteSpace(x.StablePackId) &&
+                    string.Equals(x.StablePackId, communityId, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingLocalPack == null)
+                {
+                    return new CompletePackDeleteAnalysis();
+                }
+
+                existing = new CommunityPackInstallation
+                {
+                    CommunityId = communityId,
+                    LocalPackId = matchingLocalPack.LocalId,
+                    Version = matchingLocalPack.Version ?? string.Empty,
+                    InstalledUtc = DateTime.MinValue
+                };
+            }
+
+            return plugin.AnalyzeCompletePackDelete(existing.LocalPackId);
+        }
+
         public bool Uninstall(string communityId)
+        {
+            return Uninstall(communityId, false);
+        }
+
+        public bool Uninstall(string communityId, bool deleteIncludedPacks)
         {
             ThrowIfDisposed();
             if (string.IsNullOrWhiteSpace(communityId)) return false;
@@ -473,10 +672,40 @@ namespace AnikiHelper.Services.CommunityPacks
             var installationIndex = LoadInstallationIndex();
             var existing = installationIndex.Packs.FirstOrDefault(x =>
                 x != null && string.Equals(x.CommunityId, communityId, StringComparison.OrdinalIgnoreCase));
-            if (existing == null) return false;
+
+            if (existing == null)
+            {
+                var matchingLocalPack = GetLocalPackIdentities().FirstOrDefault(x =>
+                    x != null &&
+                    !string.IsNullOrWhiteSpace(x.StablePackId) &&
+                    string.Equals(x.StablePackId, communityId, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingLocalPack == null)
+                {
+                    return false;
+                }
+
+                existing = new CommunityPackInstallation
+                {
+                    CommunityId = communityId,
+                    LocalPackId = matchingLocalPack.LocalId,
+                    Version = matchingLocalPack.Version ?? string.Empty,
+                    InstalledUtc = DateTime.MinValue
+                };
+            }
 
             var dispatcher = Application.Current?.Dispatcher;
-            Action delete = () => DeleteLocalPack(existing.LocalPackId);
+            Action delete = () =>
+            {
+                if (string.Equals(packType, "complete", StringComparison.OrdinalIgnoreCase))
+                {
+                    plugin.DeleteCompletePack(existing.LocalPackId, deleteIncludedPacks);
+                }
+                else
+                {
+                    DeleteLocalPack(existing.LocalPackId);
+                }
+            };
             if (dispatcher != null && !dispatcher.CheckAccess()) dispatcher.Invoke(delete); else delete();
 
             installationIndex = LoadInstallationIndex();
@@ -514,20 +743,70 @@ namespace AnikiHelper.Services.CommunityPacks
             switch (packType)
             {
                 case "visual":
-                    var visual = plugin.ImportCustomVisualPack(zipPath, wasUpdate);
-                    return visual == null ? null : new CommonImportResult { LocalId = visual.PackId, WasAlreadyInLibrary = visual.WasAlreadyInLibrary };
+                {
+                    var service = new VisualPackImportService(api, pluginUserDataPath, logger);
+                    var visual = service.Import(zipPath, wasUpdate, false);
+                    return visual == null
+                        ? null
+                        : new CommonImportResult
+                        {
+                            LocalId = visual.LocalId,
+                            WasAlreadyInLibrary = visual.WasAlreadyInLibrary
+                        };
+                }
+
                 case "color":
-                    var color = plugin.ImportCustomColorPack(zipPath);
-                    return color == null ? null : new CommonImportResult { LocalId = color.LocalId, WasAlreadyInLibrary = color.WasAlreadyInLibrary };
+                {
+                    var service = new ColorPackImportService(api, pluginUserDataPath, logger);
+                    var color = service.Import(zipPath, false);
+                    return color == null
+                        ? null
+                        : new CommonImportResult
+                        {
+                            LocalId = color.LocalId,
+                            WasAlreadyInLibrary = color.WasAlreadyInLibrary
+                        };
+                }
+
                 case "login":
-                    var login = plugin.ImportLoginPack(zipPath);
-                    return login == null ? null : new CommonImportResult { LocalId = login.LocalId, WasAlreadyInLibrary = login.WasAlreadyInLibrary };
+                {
+                    var service = new LoginPackImportService(api, pluginUserDataPath, logger);
+                    var login = service.Import(zipPath, false);
+                    return login == null
+                        ? null
+                        : new CommonImportResult
+                        {
+                            LocalId = login.LocalId,
+                            WasAlreadyInLibrary = login.WasAlreadyInLibrary
+                        };
+                }
+
                 case "sound":
-                    var sound = plugin.ImportSoundPack(zipPath);
-                    return sound == null ? null : new CommonImportResult { LocalId = sound.LocalId, WasAlreadyInLibrary = sound.WasAlreadyInLibrary };
+                {
+                    var service = new SoundPackImportService(api, pluginUserDataPath, logger);
+                    var sound = service.Import(zipPath, false);
+                    return sound == null
+                        ? null
+                        : new CommonImportResult
+                        {
+                            LocalId = sound.LocalId,
+                            WasAlreadyInLibrary = sound.WasAlreadyInLibrary
+                        };
+                }
+
                 case "complete":
-                    var complete = plugin.ImportCompletePack(zipPath);
-                    return complete == null ? null : new CommonImportResult { LocalId = complete.LocalId, WasAlreadyInLibrary = complete.WasAlreadyInLibrary };
+                {
+                    var service = new CompletePackImportService(api, pluginUserDataPath, logger);
+                    var complete = service.Import(zipPath);
+                    return complete == null
+                        ? null
+                        : new CommonImportResult
+                        {
+                            LocalId = complete.LocalId,
+                            WasAlreadyInLibrary = complete.WasAlreadyInLibrary
+                        };
+                }
+
                 default:
                     throw new InvalidOperationException("Unsupported Community Pack type.");
             }
@@ -546,20 +825,77 @@ namespace AnikiHelper.Services.CommunityPacks
             }
         }
 
-        private HashSet<string> GetLocalPackIds()
+        private List<LocalPackIdentity> GetLocalPackIdentities()
         {
-            IEnumerable<string> ids;
             switch (packType)
             {
-                case "visual": ids = (plugin.GetCustomVisualPackLibrary()?.Packs ?? new List<VisualPackLibraryPack>()).Select(x => x?.Id); break;
-                case "color": ids = (plugin.GetCustomColorPackLibrary()?.Packs ?? new List<ColorPackLibraryPack>()).Select(x => x?.LocalId); break;
-                case "login": ids = (plugin.GetLoginPackLibrary()?.Packs ?? new List<LoginPackLibraryPack>()).Select(x => x?.LocalId); break;
-                case "sound": ids = (plugin.GetSoundPackLibrary()?.Packs ?? new List<SoundPackLibraryPack>()).Select(x => x?.LocalId); break;
-                case "complete": ids = (plugin.GetCompletePackLibrary()?.Packs ?? new List<CompletePackLibraryPack>()).Select(x => x?.LocalId); break;
-                default: ids = Enumerable.Empty<string>(); break;
-            }
+                case "visual":
+                    return (plugin.GetCustomVisualPackLibrary()?.Packs ?? new List<VisualPackLibraryPack>())
+                        .Where(x => x != null)
+                        .Select(x => new LocalPackIdentity
+                        {
+                            LocalId = x.LocalId,
+                            StablePackId = x.PackId,
+                            Version = x.Version
+                        })
+                        .ToList();
 
-            return new HashSet<string>(ids.Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
+                case "color":
+                    return (plugin.GetCustomColorPackLibrary()?.Packs ?? new List<ColorPackLibraryPack>())
+                        .Where(x => x != null)
+                        .Select(x => new LocalPackIdentity
+                        {
+                            LocalId = x.LocalId,
+                            StablePackId = x.PackId,
+                            Version = x.Version
+                        })
+                        .ToList();
+
+                case "login":
+                    return (plugin.GetLoginPackLibrary()?.Packs ?? new List<LoginPackLibraryPack>())
+                        .Where(x => x != null)
+                        .Select(x => new LocalPackIdentity
+                        {
+                            LocalId = x.LocalId,
+                            StablePackId = x.PackId,
+                            Version = x.Version
+                        })
+                        .ToList();
+
+                case "sound":
+                    return (plugin.GetSoundPackLibrary()?.Packs ?? new List<SoundPackLibraryPack>())
+                        .Where(x => x != null)
+                        .Select(x => new LocalPackIdentity
+                        {
+                            LocalId = x.LocalId,
+                            StablePackId = x.PackId,
+                            Version = x.Version
+                        })
+                        .ToList();
+
+                case "complete":
+                    return (plugin.GetCompletePackLibrary()?.Packs ?? new List<CompletePackLibraryPack>())
+                        .Where(x => x != null)
+                        .Select(x => new LocalPackIdentity
+                        {
+                            LocalId = x.LocalId,
+                            StablePackId = x.PackId,
+                            Version = x.Version
+                        })
+                        .ToList();
+
+                default:
+                    return new List<LocalPackIdentity>();
+            }
+        }
+
+        private HashSet<string> GetLocalPackIds()
+        {
+            return new HashSet<string>(
+                GetLocalPackIdentities()
+                    .Select(x => x?.LocalId)
+                    .Where(x => !string.IsNullOrWhiteSpace(x)),
+                StringComparer.OrdinalIgnoreCase);
         }
 
         private string GetActivePackId()
@@ -690,13 +1026,34 @@ namespace AnikiHelper.Services.CommunityPacks
                 throw new InvalidDataException("Unsupported Community Packs catalog format.");
             }
 
+            var allPacks = catalog.Packs ?? new List<CommunityPackCatalogItem>();
             var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in catalog.Packs ?? new List<CommunityPackCatalogItem>())
+            var byId = new Dictionary<string, CommunityPackCatalogItem>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in allPacks)
             {
                 ValidateCatalogItem(item);
                 if (!ids.Add(item.Id))
                 {
                     throw new InvalidDataException("The Community catalog contains a duplicate pack id: " + item.Id);
+                }
+
+                byId[item.Id] = item;
+            }
+
+            foreach (var item in allPacks)
+            {
+                if (string.IsNullOrWhiteSpace(item?.ParentCompletePackId))
+                {
+                    continue;
+                }
+
+                CommunityPackCatalogItem parent;
+                if (!byId.TryGetValue(item.ParentCompletePackId, out parent) ||
+                    !string.Equals(parent?.Type, "complete", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        "Community Pack '" + item.Id + "' references an invalid parent Complete Pack.");
                 }
             }
         }
@@ -732,6 +1089,19 @@ namespace AnikiHelper.Services.CommunityPacks
                         throw new InvalidDataException("Community Pack '" + item.Id + "' has an invalid component preview URL.");
                 }
             }
+
+            var isComplete = string.Equals((item.Type ?? string.Empty).Trim(), "complete", StringComparison.OrdinalIgnoreCase);
+            if (item.ComponentIds != null && !isComplete)
+                throw new InvalidDataException("Only Complete Packs can define component IDs.");
+
+            if (!string.IsNullOrWhiteSpace(item.ParentCompletePackId))
+            {
+                if (isComplete || !SafeIdRegex.IsMatch(item.ParentCompletePackId))
+                    throw new InvalidDataException("Community Pack '" + item.Id + "' has an invalid parent Complete Pack ID.");
+            }
+
+            if (item.GeneratedFromCompletePack && string.IsNullOrWhiteSpace(item.ParentCompletePackId))
+                throw new InvalidDataException("Community Pack '" + item.Id + "' is marked as generated from a Complete Pack but has no parent Complete Pack ID.");
 
             if (!TryGetHttpsUri(item.DownloadUrl, out _))
                 throw new InvalidDataException("Community Pack '" + item.Id + "' has an invalid download URL.");

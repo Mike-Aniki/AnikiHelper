@@ -32,8 +32,8 @@ namespace AnikiHelper.Services
         public SteamUserGamesService(ILogger logger, string pluginUserDataPath)
         {
             this.logger = logger;
-            userCacheFolder = Path.Combine(pluginUserDataPath, "SteamStore", "StoreCache");
-            legacyUserCacheFolder = Path.Combine(pluginUserDataPath, "SteamStore", "UserCache");
+            userCacheFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "StoreCache");
+            legacyUserCacheFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "UserCache");
             Directory.CreateDirectory(userCacheFolder);
 
             httpClient = new HttpClient

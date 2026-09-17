@@ -293,6 +293,7 @@
     <sys:String x:Key="LOCInGameOverlayBackHint">B / Back για κλείσιμο</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToPlaynite">Επιστροφή στο Playnite</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToGame">Επιστροφή στο παιχνίδι</sys:String>
+    <sys:String x:Key="LOCInGameOverlayResumeGame">Συνέχιση παιχνιδιού</sys:String>
     <sys:String x:Key="LOCInGameOverlayQuitGame">Έξοδος από το παιχνίδι</sys:String>
     <sys:String x:Key="LOCInGameOverlayGame">Παιχνίδι</sys:String>
     <sys:String x:Key="LOCInGameOverlayLastCaptures">Τελευταίες λήψεις</sys:String>
@@ -359,18 +360,26 @@
     <sys:String x:Key="GameLaunchSplash_ShowLogo">Εμφάνιση του λογότυπου στην οθόνη έναρξης παιχνιδιού</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Χρονισμός οθόνης εκκίνησης</sys:String>
-    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Η οθόνη εκκίνησης παραμένει ορατή τουλάχιστον για την ελάχιστη διάρκεια και μετά κλείνει αυτόματα μόλις είναι έτοιμο το πραγματικό παράθυρο του παιχνιδιού. Αν η ανίχνευση δεν ολοκληρωθεί, ένα σταθερό όριο ασφαλείας 90 δευτερολέπτων την κλείνει. Ο προσαρμοσμένος χρονοδιακόπτης ανά παιχνίδι αντικαθιστά μόνο την ελάχιστη διάρκεια.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Η οθόνη εκκίνησης παραμένει ορατή τουλάχιστον για την ελάχιστη διάρκεια και μετά κλείνει αυτόματα μόλις είναι έτοιμο το πραγματικό παράθυρο του παιχνιδιού. Αν η ανίχνευση δεν ολοκληρωθεί, κλείνει μετά τον ρυθμισμένο μέγιστο χρόνο αναμονής. Ο προσαρμοσμένος χρονοδιακόπτης ανά παιχνίδι αντικαθιστά μόνο την ελάχιστη διάρκεια.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Ελάχιστη διάρκεια εμφάνισης</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Καθορίζει τη διάρκεια για την οποία θα παραμένει ορατή η οθόνη έναρξης παιχνιδιού, τουλάχιστον.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Αυτόματη ανίχνευση όταν το παράθυρο του παιχνιδιού είναι έτοιμο</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Όταν είναι ενεργό, το Aniki Helper κρατά την οθόνη εκκίνησης ορατή τουλάχιστον για την καθορισμένη ελάχιστη διάρκεια και μετά την κλείνει όταν εντοπιστεί το πραγματικό παράθυρο του παιχνιδιού. Οι προσαρμοσμένοι χρονοδιακόπτες ανά παιχνίδι παρακάμπτουν την ελάχιστη διάρκεια, αλλά εξακολουθούν να χρησιμοποιούν την αυτόματη ανίχνευση.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Χρονοδιακόπτης ασφαλείας για αυτόματο κλείσιμο</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Καθορίζει τον μέγιστο χρόνο που αναμένει το Aniki Helper προτού κλείσει αυτόματα την οθόνη έναρξης (splash screen).</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Title">Παιχνίδια με απενεργοποιημένη οθόνη εκκίνησης</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Help">Τα παιχνίδια στα οποία απενεργοποιήθηκε η οθόνη εκκίνησης από δεξί κλικ → Aniki Helper → Splash Screen εμφανίζονται εδώ. Καταργήστε την επιλογή για να την ενεργοποιήσετε ξανά για το παιχνίδι.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Clear">Εκκαθάριση λίστας απενεργοποιημένων παιχνιδιών</sys:String>
+    <sys:String x:Key="LOCAnikiHelperDisableSplashThisGame">Απενεργοποίηση οθόνης εκκίνησης για αυτό το παιχνίδι</sys:String>
+    <sys:String x:Key="LOCAnikiHelperEnableSplashThisGame">Ενεργοποίηση οθόνης εκκίνησης για αυτό το παιχνίδι</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Επαναφορά</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Ορισμός ελάχιστου χρόνου για αυτό το παιχνίδι</sys:String>
     <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Επαναφορά ελάχιστου χρόνου για αυτό το παιχνίδι</sys:String>
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Ελάχιστη διάρκεια οθόνης εκκίνησης για αυτό το παιχνίδι, σε δευτερόλεπτα:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWait">Set maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMaximumWait">Reset maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWaitPrompt">Maximum automatic-detection wait for this game, in seconds:</sys:String>
     <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Μη έγκυρη τιμή χρονοδιακόπτη.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Ενεργοποίηση ήχου βίντεο έναρξης παιχνιδιού</sys:String>
@@ -1601,6 +1610,9 @@
     <sys:String x:Key="CompletePack_ExportSuccess">Το πλήρες πακέτο «{0}» εξήχθη με επιτυχία.</sys:String>
     <sys:String x:Key="CompletePack_ExportError">Δεν ήταν δυνατή η εξαγωγή του πλήρους πακέτου:</sys:String>
     <sys:String x:Key="CompletePack_DeleteConfirm">Να διαγραφεί το πλήρες πακέτο «{0}» από τη βιβλιοθήκη; Τα επιμέρους πακέτα στοιχείων του θα παραμείνουν εγκατεστημένα.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteChoice">Διαγραφή του Complete Pack «{0}»; &#10;&#10;ΝΑΙ = Διαγραφή του Complete Pack και όλων των εγκατεστημένων Visual, Color, Login και Sound Packs που περιλαμβάνει.&#10;&#10;ΟΧΙ = Διαγραφή μόνο του Complete Pack και διατήρηση των επιμέρους packs εγκατεστημένων.&#10;&#10;ΑΚΥΡΟ = Να μη διαγραφεί τίποτα.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSharedWarning">Ορισμένα επιμέρους packs χρησιμοποιούνται επίσης από τα ακόλουθα εγκατεστημένα Complete Packs:&#10;&#10;{0}&#10;&#10;Η διαγραφή των επιμέρους packs θα αφαιρέσει και αυτά τα εγκατεστημένα αντίγραφα στοιχείων. Τα άλλα Complete Packs θα παραμείνουν στη βιβλιοθήκη και μπορούν να επανεγκαταστήσουν τα στοιχεία τους αν τα εφαρμόσετε ξανά.&#10;&#10;Συνέχεια;</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSuccessWithComponents">Το Complete Pack «{0}» και τα επιμέρους packs του διαγράφηκαν.</sys:String>
     <sys:String x:Key="CompletePack_DeleteSuccess">Το πλήρες πακέτο «{0}» διαγράφηκε.</sys:String>
     <sys:String x:Key="CompletePack_DeleteError">Δεν ήταν δυνατή η διαγραφή του πλήρους πακέτου:</sys:String>
     <sys:String x:Key="CompletePack_ComponentVisual">Visual</sys:String>
@@ -1635,6 +1647,7 @@
     <sys:String x:Key="CommunityPack_Refresh">Ανανέωση</sys:String>
     <sys:String x:Key="CommunityPack_NoPreview">Χωρίς προεπισκόπηση</sys:String>
     <sys:String x:Key="CommunityPack_Featured">ΠΡΟΤΕΙΝΟΜΕΝΟ</sys:String>
+    <sys:String x:Key="CommunityPack_IncludedInComplete">✦ Περιλαμβάνεται στο Complete Pack: {0}</sys:String>
     <sys:String x:Key="CommunityPack_Updating">Ενημέρωση...</sys:String>
     <sys:String x:Key="CommunityPack_Installing">Εγκατάσταση...</sys:String>
     <sys:String x:Key="CommunityPack_UpdatingStatus">Ενημέρωση {0}...</sys:String>
@@ -1674,4 +1687,54 @@
     <sys:String x:Key="PackCreator_CompleteDesc">Συνδυάστε πολλούς τύπους πακέτων και εφαρμόστε μια συντονισμένη εμπειρία με ένα βήμα.</sys:String>
     <sys:String x:Key="PackCreator_CommunityTitle">Κοινοποίηση στην κοινότητα</sys:String>
     <sys:String x:Key="PackCreator_CommunityDesc">Όταν το πακέτο σας είναι έτοιμο, χρησιμοποιήστε το Share Community Pack μέσα στο Creator για να ανοίξετε την αντίστοιχη φόρμα υποβολής στο GitHub. Τα εγκεκριμένα πακέτα μπορούν έπειτα να εγκατασταθούν απευθείας από το Aniki Helper.</sys:String>
+
+    <!-- Unified Community Packs Hub -->
+    <sys:String x:Key="CommunityPack_IncludesLabel">Αυτό το πακέτο περιλαμβάνει:</sys:String>
+    <sys:String x:Key="CommunityHub_MenuTitle">Πακέτα κοινότητας</sys:String>
+    <sys:String x:Key="CommunityHub_MenuDescription">Περιηγηθείτε, εγκαταστήστε, ενημερώστε και διαχειριστείτε πακέτα Complete, Visual, Login, Color και Sound που μοιράζεται η κοινότητα Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_BrowseButton">✦ Περιήγηση στα πακέτα κοινότητας</sys:String>
+    <sys:String x:Key="CommunityHub_Title">Πακέτα κοινότητας</sys:String>
+    <sys:String x:Key="CommunityHub_Description">Περιηγηθείτε, εγκαταστήστε και διαχειριστείτε πακέτα Complete, Visual, Login, Color και Sound της κοινότητας Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_TabComplete">Πλήρη</sys:String>
+    <sys:String x:Key="CommunityHub_TabVisual">Visual</sys:String>
+    <sys:String x:Key="CommunityHub_TabLogin">Login</sys:String>
+    <sys:String x:Key="CommunityHub_TabColor">Χρώματα</sys:String>
+    <sys:String x:Key="CommunityHub_TabSound">Ήχοι</sys:String>
+    <sys:String x:Key="CommunityHub_SortFormat">Ταξινόμηση: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_SortNewest">Νεότερα</sys:String>
+    <sys:String x:Key="CommunityHub_SortUpdated">Πρόσφατα ενημερωμένα</sys:String>
+    <sys:String x:Key="CommunityHub_SortPopular">Πιο δημοφιλή</sys:String>
+    <sys:String x:Key="CommunityHub_SortName">Όνομα A-Z</sys:String>
+    <sys:String x:Key="CommunityHub_SortNameDesc">Όνομα Ω-Α</sys:String>
+    <sys:String x:Key="CommunityHub_FilterFormat">Εμφάνιση: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_FilterAll">Όλα</sys:String>
+    <sys:String x:Key="CommunityHub_FilterNew">Νέα</sys:String>
+    <sys:String x:Key="CommunityHub_FilterUpdates">Ενημερώσεις</sys:String>
+    <sys:String x:Key="CommunityHub_FilterInstalled">Εγκατεστημένα</sys:String>
+    <sys:String x:Key="CommunityHub_NoFilterMatches">Κανένα πακέτο δεν ταιριάζει με το τρέχον φίλτρο.</sys:String>
+    <sys:String x:Key="CommunityHub_ReleasedFormat">Κυκλοφόρησε {0}</sys:String>
+    <sys:String x:Key="CommunityHub_UpdatedFormat">Ενημερώθηκε {0}</sys:String>
+    <sys:String x:Key="CommunityHub_NewBadge">ΝΕΟ</sys:String>
+    <sys:String x:Key="CommunityHub_PopularBadge">ΔΗΜΟΦΙΛΕΣ</sys:String>
+    <sys:String x:Key="CommunityPack_InstallConfirm">Θέλετε να εγκαταστήσετε το «{0}»;</sys:String>
+
+    <!-- Random Login Pool -->
+    <sys:String x:Key="LoginRandomPool_ConfigureButton">Ρύθμιση τυχαίας επιλογής</sys:String>
+    <sys:String x:Key="LoginRandomPool_Title">Τυχαία συλλογή σύνδεσης</sys:String>
+    <sys:String x:Key="LoginRandomPool_Description">Επιλέξτε ποια εγκατεστημένα φόντα σύνδεσης μπορούν να επιλέγονται τυχαία κατά την εκκίνηση.</sys:String>
+    <sys:String x:Key="LoginRandomPool_DefaultNote">Τα νέα εγκατεστημένα φόντα ενεργοποιούνται από προεπιλογή. Το Lucky Day παραμένει ξεχωριστό.</sys:String>
+    <sys:String x:Key="LoginRandomPool_SelectAll">Επιλογή όλων</sys:String>
+    <sys:String x:Key="LoginRandomPool_ClearAll">Καθαρισμός επιλογής</sys:String>
+    <sys:String x:Key="LoginRandomPool_Toggle">Εναλλαγή</sys:String>
+    <sys:String x:Key="LoginRandomPool_BuiltIn">ΕΝΣΩΜΑΤΩΜΕΝΟ</sys:String>
+    <sys:String x:Key="LoginRandomPool_Community">ΚΟΙΝΟΤΗΤΑ</sys:String>
+    <sys:String x:Key="LoginRandomPool_Empty">Δεν υπάρχουν εγκατεστημένα κατάλληλα φόντα σύνδεσης.</sys:String>
+    <sys:String x:Key="LoginRandomPool_CountFormat">{0} / {1} επιλεγμένα</sys:String>
+    <sys:String x:Key="SettingsNav_Notifications">Ειδοποιήσεις</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Enable">Καθολική επικάλυψη ειδοποιήσεων</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Help">Εμφανίζει τις ειδοποιήσεις Aniki πάνω από όλες τις εφαρμογές αντί μέσα στο θέμα.</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestButton">Δοκιμή ειδοποίησης</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestMessage">Αυτή είναι μια δοκιμαστική ειδοποίηση Aniki.</sys:String>
+    <sys:String x:Key="LOCNotificationTitleCommunityPacks">Πακέτα κοινότητας</sys:String>
+    <sys:String x:Key="CommunityPack_NewNotification">Υπάρχουν διαθέσιμα νέα πακέτα κοινότητας.</sys:String>
 </ResourceDictionary>

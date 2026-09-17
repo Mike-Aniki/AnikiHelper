@@ -67,8 +67,8 @@ namespace AnikiHelper.Services.ScreenSaver
             backgroundImage = new Image
             {
                 Stretch = Stretch.UniformToFill,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
                 RenderTransformOrigin = new Point(0.5, 0.5),
                 RenderTransform = backgroundScale,
                 IsHitTestVisible = false

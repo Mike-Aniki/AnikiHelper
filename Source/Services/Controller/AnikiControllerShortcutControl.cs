@@ -55,11 +55,24 @@ namespace AnikiHelper.Services.Controller
 
         private bool isControlActive;
         private bool buttonDownSubscribed;
+        private bool applicationActivatedSubscribed;
+        private bool pendingDefaultAUntilRelease;
 
         private static readonly object ActiveControlsLock = new object();
 
         private static readonly HashSet<AnikiControllerShortcutControl> ActiveControls =
             new HashSet<AnikiControllerShortcutControl>();
+
+        internal static bool HasActiveShortcutControls
+        {
+            get
+            {
+                lock (ActiveControlsLock)
+                {
+                    return ActiveControls.Count > 0;
+                }
+            }
+        }
 
         private InputBindingCollection actualBindings;
 
@@ -123,6 +136,7 @@ namespace AnikiHelper.Services.Controller
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             SubscribeControllerInput();
+            SubscribeApplicationActivation();
             TryWatchParentTag();
             UpdateOverrideProcessing();
         }
@@ -130,6 +144,7 @@ namespace AnikiHelper.Services.Controller
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             SetControlActive(false);
+            UnsubscribeApplicationActivation();
             UnsubscribeControllerInput();
         }
 
@@ -141,6 +156,7 @@ namespace AnikiHelper.Services.Controller
             }
 
             AnikiControllerInput.ButtonDown += OnButtonDown;
+            AnikiControllerInput.ButtonUp += OnButtonUp;
             buttonDownSubscribed = true;
         }
 
@@ -152,7 +168,68 @@ namespace AnikiHelper.Services.Controller
             }
 
             AnikiControllerInput.ButtonDown -= OnButtonDown;
+            AnikiControllerInput.ButtonUp -= OnButtonUp;
+            pendingDefaultAUntilRelease = false;
             buttonDownSubscribed = false;
+        }
+
+        private void SubscribeApplicationActivation()
+        {
+            if (applicationActivatedSubscribed)
+            {
+                return;
+            }
+
+            var application = Application.Current;
+            if (application == null)
+            {
+                return;
+            }
+
+            application.Activated += OnApplicationActivated;
+            applicationActivatedSubscribed = true;
+        }
+
+        private void UnsubscribeApplicationActivation()
+        {
+            if (!applicationActivatedSubscribed)
+            {
+                return;
+            }
+
+            try
+            {
+                var application = Application.Current;
+                if (application != null)
+                {
+                    application.Activated -= OnApplicationActivated;
+                }
+            }
+            finally
+            {
+                applicationActivatedSubscribed = false;
+            }
+        }
+
+        private void OnApplicationActivated(object sender, EventArgs e)
+        {
+            try
+            {
+                // A running game can take foreground while the Main view keeps no WPF keyboard
+                // focus. When Playnite becomes active again there may therefore be no focus event
+                // to re-enable the Aniki shortcut host. Refresh immediately on application
+                // activation so Start / Back / Y are restored before the next controller press.
+                DebugLog("[AnikiHelper][Controller] Playnite application activated; refreshing Aniki shortcut processing.");
+                DoUpdateOverrideProcessing();
+
+                // Run one deferred pass as well because foreground/focus state can finish settling
+                // just after WPF raises Application.Activated.
+                UpdateOverrideProcessing();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to refresh controller shortcuts after Playnite activation.");
+            }
         }
 
         private void TryWatchParentTag()
@@ -265,7 +342,16 @@ namespace AnikiHelper.Services.Controller
                     InputBindings = collection;
                 }
 
-                bool finalActive = active && (global || IsParentFocused(this));
+                // After a game is launched, Playnite can regain foreground without restoring
+                // WPF keyboard focus inside the Main view. In that state the theme shortcut
+                // host is still valid, but IsParentFocused(this) is false and Playnite falls
+                // back to its native Start/Back/Y handling. Keep Aniki shortcuts active while
+                // Playnite owns the foreground and a game is still running.
+                bool playniteForegroundWhileGameRunning =
+                    IsAnyGameRunning() && IsCurrentProcessForeground();
+
+                bool finalActive = active &&
+                    (global || IsParentFocused(this) || playniteForegroundWhileGameRunning);
 
                 if (finalActive && IsShortcutBlockedByOpenWindow(this))
                 {
@@ -432,12 +518,61 @@ namespace AnikiHelper.Services.Controller
 
                 if (!suppressDefaults)
                 {
+                    // When a game is already running, Playnite can execute a "Return to Game"
+                    // action from the same physical A press that selected the button. If focus is
+                    // handed back to the game while A is still physically held, the game receives
+                    // that press too (for example confirming Exit or starting New Game).
+                    //
+                    // Only defer Playnite's *default* A processing; custom Aniki A bindings above
+                    // keep their existing behavior. Running the Playnite action on physical release
+                    // guarantees that the game cannot inherit the activation press.
+                    if (button == ControllerInput.A && gameRunning && playniteForeground)
+                    {
+                        pendingDefaultAUntilRelease = true;
+                        DebugLog("[AnikiHelper][Controller] Deferring default A processing until physical release because a game is running.");
+                        return;
+                    }
+
                     controller.DefaultProcess(button.ToString(), true);
                 }
             }
             catch (Exception ex)
             {
                 logger.Warn(ex, "[AnikiHelper] Failed to process controller shortcut.");
+            }
+        }
+
+        private void OnButtonUp(object sender, ControllerInput button)
+        {
+            if (button != ControllerInput.A || !pendingDefaultAUntilRelease)
+            {
+                return;
+            }
+
+            // Clear first so a focus change/unload caused by the command cannot replay it.
+            pendingDefaultAUntilRelease = false;
+
+            try
+            {
+                if (!isControlActive || !(Parent is ContentControl))
+                {
+                    return;
+                }
+
+                // The action was queued only while Playnite owned the foreground. If something
+                // else stole focus before release, do not inject an activation into that window.
+                if (!IsCurrentProcessForeground() || !IsAnyGameRunning())
+                {
+                    DebugLog("[AnikiHelper][Controller] Deferred A release cancelled because Playnite is no longer foreground or the game stopped.");
+                    return;
+                }
+
+                DebugLog("[AnikiHelper][Controller] Processing deferred A after physical release.");
+                controller.DefaultProcess(ControllerInput.A.ToString(), true);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to process deferred controller A release.");
             }
         }
 

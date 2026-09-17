@@ -23,7 +23,7 @@ namespace AnikiHelper.Services.MediaGallery
             this.playniteApi = playniteApi;
             this.logger = logger;
 
-            cacheRoot = Path.Combine(pluginUserDataPath, "ScreenshotCache");
+            cacheRoot = global::AnikiHelper.AnikiCacheLayout.ScreenshotsRoot(pluginUserDataPath);
 
             try
             {
@@ -76,6 +76,30 @@ namespace AnikiHelper.Services.MediaGallery
             {
                 logger?.Warn(ex, "[AnikiHelper] Failed to load latest media cache.");
                 return new List<AnikiMediaItem>();
+            }
+        }
+
+        /// <summary>
+        /// Fast cache read for opening the fullscreen Capture Gallery. This method only
+        /// performs file I/O and JSON deserialization; it deliberately avoids Playnite
+        /// database lookups so it can run on a worker thread without blocking WPF.
+        /// </summary>
+        public List<AnikiMediaGameItem> LoadGamesCacheSnapshot()
+        {
+            try
+            {
+                if (!File.Exists(GamesCachePath))
+                {
+                    return new List<AnikiMediaGameItem>();
+                }
+
+                return Serialization.FromJsonFile<List<AnikiMediaGameItem>>(GamesCachePath)
+                    ?? new List<AnikiMediaGameItem>();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to load media games cache snapshot.");
+                return new List<AnikiMediaGameItem>();
             }
         }
 

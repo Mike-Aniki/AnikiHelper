@@ -55,7 +55,7 @@ namespace AnikiHelper.Services.SteamFriends
             this.logger = logger ?? LogManager.GetLogger();
             this.gameImageResolver = gameImageResolver;
 
-            cacheDir = Path.Combine(pluginUserDataPath, "SteamFriendCache", "FriendActivityHubCache");
+            cacheDir = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamFriendsRoot(pluginUserDataPath), "FriendActivityHubCache");
             Directory.CreateDirectory(cacheDir);
 
             recentPlayedCachePath = Path.Combine(cacheDir, "recent_played_daily.json");
@@ -392,9 +392,12 @@ namespace AnikiHelper.Services.SteamFriends
                 if (!string.IsNullOrWhiteSpace(presence.avatar)) entry.friendAvatar = presence.avatar;
             }
 
-            if (string.IsNullOrWhiteSpace(entry.gameImage))
+            // Always resolve by AppId. A persisted remote URL may be stale even when non-empty,
+            // and would otherwise prevent a missing local GameHeaderCache entry from being rebuilt.
+            var resolvedGameImage = GetSteamHeaderImageUrl(entry.appid);
+            if (!string.IsNullOrWhiteSpace(resolvedGameImage))
             {
-                entry.gameImage = GetSteamHeaderImageUrl(entry.appid);
+                entry.gameImage = resolvedGameImage;
             }
 
             if (string.IsNullOrWhiteSpace(entry.playtime2WeeksDisplay))
@@ -499,7 +502,9 @@ namespace AnikiHelper.Services.SteamFriends
                     friendSteamId = e.friendSteamId,
                     appid = e.appid,
                     gameName = e.gameName,
-                    gameImage = e.gameImage,
+                    // Re-resolve every displayed recent game so old persisted CDN URLs do not
+                    // bypass the local image resolver/cache.
+                    gameImage = GetSteamHeaderImageUrl(e.appid) ?? e.gameImage,
                     isPlaceholder = false,
                     activityUtc = e.refreshedUtc
                 };

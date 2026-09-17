@@ -188,7 +188,7 @@ namespace AnikiHelper.Services.SteamFriends
 
             steamClient = new SteamFriendsWebApiClient();
 
-            steamFriendCacheDir = Path.Combine(pluginUserDataPath, "SteamFriendCache");
+            steamFriendCacheDir = global::AnikiHelper.AnikiCacheLayout.SteamFriendsRoot(pluginUserDataPath);
             avatarCacheDir = Path.Combine(steamFriendCacheDir, "AvatarCache");
             gameHeaderCacheDir = Path.Combine(steamFriendCacheDir, "GameHeaderCache");
 

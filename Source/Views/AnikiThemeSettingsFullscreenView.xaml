@@ -159,6 +159,47 @@
         </Style>
 
         <!-- ==========================================================
+        COMMUNITY PACKS HUB ITEM
+        ========================================================== -->
+
+        <DataTemplate DataType="{x:Type ats:AnikiCommunityPacksMenuItem}">
+            <Grid Style="{StaticResource AnikiThemeSettingsOptionRowStyle}"
+                  Margin="0,10,0,18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="500"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Margin="0,0,30,0">
+                    <TextBlock Text="{Binding DisplayName}"
+                               FontSize="24"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextHighlightBrush}"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding DisplayDescription}"
+                               Margin="0,5,20,0"
+                               MaxWidth="840"
+                               FontSize="14"
+                               Opacity="0.72"
+                               Foreground="{DynamicResource TextBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <pctrls:ButtonEx Grid.Column="1"
+                                 Content="{DynamicResource CommunityHub_BrowseButton}"
+                                 Command="{x:Static views:FullscreenSettingsView.OpenCommunityPacksCommand}"
+                                 CommandParameter="CommunityHub"
+                                 Style="{StaticResource AnikiCommunityPackBrowseButtonStyle}"
+                                 Foreground="{DynamicResource TextHighlightBrush}"
+                                 FontWeight="Bold"
+                                 Width="460"
+                                 Margin="0,7,35,7"/>
+            </Grid>
+        </DataTemplate>
+
+        <!-- ==========================================================
         VARIABLE / OPTION ITEM
         ========================================================== -->
 
@@ -481,7 +522,6 @@
 
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <Grid.ColumnDefinitions>
@@ -505,6 +545,34 @@
                       Margin="0,7,35,7"
                       HorizontalAlignment="Right"
                       VerticalAlignment="Center">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Id}" Value="LoginBackground"/>
+                                        <Condition Binding="{Binding IsSelectionEnabled}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </MultiDataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Id}" Value="Interface"/>
+                                        <Condition Binding="{Binding IsSelectionEnabled}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </MultiDataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Id}" Value="VisualPack"/>
+                                        <Condition Binding="{Binding IsSelectionEnabled}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
                     <pctrls:ComboBoxEx Style="{DynamicResource AnikiThemeSettingsComboBoxStyle}"
                                        ItemsSource="{Binding FilteredItems}"
                                        DisplayMemberPath="DisplayName"
@@ -537,60 +605,88 @@
                     </TextBlock>
                 </Grid>
 
-                <Grid Grid.Row="1"
-                      Grid.Column="1"
-                      Width="460"
-                      Margin="0,0,35,10"
-                      HorizontalAlignment="Right">
-                    <Grid.Style>
-                        <Style TargetType="Grid">
+                <!-- Random is now a first-level Login Background category.
+                     When selected, it replaces the normal preset selector in the same slot. -->
+                <pctrls:ButtonEx Grid.Row="0"
+                                 Grid.Column="1"
+                                 Width="460"
+                                 Height="58"
+                                 Margin="0,7,35,7"
+                                 HorizontalAlignment="Right"
+                                 Content="{DynamicResource LoginRandomPool_ConfigureButton}"
+                                 Command="{x:Static views:FullscreenSettingsView.OpenLoginRandomPoolCommand}">
+                    <pctrls:ButtonEx.Style>
+                        <Style TargetType="{x:Type pctrls:ButtonEx}"
+                               BasedOn="{StaticResource AnikiCommunityPackBrowseButtonStyle}">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding Id}" Value="VisualPack">
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Id}" Value="LoginBackground"/>
+                                        <Condition Binding="{Binding IsSelectionEnabled}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
                                     <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding Id}" Value="Interface">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding Id}" Value="LoginBackground">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding Id}" Value="SoundPack">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding Id}" Value="CompletePack">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
+                                </MultiDataTrigger>
                             </Style.Triggers>
                         </Style>
-                    </Grid.Style>
-                    <pctrls:ButtonEx Command="{x:Static views:FullscreenSettingsView.OpenCommunityPacksCommand}"
-                                     CommandParameter="{Binding Id}">
-                        <pctrls:ButtonEx.Style>
-                            <Style TargetType="{x:Type pctrls:ButtonEx}"
-                                   BasedOn="{StaticResource AnikiCommunityPackBrowseButtonStyle}">
-                                <Setter Property="Content" Value="{DynamicResource CommunityPack_BrowseButton}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Id}" Value="VisualPack">
-                                        <Setter Property="Content" Value="{DynamicResource CommunityPack_VisualButton}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Id}" Value="Interface">
-                                        <Setter Property="Content" Value="{DynamicResource CommunityPack_ColorButton}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Id}" Value="LoginBackground">
-                                        <Setter Property="Content" Value="{DynamicResource CommunityPack_LoginButton}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Id}" Value="SoundPack">
-                                        <Setter Property="Content" Value="{DynamicResource CommunityPack_SoundButton}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Id}" Value="CompletePack">
-                                        <Setter Property="Content" Value="{DynamicResource CommunityPack_CompleteButton}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </pctrls:ButtonEx.Style>
-                    </pctrls:ButtonEx>
-                </Grid>
+                    </pctrls:ButtonEx.Style>
+                </pctrls:ButtonEx>
+
+                <!-- Theme Color Random uses the same first-level-mode pattern as Random Login. -->
+                <pctrls:ButtonEx Grid.Row="0"
+                                 Grid.Column="1"
+                                 Width="460"
+                                 Height="58"
+                                 Margin="0,7,35,7"
+                                 HorizontalAlignment="Right"
+                                 Content="{DynamicResource LoginRandomPool_ConfigureButton}"
+                                 Command="{x:Static views:FullscreenSettingsView.OpenThemeColorRandomPoolCommand}">
+                    <pctrls:ButtonEx.Style>
+                        <Style TargetType="{x:Type pctrls:ButtonEx}"
+                               BasedOn="{StaticResource AnikiCommunityPackBrowseButtonStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Id}" Value="Interface"/>
+                                        <Condition Binding="{Binding IsSelectionEnabled}" Value="False"/>
+                                        <!-- Random exposes no filtered preset items. Dynamic keeps its
+                                             single preset internally so it can be auto-selected. -->
+                                        <Condition Binding="{Binding FilteredItems.Count}" Value="0"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </pctrls:ButtonEx.Style>
+                </pctrls:ButtonEx>
+
+                <!-- Visual Pack Random follows the same first-level-mode pattern. -->
+                <pctrls:ButtonEx Grid.Row="0"
+                                 Grid.Column="1"
+                                 Width="460"
+                                 Height="58"
+                                 Margin="0,7,35,7"
+                                 HorizontalAlignment="Right"
+                                 Content="{DynamicResource LoginRandomPool_ConfigureButton}"
+                                 Command="{x:Static views:FullscreenSettingsView.OpenVisualPackRandomPoolCommand}">
+                    <pctrls:ButtonEx.Style>
+                        <Style TargetType="{x:Type pctrls:ButtonEx}"
+                               BasedOn="{StaticResource AnikiCommunityPackBrowseButtonStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Id}" Value="VisualPack"/>
+                                        <Condition Binding="{Binding IsSelectionEnabled}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </pctrls:ButtonEx.Style>
+                </pctrls:ButtonEx>
+
             </Grid>
         </DataTemplate>
 

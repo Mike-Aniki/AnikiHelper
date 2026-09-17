@@ -40,6 +40,27 @@ namespace AnikiHelper.Services
                 return command;
             }
         }
+
+        public bool TryGetParameter(ICommand command, out string parameter)
+        {
+            parameter = null;
+
+            if (command == null)
+            {
+                return false;
+            }
+
+            foreach (var pair in cache)
+            {
+                if (ReferenceEquals(pair.Value, command))
+                {
+                    parameter = pair.Key;
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     public class AnikiWindowManager
@@ -51,10 +72,14 @@ namespace AnikiHelper.Services
             public Window Parent { get; set; }
             public bool IsChild { get; set; }
             public bool IsClosing { get; set; }
+            public bool PlayAdditionalViewSound { get; set; }
         }
 
         private readonly IPlayniteAPI playniteApi;
         private readonly ILogger logger;
+        private readonly Action playOpenPanelSound;
+        private readonly Action playOpenAdditionalViewSound;
+        private readonly Action playCloseAdditionalViewSound;
         private readonly Stack<TrackedWindow> windows = new Stack<TrackedWindow>();
         private readonly HashSet<Window> secondaryMusicWindows = new HashSet<Window>();
         private readonly HashSet<Window> suppressFinalFocusRestoreWindows = new HashSet<Window>();
@@ -66,13 +91,30 @@ namespace AnikiHelper.Services
         private bool lastReportedOpenWindowState;
         private bool lastReportedSecondaryMusicState;
         private const string QuickAccessWindowStyleName = "QuickAccessWindowStyle";
+        private const string ControlCenterWindowStyleName = "ControlCenterWindowStyle";
+        private const string FirstSetupWindowStyleName = "FirstSetupWindowStyle";
         private const string VideoPlayerWindowStyleName = "VideoPlayerWindowStyle";
         private const string GamepadTesterWindowStyleName = "GamepadTesterWindowStyle";
         private const string AudioSwitcherWindowStyleName = "AudioSwitcherWindowStyle";
+        private const int SecondaryLoadingIndicatorDelayMs = 300;
+        private const int MediaCenterLoadingIndicatorDelayMs = 150;
 
-        public AnikiWindowManager(IPlayniteAPI playniteApi)
+        // Disabled globally after fullscreen secondary-view testing showed that attaching the
+        // real ControlTemplate after the first frame can introduce visible black frames and UI
+        // thread stutter on heavier pages. Keep the deferred-loading implementation below so it
+        // can be reintroduced later as an explicit opt-in for a specific view if it proves useful.
+        private static readonly bool DeferredSecondaryContentEnabled = false;
+
+        public AnikiWindowManager(
+            IPlayniteAPI playniteApi,
+            Action playOpenPanelSound = null,
+            Action playOpenAdditionalViewSound = null,
+            Action playCloseAdditionalViewSound = null)
         {
             this.playniteApi = playniteApi;
+            this.playOpenPanelSound = playOpenPanelSound;
+            this.playOpenAdditionalViewSound = playOpenAdditionalViewSound;
+            this.playCloseAdditionalViewSound = playCloseAdditionalViewSound;
             logger = LogManager.GetLogger();
         }
 
@@ -183,22 +225,22 @@ namespace AnikiHelper.Services
 
         public void OpenWindow(string parameter)
         {
-            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim, out var secondaryMusic);
-            Open(styleKey, false, focusTargetName, focusFirst, refocusAfterClick, noDim, secondaryMusic);
+            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim, out var secondaryMusic, out var openPanelSound, out var additionalViewSound);
+            Open(styleKey, false, focusTargetName, focusFirst, refocusAfterClick, noDim, secondaryMusic, openPanelSound, additionalViewSound);
         }
 
         public void OpenWindow(string styleKey, string focusTargetName)
         {
-            Open(styleKey, false, focusTargetName, false, false, false, false);
+            Open(styleKey, false, focusTargetName, false, false, false, false, false, false);
         }
 
         public void OpenChildWindow(string parameter)
         {
-            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim, out var secondaryMusic);
-            Open(styleKey, true, focusTargetName, focusFirst, refocusAfterClick, noDim, secondaryMusic);
+            ParseOpenParameter(parameter, out var styleKey, out var focusTargetName, out var focusFirst, out var refocusAfterClick, out var noDim, out var secondaryMusic, out var openPanelSound, out var additionalViewSound);
+            Open(styleKey, true, focusTargetName, focusFirst, refocusAfterClick, noDim, secondaryMusic, openPanelSound, additionalViewSound);
         }
 
-        private void ParseOpenParameter(string parameter, out string styleKey, out string focusTargetName, out bool focusFirst, out bool refocusAfterClick, out bool noDim, out bool secondaryMusic)
+        private void ParseOpenParameter(string parameter, out string styleKey, out string focusTargetName, out bool focusFirst, out bool refocusAfterClick, out bool noDim, out bool secondaryMusic, out bool openPanelSound, out bool additionalViewSound)
         {
             styleKey = parameter;
             focusTargetName = null;
@@ -206,6 +248,8 @@ namespace AnikiHelper.Services
             refocusAfterClick = false;
             noDim = false;
             secondaryMusic = false;
+            openPanelSound = false;
+            additionalViewSound = false;
 
             if (string.IsNullOrWhiteSpace(parameter) || !parameter.Contains("|"))
             {
@@ -249,6 +293,18 @@ namespace AnikiHelper.Services
                     continue;
                 }
 
+                if (IsOpenPanelSoundOption(option))
+                {
+                    openPanelSound = true;
+                    continue;
+                }
+
+                if (IsAdditionalViewSoundOption(option))
+                {
+                    additionalViewSound = true;
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(focusTargetName))
                 {
                     focusTargetName = option;
@@ -282,6 +338,16 @@ namespace AnikiHelper.Services
             return string.Equals(option, "SecondaryMusic", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsOpenPanelSoundOption(string option)
+        {
+            return string.Equals(option, "OpenPanelSound", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAdditionalViewSoundOption(string option)
+        {
+            return string.Equals(option, "AdditionalViewSound", StringComparison.OrdinalIgnoreCase);
+        }
+
         public void RegisterExternalWindow(Window window, string styleKey, bool isChild = true, bool secondaryMusic = false)
         {
             if (window == null)
@@ -300,7 +366,7 @@ namespace AnikiHelper.Services
 
             if (windows.Any(tracked => tracked?.Window != null && ReferenceEquals(tracked.Window, window)))
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] External window already tracked. " +
                     $"Style={styleKey ?? "<none>"}, {DescribeWindow(window)}, StackCount={windows.Count}");
                 return;
@@ -319,7 +385,8 @@ namespace AnikiHelper.Services
                 StyleKey = styleKey,
                 Parent = parent,
                 IsChild = isChild,
-                IsClosing = false
+                IsClosing = false,
+                PlayAdditionalViewSound = false
             };
 
             windows.Push(trackedEntry);
@@ -331,14 +398,14 @@ namespace AnikiHelper.Services
 
             window.Closed += (s, e) =>
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] CLOSED event received for external window. " +
                     $"{DescribeWindow(window)}, StackCountBeforeRemove={windows.Count}");
 
                 RemoveWindow(window);
             };
 
-            global::AnikiHelper.AnikiLog.Debug(logger, 
+            global::AnikiHelper.AnikiLog.Debug(logger,
                 $"[AnikiHelper][WindowManager] External window registered. {DescribeTrackedWindow(trackedEntry)}, " +
                 $"StackCount={windows.Count}");
 
@@ -355,7 +422,7 @@ namespace AnikiHelper.Services
 
             CleanupClosedWindows();
 
-            global::AnikiHelper.AnikiLog.Debug(logger, 
+            global::AnikiHelper.AnikiLog.Debug(logger,
                 $"[AnikiHelper][WindowManager] CANCEL requested. Source={source ?? "<unknown>"}, " +
                 $"StackCount={windows.Count}, Top={DescribeTrackedWindow(windows.Any() ? windows.Peek() : null)}");
 
@@ -370,7 +437,7 @@ namespace AnikiHelper.Services
             {
                 if (cancelRequestHandler?.Invoke(topStyleKey) == true)
                 {
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
+                    global::AnikiHelper.AnikiLog.Debug(logger,
                         $"[AnikiHelper][WindowManager] CANCEL consumed by specialized handler. Style={topStyleKey ?? "<none>"}");
                     return true;
                 }
@@ -398,7 +465,7 @@ namespace AnikiHelper.Services
 
             if (!windows.Any())
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     "[AnikiHelper][WindowManager] EXTERNAL HANDOFF requested but the window stack is empty.");
                 return false;
             }
@@ -411,14 +478,27 @@ namespace AnikiHelper.Services
                 topEntry.IsClosing = true;
             }
 
+            var playAdditionalTransitionSound = topEntry?.PlayAdditionalViewSound == true;
             secondaryMusicWindows.Remove(top);
 
-            global::AnikiHelper.AnikiLog.Debug(logger, 
+            global::AnikiHelper.AnikiLog.Debug(logger,
                 $"[AnikiHelper][WindowManager] EXTERNAL HANDOFF synchronous close requested. " +
                 $"{DescribeTrackedWindow(topEntry)}, StackCountAfterPop={windows.Count}");
 
             if (top != null)
             {
+                global::AnikiHelper.NativeUiSoundSuppressor.Suppress(
+                    playniteApi,
+                    navigation: true,
+                    activation: false,
+                    durationMs: 320,
+                    reason: "SecondaryWindowExternalHandoff");
+
+                if (playAdditionalTransitionSound)
+                {
+                    TryPlayAdditionalViewSound("close-external-handoff", topEntry?.StyleKey);
+                }
+
                 suppressFinalFocusRestoreWindows.Add(top);
 
                 try
@@ -470,28 +550,41 @@ namespace AnikiHelper.Services
                 topEntry.IsClosing = true;
             }
 
+            var playAdditionalTransitionSound = topEntry?.PlayAdditionalViewSound == true;
             secondaryMusicWindows.Remove(top);
 
-            global::AnikiHelper.AnikiLog.Debug(logger, 
+            global::AnikiHelper.AnikiLog.Debug(logger,
                 $"[AnikiHelper][WindowManager] CLOSE requested. {DescribeTrackedWindow(topEntry)}, " +
                 $"StackCountAfterPop={windows.Count}");
 
             if (top != null)
             {
+                global::AnikiHelper.NativeUiSoundSuppressor.Suppress(
+                    playniteApi,
+                    navigation: true,
+                    activation: false,
+                    durationMs: 320,
+                    reason: "SecondaryWindowClose.FocusReturn");
+
+                if (playAdditionalTransitionSound)
+                {
+                    TryPlayAdditionalViewSound("close", topEntry?.StyleKey);
+                }
+
                 try
                 {
                     if (top.IsVisible)
                     {
                         top.Hide();
 
-                        global::AnikiHelper.AnikiLog.Debug(logger, 
+                        global::AnikiHelper.AnikiLog.Debug(logger,
                             $"[AnikiHelper][WindowManager] Window hidden before deferred close. {DescribeWindow(top)}");
                     }
                     else
                     {
                         // IsVisible=false does not mean that the WPF window is closed. A hidden
                         // Playnite dialog can still keep its owner dimmed until Close() is called.
-                        global::AnikiHelper.AnikiLog.Debug(logger, 
+                        global::AnikiHelper.AnikiLog.Debug(logger,
                             $"[AnikiHelper][WindowManager] Popped window was already hidden; forcing its deferred close. {DescribeWindow(top)}");
                     }
 
@@ -499,7 +592,7 @@ namespace AnikiHelper.Services
                     {
                         try
                         {
-                            global::AnikiHelper.AnikiLog.Debug(logger, 
+                            global::AnikiHelper.AnikiLog.Debug(logger,
                                 $"[AnikiHelper][WindowManager] Deferred close executing. {DescribeWindow(top)}");
 
                             top.Close();
@@ -535,7 +628,7 @@ namespace AnikiHelper.Services
             }
             else
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     "[AnikiHelper][WindowManager] Popped tracked entry had no window instance.");
             }
 
@@ -590,7 +683,7 @@ namespace AnikiHelper.Services
 
                 hadWindows = managedWindows.Count > 0;
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] CLOSE ALL AND WAIT requested. " +
                     $"Source={source ?? "<unknown>"}, TrackedCount={trackedEntries.Count}, " +
                     $"ManagedWindowCount={managedWindows.Count}");
@@ -724,7 +817,7 @@ namespace AnikiHelper.Services
             // been closed by its own input handler.
             if (entries.Count == 0)
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     "[AnikiHelper][WindowManager] Emergency close ignored because no tracked window is open; foreground left unchanged.");
                 return false;
             }
@@ -784,7 +877,7 @@ namespace AnikiHelper.Services
                         playniteWindow.Activate();
                         playniteWindow.Focus();
 
-                        global::AnikiHelper.AnikiLog.Debug(logger, 
+                        global::AnikiHelper.AnikiLog.Debug(logger,
                             "[AnikiHelper][WindowManager] Emergency close completed; Playnite focus restored.");
                     }
                     catch (Exception ex)
@@ -824,21 +917,21 @@ namespace AnikiHelper.Services
 
         private void LogGameForegroundWindowBlock(string styleKey, string phase)
         {
-            global::AnikiHelper.AnikiLog.Debug(logger, 
+            global::AnikiHelper.AnikiLog.Debug(logger,
                 $"[AnikiHelper][ControllerGuard] WINDOW BLOCKED | Style={styleKey ?? "<null>"} | " +
                 $"Phase={phase} | Reason=Game is running/launching and Playnite/Aniki does not own foreground.");
         }
 
-        private void Open(string styleKey, bool forceChild, string focusTargetName, bool focusFirst, bool refocusAfterClick, bool noDim, bool secondaryMusic, bool allowQuickAccessHandoff = false)
+        private void Open(string styleKey, bool forceChild, string focusTargetName, bool focusFirst, bool refocusAfterClick, bool noDim, bool secondaryMusic, bool openPanelSound, bool additionalViewSound, bool allowQuickAccessHandoff = false)
         {
             if (string.IsNullOrWhiteSpace(styleKey))
                 return;
 
-            global::AnikiHelper.AnikiLog.Debug(logger, 
+            global::AnikiHelper.AnikiLog.Debug(logger,
                 $"[AnikiHelper][WindowManager] OPEN requested. Style={styleKey}, " +
                 $"Type={(forceChild ? "Child" : "Main")}, FocusTarget={focusTargetName ?? "<none>"}, " +
                 $"FocusFirst={focusFirst}, RefocusAfterClick={refocusAfterClick}, NoDim={noDim}, " +
-                $"SecondaryMusic={secondaryMusic}, StackCount={windows.Count}");
+                $"SecondaryMusic={secondaryMusic}, OpenPanelSound={openPanelSound}, AdditionalViewSound={additionalViewSound}, StackCount={windows.Count}");
 
             // Second line of defence: even if a theme command or delayed RelayCommand somehow
             // fires while the game owns foreground, do not create/activate a Playnite/Aniki window.
@@ -900,7 +993,7 @@ namespace AnikiHelper.Services
 
                 if (existingWindow != null)
                 {
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
+                    global::AnikiHelper.AnikiLog.Debug(logger,
                         $"[AnikiHelper][WindowManager] Existing visible window reused. {DescribeTrackedWindow(existingEntry)}, " +
                         $"StackCount={windows.Count}");
                     if (secondaryMusic)
@@ -913,6 +1006,12 @@ namespace AnikiHelper.Services
                     }
 
                     NotifyOpenWindowStateChanged();
+                    global::AnikiHelper.NativeUiSoundSuppressor.Suppress(
+                        playniteApi,
+                        navigation: true,
+                        activation: false,
+                        durationMs: 280,
+                        reason: "SecondaryWindowReactivate");
                     existingWindow.Activate();
                     existingWindow.Focus();
                     return;
@@ -935,7 +1034,7 @@ namespace AnikiHelper.Services
                             suppressFinalFocusRestore: true);
                         CleanupClosedWindows();
 
-                        global::AnikiHelper.AnikiLog.Debug(logger, 
+                        global::AnikiHelper.AnikiLog.Debug(logger,
                             $"[AnikiHelper][WindowManager] Quick Access handoff waiting one dispatcher turn before opening destination. " +
                             $"Destination={styleKey}");
 
@@ -952,6 +1051,8 @@ namespace AnikiHelper.Services
                                 refocusAfterClick,
                                 noDim,
                                 secondaryMusic,
+                                openPanelSound,
+                                additionalViewSound,
                                 allowQuickAccessHandoff: true);
                         }), DispatcherPriority.ApplicationIdle);
 
@@ -968,16 +1069,19 @@ namespace AnikiHelper.Services
                         ShowMinimizeButton = false
                     });
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Window instance created. Style={styleKey}, " +
                     $"Type={(forceChild ? "Child" : "Main")}, RawWindowType={window?.GetType().FullName ?? "<null>"}");
 
                 window.Tag = styleKey;
 
-                // LibVLCSharp.WPF creates a native child rendering surface. A raw WPF Window
-                // defaults to a white system brush, which can briefly flash before the first
-                // video frame. Paint the Video Player window black before any content is shown.
-                if (noDim && string.Equals(styleKey, VideoPlayerWindowStyleName, StringComparison.OrdinalIgnoreCase))
+                // A raw WPF Window defaults to the system Window brush (normally white).
+                // NoDim views can briefly expose that native window background while their
+                // root content is fading in/out or while the template is being created. That
+                // produced the full-screen white flashes seen in First Setup and Gamepad Tester.
+                // Paint every non-child NoDim window black before any content is shown. Child
+                // windows are switched back to Transparent below, so overlays remain unaffected.
+                if (noDim)
                 {
                     window.Background = Brushes.Black;
                 }
@@ -1041,22 +1145,42 @@ namespace AnikiHelper.Services
                     return;
                 }
 
+                // Full secondary pages are opened in two phases. Showing a lightweight shell first
+                // gives WPF/Windows a real frame to present immediately instead of blocking the
+                // button press while a large ControlTemplate (Video Center, Media Gallery, etc.) is
+                // being instantiated. The actual theme Style is attached only after that first frame.
+                var useDeferredContent = ShouldUseDeferredSecondaryContent(styleKey, forceChild);
+                var contentHost = new ContentControl
+                {
+                    Focusable = false,
+                    Visibility = useDeferredContent ? Visibility.Collapsed : Visibility.Visible
+                };
+
+                if (!useDeferredContent)
+                {
+                    contentHost.Style = style;
+                }
+
+                var rootGrid = new Grid
+                {
+                    Width = 1920,
+                    Height = 1080
+                };
+
+                rootGrid.Children.Add(contentHost);
+
+                FrameworkElement openingShell = null;
+                if (useDeferredContent)
+                {
+                    openingShell = CreateSecondaryViewOpeningShell(styleKey);
+                    Panel.SetZIndex(openingShell, 10000);
+                    rootGrid.Children.Add(openingShell);
+                }
+
                 window.Content = new Viewbox
                 {
                     Stretch = Stretch.Uniform,
-                    Child = new Grid
-                    {
-                        Width = 1920,
-                        Height = 1080,
-                        Children =
-                        {
-                            new ContentControl
-                            {
-                                Focusable = false,
-                                Style = style
-                            }
-                        }
-                    }
+                    Child = rootGrid
                 };
 
                 if (forceChild)
@@ -1089,7 +1213,7 @@ namespace AnikiHelper.Services
                     window.Owner = parent;
                 }
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Owner selected. Window={styleKey}, " +
                     $"Owner={DescribeWindow(window.Owner)}, StackCount={windows.Count}");
 
@@ -1139,7 +1263,7 @@ namespace AnikiHelper.Services
 
                 window.Closed += (s, e) =>
                 {
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
+                    global::AnikiHelper.AnikiLog.Debug(logger,
                         $"[AnikiHelper][WindowManager] CLOSED event received. {DescribeWindow(window)}, " +
                         $"StackCountBeforeRemove={windows.Count}");
 
@@ -1169,12 +1293,13 @@ namespace AnikiHelper.Services
                     StyleKey = styleKey,
                     Parent = window.Owner,
                     IsChild = forceChild,
-                    IsClosing = false
+                    IsClosing = false,
+                    PlayAdditionalViewSound = additionalViewSound
                 };
 
                 windows.Push(trackedWindow);
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Window pushed to stack. {DescribeTrackedWindow(trackedWindow)}, " +
                     $"StackCount={windows.Count}");
 
@@ -1183,20 +1308,109 @@ namespace AnikiHelper.Services
                     secondaryMusicWindows.Add(window);
                 }
 
+                // The destination window will move keyboard focus and Playnite normally plays
+                // navigation.wav for that focus change. Keep activation.wav intact here: source
+                // controls that already play an Aniki transition sound suppress activation earlier
+                // in PreProcessInput, while ordinary Quick Access buttons keep their normal click sound.
+                global::AnikiHelper.NativeUiSoundSuppressor.Suppress(
+                    playniteApi,
+                    navigation: true,
+                    activation: false,
+                    durationMs: 300,
+                    reason: "SecondaryWindowOpen.Focus");
+
                 // Publish the opening state before Show() can deactivate Playnite.
                 // Without this, Main.xaml briefly sees IsActive=False while both
                 // IsAnikiWindowOpen and IsSecondaryMusicWindowOpen are still false,
                 // which can pause the Hub music before its fade-out starts.
                 NotifyWindowOpeningState(secondaryMusic);
 
+                if (openPanelSound)
+                {
+                    TryPlayOpenPanelSound(styleKey);
+                }
+
+                if (trackedWindow.PlayAdditionalViewSound)
+                {
+                    TryPlayAdditionalViewSound("open", styleKey);
+                }
+
+                if (useDeferredContent)
+                {
+                    EventHandler firstFrameRendered = null;
+                    firstFrameRendered = (sender, args) =>
+                    {
+                        window.ContentRendered -= firstFrameRendered;
+
+                        // Do not build a page that was already cancelled while the lightweight
+                        // opening shell was on screen.
+                        if (trackedWindow.IsClosing || !window.IsVisible)
+                        {
+                            return;
+                        }
+
+                        window.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (trackedWindow.IsClosing || !window.IsVisible)
+                            {
+                                return;
+                            }
+
+                            try
+                            {
+                                contentHost.Style = style;
+                                contentHost.Visibility = Visibility.Visible;
+
+                                global::AnikiHelper.AnikiLog.Debug(logger,
+                                    $"[AnikiHelper][WindowManager] Deferred secondary content creation started. Style={styleKey}");
+
+                                // Keep the lightweight shell above the real page while WPF creates,
+                                // measures and renders the heavy template behind it. ContextIdle runs
+                                // after the pending Render/Layout work, so removing the shell here does
+                                // not expose an empty/black frame.
+                                window.Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    if (trackedWindow.IsClosing || !window.IsVisible)
+                                    {
+                                        return;
+                                    }
+
+                                    if (openingShell != null)
+                                    {
+                                        openingShell.Visibility = Visibility.Collapsed;
+                                    }
+
+                                    QueueInitialFocus(window, styleKey, focusTargetName, focusFirst);
+
+                                    global::AnikiHelper.AnikiLog.Debug(logger,
+                                        $"[AnikiHelper][WindowManager] Deferred secondary content revealed. Style={styleKey}");
+                                }), DispatcherPriority.ContextIdle);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger?.Error(ex,
+                                    $"[AnikiHelper][WindowManager] Deferred secondary content creation failed. Style={styleKey}");
+
+                                // Never leave the user trapped behind the generic loading shell.
+                                if (openingShell != null)
+                                {
+                                    openingShell.Visibility = Visibility.Collapsed;
+                                }
+                            }
+                        }), DispatcherPriority.Background);
+                    };
+
+                    window.ContentRendered += firstFrameRendered;
+                }
+
                 window.Show();
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Window shown. {DescribeWindow(window)}, StackCount={windows.Count}");
 
                 window.Activate();
                 window.Focus();
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Window activation requested. {DescribeWindow(window)}, " +
                     $"KeyboardFocus={DescribeFocusedElement()}");
 
@@ -1207,22 +1421,284 @@ namespace AnikiHelper.Services
                     AttachRefocusAfterClick(window);
                 }
 
-                if (!string.IsNullOrWhiteSpace(focusTargetName) || focusFirst)
+                if (!useDeferredContent)
                 {
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
-                        $"[AnikiHelper][WindowManager] Initial focus queued. Window={styleKey}, " +
-                        $"Target={focusTargetName ?? "<first focusable>"}, FocusFirst={focusFirst}");
-
-                    window.Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        ApplyInitialFocus(window, focusTargetName, focusFirst);
-
-                        global::AnikiHelper.AnikiLog.Debug(logger, 
-                            $"[AnikiHelper][WindowManager] Initial focus pass completed. Window={styleKey}, " +
-                            $"KeyboardFocus={DescribeFocusedElement()}");
-                    }), DispatcherPriority.ApplicationIdle);
+                    QueueInitialFocus(window, styleKey, focusTargetName, focusFirst);
                 }
             });
+        }
+
+        private static bool ShouldUseDeferredSecondaryContent(string styleKey, bool forceChild)
+        {
+            if (string.IsNullOrWhiteSpace(styleKey))
+            {
+                return false;
+            }
+
+            // Secondary views now open their real content directly by default. This avoids the
+            // intermediate shell/frame and prevents the deferred template construction from
+            // competing with the theme's opening animation on the UI thread.
+            if (!DeferredSecondaryContentEnabled)
+            {
+                return false;
+            }
+
+            // Heavy media/profile/store pages are deliberately NOT deferred behind the generic
+            // opening shell. Building their real template while the shell is animating can stall
+            // the UI thread and make the opening/loading animation visibly stutter.
+            if (string.Equals(styleKey, "MediaGalleryGamesWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "PlayerProfileWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "ScreenShotsThumbsWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "LastCapturesWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, VideoPlayerWindowStyleName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "AchievementsWindow", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "FriendsStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "FriendsActivityWindow", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "FriendsWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "SteamStoreStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "LastUpdatesWindowStyle", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Do not put the full-screen opening shell on quick panels, option popups and other
+            // small modal surfaces. Some full pages are intentionally opened as child windows
+            // (Game News from Game Details, Friends/Achievements from the in-game overlay), so
+            // forceChild alone cannot be used to decide whether a view is a real secondary page.
+            if (string.Equals(styleKey, QuickAccessWindowStyleName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, ControlCenterWindowStyleName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, FirstSetupWindowStyleName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, AudioSwitcherWindowStyleName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "TopBarManagerWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "SteamStatusMenuWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "NotificationMenuWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "QuickAccessNotificationWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "AchievementActionsWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "AchievementCaptureViewerWindowStyle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "AchievementsDetailsOptionsWindow", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "AchievementsOptionsWindow", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "FriendAchievementsGlobalOptionsWindow", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "FriendGameAchievementsOptionsWindow", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(styleKey, "FriendsActivityOptionsWindow", StringComparison.OrdinalIgnoreCase) ||
+                styleKey.IndexOf("DuplicateHiderVersions", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static FrameworkElement CreateSecondaryViewOpeningShell(string styleKey)
+        {
+            // Capture Gallery is fast enough that a loading indicator becomes a distracting
+            // flash. Give it a lightweight structural shell instead: the destination title
+            // and footer are visible immediately, then the real page replaces them when its
+            // ControlTemplate is ready.
+            if (string.Equals(styleKey, "MediaGalleryGamesWindowStyle", StringComparison.OrdinalIgnoreCase))
+            {
+                return CreateMediaGalleryOpeningShell();
+            }
+
+            var shell = new Grid
+            {
+                Width = 1920,
+                Height = 1080,
+                IsHitTestVisible = false
+            };
+
+            // Present the destination background immediately so the button press always gets an
+            // instant visual response. The loading indicator itself is intentionally delayed: fast
+            // views can replace this shell before the delay expires, which avoids a distracting
+            // 100-200 ms "loading flash". Slow views still reveal a real loading state after 300 ms.
+            var background = new Border();
+            background.SetResourceReference(Border.BackgroundProperty, "SecondaryViewBackground");
+            shell.Children.Add(background);
+
+            var loadingText = new TextBlock
+            {
+                FontSize = 34,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                Foreground = Brushes.White
+            };
+            loadingText.SetResourceReference(TextBlock.TextProperty, "LOCLoading");
+
+            var baseTextStyle = Application.Current?.TryFindResource("TextBlockBaseStyle") as Style;
+            if (baseTextStyle != null)
+            {
+                loadingText.Style = baseTextStyle;
+            }
+
+            var stack = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0
+            };
+            stack.Children.Add(loadingText);
+            stack.Children.Add(new ProgressBar
+            {
+                Width = 360,
+                Height = 6,
+                Margin = new Thickness(0, 18, 0, 0),
+                IsIndeterminate = true
+            });
+
+            // Use an opacity animation with a delayed BeginTime instead of a DispatcherTimer.
+            // The animation clock is committed before the heavy page template is instantiated, so
+            // WPF's compositor can reveal the indicator even if the UI thread is briefly busy.
+            RoutedEventHandler shellLoaded = null;
+            shellLoaded = (sender, args) =>
+            {
+                shell.Loaded -= shellLoaded;
+
+                var loadingDelayMs = string.Equals(styleKey, VideoPlayerWindowStyleName, StringComparison.OrdinalIgnoreCase)
+                    ? MediaCenterLoadingIndicatorDelayMs
+                    : SecondaryLoadingIndicatorDelayMs;
+
+                var delayedReveal = new System.Windows.Media.Animation.DoubleAnimation
+                {
+                    From = 0,
+                    To = 1,
+                    BeginTime = TimeSpan.FromMilliseconds(loadingDelayMs),
+                    Duration = new Duration(TimeSpan.FromMilliseconds(1)),
+                    FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd
+                };
+
+                stack.BeginAnimation(UIElement.OpacityProperty, delayedReveal);
+            };
+
+            shell.Loaded += shellLoaded;
+            shell.Children.Add(stack);
+
+            return shell;
+        }
+
+        private static FrameworkElement CreateMediaGalleryOpeningShell()
+        {
+            var shell = new Grid
+            {
+                Width = 1920,
+                Height = 1080,
+                IsHitTestVisible = false
+            };
+
+            var background = new Border();
+            background.SetResourceReference(Border.BackgroundProperty, "SecondaryViewBackground");
+            shell.Children.Add(background);
+
+            shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(220) });
+            shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            shell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(60) });
+
+            var header = new Grid
+            {
+                Margin = new Thickness(50, 35, 50, 0),
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            Grid.SetRow(header, 0);
+
+            var title = new TextBlock
+            {
+                FontSize = 43,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Foreground = Brushes.White
+            };
+            title.SetResourceReference(TextBlock.TextProperty, "LOCMediaGalleryTitle");
+
+            var baseTextStyle = Application.Current?.TryFindResource("TextBlockBaseStyle") as Style;
+            if (baseTextStyle != null)
+            {
+                title.Style = baseTextStyle;
+            }
+
+            header.Children.Add(title);
+            shell.Children.Add(header);
+
+            // Keep the same 60px footer footprint as the real Capture Gallery page.
+            // This avoids a black/empty intermediate screen without pretending that data
+            // is loading when the page normally becomes ready in a few hundred milliseconds.
+            var footer = new Border
+            {
+                Height = 60,
+                VerticalAlignment = VerticalAlignment.Bottom
+            };
+            footer.SetResourceReference(Border.BackgroundProperty, "BottomBar");
+            Grid.SetRow(footer, 2);
+            shell.Children.Add(footer);
+
+            return shell;
+        }
+
+        private void QueueInitialFocus(Window window, string styleKey, string focusTargetName, bool focusFirst)
+        {
+            if (window == null || (string.IsNullOrWhiteSpace(focusTargetName) && !focusFirst))
+            {
+                return;
+            }
+
+            global::AnikiHelper.AnikiLog.Debug(logger,
+                $"[AnikiHelper][WindowManager] Initial focus queued. Window={styleKey}, " +
+                $"Target={focusTargetName ?? "<first focusable>"}, FocusFirst={focusFirst}");
+
+            window.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!window.IsVisible)
+                {
+                    return;
+                }
+
+                ApplyInitialFocus(window, focusTargetName, focusFirst);
+
+                global::AnikiHelper.AnikiLog.Debug(logger,
+                    $"[AnikiHelper][WindowManager] Initial focus pass completed. Window={styleKey}, " +
+                    $"KeyboardFocus={DescribeFocusedElement()}");
+            }), DispatcherPriority.ApplicationIdle);
+        }
+
+        private void TryPlayOpenPanelSound(string styleKey)
+        {
+            try
+            {
+                playOpenPanelSound?.Invoke();
+                global::AnikiHelper.AnikiLog.Debug(logger,
+                    $"[AnikiHelper][WindowManager] OpenPanel.wav requested. Style={styleKey ?? "<none>"}");
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex,
+                    $"[AnikiHelper][WindowManager] Failed to request panel opening sound. Style={styleKey ?? "<none>"}");
+            }
+        }
+
+        private void TryPlayAdditionalViewSound(string phase, string styleKey)
+        {
+            try
+            {
+                var isOpening = !string.IsNullOrWhiteSpace(phase) &&
+                    phase.StartsWith("open", StringComparison.OrdinalIgnoreCase);
+
+                if (isOpening)
+                {
+                    playOpenAdditionalViewSound?.Invoke();
+                }
+                else
+                {
+                    playCloseAdditionalViewSound?.Invoke();
+                }
+
+                var soundName = isOpening ? "OpenAdditionalView.wav" : "CloseAdditionalView.wav";
+                global::AnikiHelper.AnikiLog.Debug(logger,
+                    $"[AnikiHelper][WindowManager] {soundName} requested. Phase={phase}, Style={styleKey ?? "<none>"}");
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex,
+                    $"[AnikiHelper][WindowManager] Failed to request Additional View transition sound. Phase={phase}, Style={styleKey ?? "<none>"}");
+            }
         }
 
         private bool IsOverlayBlockingCustomWindowOpen()
@@ -1792,6 +2268,11 @@ namespace AnikiHelper.Services
                 var window = entry.Window;
                 entry.IsClosing = true;
 
+                if (entry.PlayAdditionalViewSound)
+                {
+                    TryPlayAdditionalViewSound("close-by-style", entry.StyleKey);
+                }
+
                 try
                 {
                     if (suppressFinalFocusRestore)
@@ -1801,7 +2282,7 @@ namespace AnikiHelper.Services
 
                     if (closeImmediately)
                     {
-                        global::AnikiHelper.AnikiLog.Debug(logger, 
+                        global::AnikiHelper.AnikiLog.Debug(logger,
                             $"[AnikiHelper][WindowManager] Closing style window synchronously for handoff. " +
                             $"Style={styleKey}, SuppressFinalFocusRestore={suppressFinalFocusRestore}, {DescribeWindow(window)}");
 
@@ -1869,14 +2350,22 @@ namespace AnikiHelper.Services
             if (window == null)
                 return;
 
-            global::AnikiHelper.AnikiLog.Debug(logger, 
+            global::AnikiHelper.AnikiLog.Debug(logger,
                 $"[AnikiHelper][WindowManager] Removing window from tracking. {DescribeWindow(window)}, " +
                 $"StackCountBefore={windows.Count}");
+
+            var trackedEntry = windows.FirstOrDefault(entry => ReferenceEquals(entry.Window, window));
+            var playAdditionalTransitionSound = trackedEntry?.PlayAdditionalViewSound == true && trackedEntry.IsClosing == false;
 
             secondaryMusicWindows.Remove(window);
             var suppressFinalFocusRestore = suppressFinalFocusRestoreWindows.Remove(window);
 
-            var wasStillTracked = windows.Any(entry => ReferenceEquals(entry.Window, window));
+            var wasStillTracked = trackedEntry != null;
+
+            if (playAdditionalTransitionSound)
+            {
+                TryPlayAdditionalViewSound("close-external", trackedEntry?.StyleKey ?? window.Tag as string);
+            }
 
             if (wasStillTracked)
             {
@@ -1889,7 +2378,7 @@ namespace AnikiHelper.Services
                 foreach (var item in rebuilt)
                     windows.Push(item);
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Window tracking updated. Removed={window.Tag as string ?? "<no tag>"}, " +
                     $"StackCountAfter={windows.Count}, NewTop={DescribeTrackedWindow(windows.Any() ? windows.Peek() : null)}");
             }
@@ -1897,7 +2386,7 @@ namespace AnikiHelper.Services
             {
                 // CloseTopWindow removes the entry before calling Close(). The Closed event still has to
                 // perform the final Playnite restoration; returning here was the Alt+F4 regression.
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Closed window was already popped from tracking. " +
                     $"StackCount={windows.Count}, Window={DescribeWindow(window)}");
             }
@@ -1908,7 +2397,7 @@ namespace AnikiHelper.Services
             {
                 if (suppressFinalFocusRestore)
                 {
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
+                    global::AnikiHelper.AnikiLog.Debug(logger,
                         $"[AnikiHelper][WindowManager] Final Playnite focus restoration suppressed for external handoff. " +
                         $"Window={DescribeWindow(window)}");
                 }
@@ -1932,7 +2421,7 @@ namespace AnikiHelper.Services
             {
                 try
                 {
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
+                    global::AnikiHelper.AnikiLog.Debug(logger,
                         $"[AnikiHelper][WindowManager] Final window fully closed; restoring Playnite foreground. " +
                         $"Target={DescribeWindow(playniteWindow)}");
 
@@ -1950,7 +2439,7 @@ namespace AnikiHelper.Services
                         SetForegroundWindow(handle);
                     }
 
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
+                    global::AnikiHelper.AnikiLog.Debug(logger,
                         $"[AnikiHelper][WindowManager] Playnite foreground restoration completed. " +
                         $"Target={DescribeWindow(playniteWindow)}, KeyboardFocus={DescribeFocusedElement()}");
                 }
@@ -2048,7 +2537,7 @@ namespace AnikiHelper.Services
 
             if (owner != null && owner.IsVisible)
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Restoring focus to the actual owner of the closing window. " +
                     $"Closing={DescribeTrackedWindow(closingEntry)}, Owner={DescribeWindow(owner)}");
 
@@ -2069,7 +2558,7 @@ namespace AnikiHelper.Services
                 var topEntry = windows.Peek();
                 var top = topEntry.Window;
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] Restoring focus to top tracked window. {DescribeTrackedWindow(topEntry)}, " +
                     $"StackCount={windows.Count}");
 
@@ -2080,7 +2569,7 @@ namespace AnikiHelper.Services
             {
                 var playniteWindow = playniteApi.Dialogs.GetCurrentAppWindow();
 
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     $"[AnikiHelper][WindowManager] No tracked parent remains; returning focus to Playnite. " +
                     $"PlayniteWindow={DescribeWindow(playniteWindow)}");
 

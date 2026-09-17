@@ -36,6 +36,7 @@ using AnikiHelper.Services.ColorPacks;
 using AnikiHelper.Services.CommunityPacks;
 using AnikiHelper.Services.CompletePacks;
 using AnikiHelper.Services.LoginPacks;
+using AnikiHelper.Services.Randomization;
 using AnikiHelper.Services.SoundPacks;
 using AnikiHelper.Services.VisualPacks;
 using Newtonsoft.Json;
@@ -691,9 +692,51 @@ namespace AnikiHelper
         }
     }
 
+    public class AnikiSplashDisabledGameItem : ObservableObject
+    {
+        [DontSerialize]
+        private AnikiHelperSettings owner;
+
+        public Guid GameId { get; set; }
+        public string Name { get; set; }
+
+        private bool isSplashDisabled = true;
+        public bool IsSplashDisabled
+        {
+            get => isSplashDisabled;
+            set
+            {
+                if (isSplashDisabled == value)
+                {
+                    return;
+                }
+
+                SetValue(ref isSplashDisabled, value);
+
+                if (!value)
+                {
+                    owner?.SetGameLaunchSplashDisabled(GameId, false);
+                }
+            }
+        }
+
+        public AnikiSplashDisabledGameItem()
+        {
+        }
+
+        public AnikiSplashDisabledGameItem(AnikiHelperSettings owner, Guid gameId, string name)
+        {
+            this.owner = owner;
+            GameId = gameId;
+            Name = string.IsNullOrWhiteSpace(name) ? gameId.ToString() : name;
+            isSplashDisabled = true;
+        }
+    }
+
     public partial class AnikiHelperSettings : ObservableObject, ISettings, System.ComponentModel.INotifyPropertyChanged
     {
         private const int CurrentHubShortcutsDefaultsVersion = 2;
+        private const int CurrentGameLaunchSplashMaximumWaitSettingsVersion = 1;
 
         private const string HubFeatureWebBrowserId = "builtin:web-browser";
         private const string HubFeatureMediaGalleryId = "builtin:media-gallery";
@@ -747,7 +790,13 @@ namespace AnikiHelper
         public RelayCommand ClearInGameOverlayNeverSuspendGamesCommand { get; }
 
         [DontSerialize]
+        public RelayCommand ClearGameLaunchSplashDisabledGamesCommand { get; }
+
+        [DontSerialize]
         public RelayCommand PreviewScreenSaverCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand TestGlobalNotificationCommand { get; }
 
         [DontSerialize]
         public RelayCommand<SteamStoreItem> OpenSteamStoreDetailsCommand { get; }
@@ -1250,6 +1299,14 @@ namespace AnikiHelper
         public ObservableCollection<AnikiMediaGameItem> MediaGalleryGames { get; set; }
             = new ObservableCollection<AnikiMediaGameItem>();
 
+        // UI-facing collection for Capture Gallery. Keep the complete cached list separate so
+        // the fullscreen page can be created with an empty ItemsSource, then materialize tiles
+        // in small batches after the first frame has rendered. This avoids rebuilding every
+        // cover/card synchronously before Window.Show() on subsequent openings.
+        [DontSerialize]
+        public ObservableCollection<AnikiMediaGameItem> VisibleMediaGalleryGames { get; set; }
+            = new ObservableCollection<AnikiMediaGameItem>();
+
         private string mediaGalleryGamesSortMode = "LatestCaptureDesc";
         public string MediaGalleryGamesSortMode
         {
@@ -1573,6 +1630,400 @@ namespace AnikiHelper
         [DontSerialize]
         public RelayCommand ReloadAnikiThemeSettingsCommand { get; }
 
+
+        [DontSerialize]
+        public ObservableCollection<LoginRandomPoolItem> LoginRandomPoolItems { get; }
+            = new ObservableCollection<LoginRandomPoolItem>();
+
+        [DontSerialize]
+        public RelayCommand<string> ToggleLoginRandomPoolCandidateCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand SelectAllLoginRandomCandidatesCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ClearAllLoginRandomCandidatesCommand { get; }
+
+        [DontSerialize]
+        public bool LoginRandomPoolHasItems => LoginRandomPoolItems.Count > 0;
+
+        [DontSerialize]
+        public string LoginRandomPoolCountText
+        {
+            get
+            {
+                var selected = LoginRandomPoolItems.Count(x => x?.IsIncluded == true);
+                var total = LoginRandomPoolItems.Count;
+                var format = Application.Current?.TryFindResource("LoginRandomPool_CountFormat") as string
+                    ?? "{0} / {1} selected";
+                return string.Format(format, selected, total);
+            }
+        }
+
+        public void RefreshLoginRandomPoolItems()
+        {
+            try
+            {
+                var candidates = plugin?.GetAvailableLoginRandomCandidates()
+                    ?? new List<LoginRandomCandidate>();
+                var excluded = new HashSet<string>(
+                    LoginRandomExcludedCandidateIds ?? new List<string>(),
+                    StringComparer.OrdinalIgnoreCase);
+
+                LoginRandomPoolItems.Clear();
+
+                foreach (var candidate in candidates
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id))
+                    .OrderBy(x => x.IsCommunityPack ? 1 : 0)
+                    .ThenBy(x => x.IsCommunityPack ? x.DisplayName : string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                    .ThenBy(x => x.BuiltInIndex))
+                {
+                    LoginRandomPoolItems.Add(new LoginRandomPoolItem
+                    {
+                        Id = candidate.Id,
+                        DisplayName = string.IsNullOrWhiteSpace(candidate.DisplayName) ? candidate.Id : candidate.DisplayName,
+                        IsCommunityPack = candidate.IsCommunityPack,
+                        IsIncluded = !excluded.Contains(candidate.Id)
+                    });
+                }
+
+                OnPropertyChanged(nameof(LoginRandomPoolHasItems));
+                OnPropertyChanged(nameof(LoginRandomPoolCountText));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][LoginRandom] Failed to refresh the Random Login pool UI.");
+            }
+        }
+
+        private void ToggleLoginRandomPoolCandidate(string candidateId)
+        {
+            if (string.IsNullOrWhiteSpace(candidateId))
+            {
+                return;
+            }
+
+            var item = LoginRandomPoolItems.FirstOrDefault(x =>
+                x != null && string.Equals(x.Id, candidateId, StringComparison.OrdinalIgnoreCase));
+            if (item == null)
+            {
+                return;
+            }
+
+            item.IsIncluded = !item.IsIncluded;
+            SaveLoginRandomPoolSelection();
+        }
+
+        private void SelectAllLoginRandomCandidates()
+        {
+            foreach (var item in LoginRandomPoolItems.Where(x => x != null))
+            {
+                item.IsIncluded = true;
+            }
+
+            SaveLoginRandomPoolSelection();
+        }
+
+        private void ClearAllLoginRandomCandidates()
+        {
+            foreach (var item in LoginRandomPoolItems.Where(x => x != null))
+            {
+                item.IsIncluded = false;
+            }
+
+            SaveLoginRandomPoolSelection();
+        }
+
+        private void SaveLoginRandomPoolSelection()
+        {
+            try
+            {
+                var availableIds = new HashSet<string>(
+                    LoginRandomPoolItems.Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id)).Select(x => x.Id),
+                    StringComparer.OrdinalIgnoreCase);
+
+                // Preserve exclusions for temporarily unavailable/uninstalled candidates so a reinstall
+                // keeps the user's previous choice. New candidates remain enabled by default.
+                var excluded = new HashSet<string>(
+                    (LoginRandomExcludedCandidateIds ?? new List<string>())
+                        .Where(id => !string.IsNullOrWhiteSpace(id) && !availableIds.Contains(id)),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var item in LoginRandomPoolItems.Where(x => x != null && !x.IsIncluded && !string.IsNullOrWhiteSpace(x.Id)))
+                {
+                    excluded.Add(item.Id);
+                }
+
+                LoginRandomExcludedCandidateIds = excluded.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+                OnPropertyChanged(nameof(LoginRandomPoolCountText));
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][LoginRandom] Failed to save the Random Login pool selection.");
+            }
+        }
+
+        [DontSerialize]
+        public ObservableCollection<ThemeColorRandomPoolItem> ThemeColorRandomPoolItems { get; }
+            = new ObservableCollection<ThemeColorRandomPoolItem>();
+
+        [DontSerialize]
+        public RelayCommand<string> ToggleThemeColorRandomPoolCandidateCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand SelectAllThemeColorRandomCandidatesCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ClearAllThemeColorRandomCandidatesCommand { get; }
+
+        [DontSerialize]
+        public bool ThemeColorRandomPoolHasItems => ThemeColorRandomPoolItems.Count > 0;
+
+        [DontSerialize]
+        public string ThemeColorRandomPoolCountText
+        {
+            get
+            {
+                var selected = ThemeColorRandomPoolItems.Count(x => x?.IsIncluded == true);
+                var total = ThemeColorRandomPoolItems.Count;
+                return $"{selected} / {total} selected";
+            }
+        }
+
+        public void RefreshThemeColorRandomPoolItems()
+        {
+            try
+            {
+                var candidates = plugin?.GetAvailableThemeColorRandomCandidates()
+                    ?? new List<ThemeColorRandomCandidate>();
+                var excluded = new HashSet<string>(
+                    ThemeColorRandomExcludedCandidateIds ?? new List<string>(),
+                    StringComparer.OrdinalIgnoreCase);
+
+                ThemeColorRandomPoolItems.Clear();
+
+                foreach (var candidate in candidates
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id))
+                    .OrderBy(x => x.IsCommunityPack ? 1 : 0)
+                    .ThenBy(x => x.DisplayName ?? string.Empty, StringComparer.CurrentCultureIgnoreCase))
+                {
+                    ThemeColorRandomPoolItems.Add(new ThemeColorRandomPoolItem
+                    {
+                        Id = candidate.Id,
+                        DisplayName = string.IsNullOrWhiteSpace(candidate.DisplayName) ? candidate.Id : candidate.DisplayName,
+                        IsCommunityPack = candidate.IsCommunityPack,
+                        IsIncluded = !excluded.Contains(candidate.Id)
+                    });
+                }
+
+                OnPropertyChanged(nameof(ThemeColorRandomPoolHasItems));
+                OnPropertyChanged(nameof(ThemeColorRandomPoolCountText));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][ThemeColorRandom] Failed to refresh the Random Theme Color pool UI.");
+            }
+        }
+
+        private void ToggleThemeColorRandomPoolCandidate(string candidateId)
+        {
+            if (string.IsNullOrWhiteSpace(candidateId))
+            {
+                return;
+            }
+
+            var item = ThemeColorRandomPoolItems.FirstOrDefault(x =>
+                x != null && string.Equals(x.Id, candidateId, StringComparison.OrdinalIgnoreCase));
+            if (item == null)
+            {
+                return;
+            }
+
+            item.IsIncluded = !item.IsIncluded;
+            SaveThemeColorRandomPoolSelection();
+        }
+
+        private void SelectAllThemeColorRandomCandidates()
+        {
+            foreach (var item in ThemeColorRandomPoolItems.Where(x => x != null))
+            {
+                item.IsIncluded = true;
+            }
+
+            SaveThemeColorRandomPoolSelection();
+        }
+
+        private void ClearAllThemeColorRandomCandidates()
+        {
+            foreach (var item in ThemeColorRandomPoolItems.Where(x => x != null))
+            {
+                item.IsIncluded = false;
+            }
+
+            SaveThemeColorRandomPoolSelection();
+        }
+
+        private void SaveThemeColorRandomPoolSelection()
+        {
+            try
+            {
+                var availableIds = new HashSet<string>(
+                    ThemeColorRandomPoolItems.Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id)).Select(x => x.Id),
+                    StringComparer.OrdinalIgnoreCase);
+
+                // Preserve exclusions for temporarily unavailable Color Packs. New candidates
+                // are enabled by default when they first appear in the local library.
+                var excluded = new HashSet<string>(
+                    (ThemeColorRandomExcludedCandidateIds ?? new List<string>())
+                        .Where(id => !string.IsNullOrWhiteSpace(id) && !availableIds.Contains(id)),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var item in ThemeColorRandomPoolItems.Where(x => x != null && !x.IsIncluded && !string.IsNullOrWhiteSpace(x.Id)))
+                {
+                    excluded.Add(item.Id);
+                }
+
+                ThemeColorRandomExcludedCandidateIds = excluded.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+                OnPropertyChanged(nameof(ThemeColorRandomPoolCountText));
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][ThemeColorRandom] Failed to save the Random Theme Color pool selection.");
+            }
+        }
+
+        [DontSerialize]
+        public ObservableCollection<VisualPackRandomPoolItem> VisualPackRandomPoolItems { get; }
+            = new ObservableCollection<VisualPackRandomPoolItem>();
+
+        [DontSerialize]
+        public RelayCommand<string> ToggleVisualPackRandomPoolCandidateCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand SelectAllVisualPackRandomCandidatesCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand ClearAllVisualPackRandomCandidatesCommand { get; }
+
+        [DontSerialize]
+        public bool VisualPackRandomPoolHasItems => VisualPackRandomPoolItems.Count > 0;
+
+        [DontSerialize]
+        public string VisualPackRandomPoolCountText
+        {
+            get
+            {
+                var selected = VisualPackRandomPoolItems.Count(x => x?.IsIncluded == true);
+                var total = VisualPackRandomPoolItems.Count;
+                return $"{selected} / {total} selected";
+            }
+        }
+
+        public void RefreshVisualPackRandomPoolItems()
+        {
+            try
+            {
+                var candidates = plugin?.GetAvailableVisualPackRandomCandidates()
+                    ?? new List<VisualPackRandomCandidate>();
+                var excluded = new HashSet<string>(
+                    VisualPackRandomExcludedCandidateIds ?? new List<string>(),
+                    StringComparer.OrdinalIgnoreCase);
+
+                VisualPackRandomPoolItems.Clear();
+
+                foreach (var candidate in candidates
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id))
+                    .OrderBy(x => x.IsCommunityPack ? 1 : 0)
+                    .ThenBy(x => x.DisplayName ?? string.Empty, StringComparer.CurrentCultureIgnoreCase))
+                {
+                    VisualPackRandomPoolItems.Add(new VisualPackRandomPoolItem
+                    {
+                        Id = candidate.Id,
+                        DisplayName = string.IsNullOrWhiteSpace(candidate.DisplayName) ? candidate.Id : candidate.DisplayName,
+                        IsCommunityPack = candidate.IsCommunityPack,
+                        IsIncluded = !excluded.Contains(candidate.Id)
+                    });
+                }
+
+                OnPropertyChanged(nameof(VisualPackRandomPoolHasItems));
+                OnPropertyChanged(nameof(VisualPackRandomPoolCountText));
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][VisualPackRandom] Failed to refresh the Random Visual Pack pool UI.");
+            }
+        }
+
+        private void ToggleVisualPackRandomPoolCandidate(string candidateId)
+        {
+            if (string.IsNullOrWhiteSpace(candidateId))
+            {
+                return;
+            }
+
+            var item = VisualPackRandomPoolItems.FirstOrDefault(x =>
+                x != null && string.Equals(x.Id, candidateId, StringComparison.OrdinalIgnoreCase));
+            if (item == null)
+            {
+                return;
+            }
+
+            item.IsIncluded = !item.IsIncluded;
+            SaveVisualPackRandomPoolSelection();
+        }
+
+        private void SelectAllVisualPackRandomCandidates()
+        {
+            foreach (var item in VisualPackRandomPoolItems.Where(x => x != null))
+            {
+                item.IsIncluded = true;
+            }
+
+            SaveVisualPackRandomPoolSelection();
+        }
+
+        private void ClearAllVisualPackRandomCandidates()
+        {
+            foreach (var item in VisualPackRandomPoolItems.Where(x => x != null))
+            {
+                item.IsIncluded = false;
+            }
+
+            SaveVisualPackRandomPoolSelection();
+        }
+
+        private void SaveVisualPackRandomPoolSelection()
+        {
+            try
+            {
+                var availableIds = new HashSet<string>(
+                    VisualPackRandomPoolItems.Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id)).Select(x => x.Id),
+                    StringComparer.OrdinalIgnoreCase);
+
+                // Keep exclusions for temporarily unavailable packs so reinstalling one
+                // restores the user's previous choice. New packs are enabled by default.
+                var excluded = new HashSet<string>(
+                    (VisualPackRandomExcludedCandidateIds ?? new List<string>())
+                        .Where(id => !string.IsNullOrWhiteSpace(id) && !availableIds.Contains(id)),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var item in VisualPackRandomPoolItems.Where(x => x != null && !x.IsIncluded && !string.IsNullOrWhiteSpace(x.Id)))
+                {
+                    excluded.Add(item.Id);
+                }
+
+                VisualPackRandomExcludedCandidateIds = excluded.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+                OnPropertyChanged(nameof(VisualPackRandomPoolCountText));
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][VisualPackRandom] Failed to save the Random Visual Pack pool selection.");
+            }
+        }
+
         public void SelectAnikiThemeSettingsCategory(string categoryId)
         {
             SelectedAnikiThemeSettingsCategoryId = string.IsNullOrWhiteSpace(categoryId)
@@ -1601,6 +2052,39 @@ namespace AnikiHelper
                 {
                     OnPropertyChanged(nameof(SelectedAnikiThemeSettingsCategoryItems));
                     return;
+                }
+
+                // Show one Community Hub entry in Customization only. LoginBackground lives
+                // in Appearance, so checking for any community-capable preset would create a
+                // second Hub button there. CompletePack is used as a robust content fallback in
+                // case the category id is renamed by a future theme version.
+                var isCommunityHubCategory =
+                    string.Equals(selectedCategory.Id, "Customization", StringComparison.OrdinalIgnoreCase) ||
+                    selectedCategory.Items
+                        .OfType<AnikiPresetGroup>()
+                        .Any(group => string.Equals(group?.Id, "CompletePack", StringComparison.OrdinalIgnoreCase));
+
+                if (isCommunityHubCategory)
+                {
+                    string ResolveCommunityText(string key, string fallback)
+                    {
+                        try
+                        {
+                            return Application.Current?.TryFindResource(key) as string ?? fallback;
+                        }
+                        catch
+                        {
+                            return fallback;
+                        }
+                    }
+
+                    SelectedAnikiThemeSettingsCategoryItems.Add(new AnikiCommunityPacksMenuItem
+                    {
+                        DisplayName = ResolveCommunityText("CommunityHub_MenuTitle", "Community Packs"),
+                        DisplayDescription = ResolveCommunityText(
+                            "CommunityHub_MenuDescription",
+                            "Browse, install, update and manage Complete, Visual, Login, Color and Sound Packs shared by the Aniki ReMake community.")
+                    });
                 }
 
                 foreach (var item in selectedCategory.Items)
@@ -1784,6 +2268,12 @@ namespace AnikiHelper
 
         [DontSerialize]
         private bool mediaGalleryLoading;
+        private bool mediaGalleryGamesCacheLoaded;
+        private int mediaGalleryGamesLoadVersion;
+        private int visibleMediaGalleryGamesLoadVersion;
+        private const int MediaGalleryGamesUiBatchSize = 6;
+        private const int MediaGalleryGamesUiBatchDelayMs = 16;
+
         [DontSerialize]
         public bool MediaGalleryLoading
         {
@@ -1884,6 +2374,9 @@ namespace AnikiHelper
 
         [DontSerialize]
         public RelayCommand OpenQuickAccessAudioSwitcherCommand { get; }
+
+        [DontSerialize]
+        public RelayCommand OpenCommunityPacksHubCommand { get; }
 
         [DontSerialize]
         public RelayCommand OpenPackCreatorDownloadPageCommand { get; }
@@ -5789,6 +6282,17 @@ namespace AnikiHelper
         public DateTime LastNewsScanUtc { get; set; } = DateTime.MinValue;
 
         // Global toast notification
+        private bool globalNotificationOverlayEnabled = true;
+        public bool GlobalNotificationOverlayEnabled
+        {
+            get => globalNotificationOverlayEnabled;
+            set => SetValue(ref globalNotificationOverlayEnabled, value);
+        }
+
+        // One-time default migration. Version 1 enables the Global Notification Overlay
+        // for existing installations once, while preserving any later user choice.
+        public int GlobalNotificationOverlayDefaultsVersion { get; set; } = 0;
+
         private string globalToastMessage;
         public string GlobalToastMessage
         {
@@ -5847,6 +6351,17 @@ namespace AnikiHelper
         {
             get => inGameOverlayNeverSuspendGameItems;
             private set => SetValue(ref inGameOverlayNeverSuspendGameItems, value ?? new ObservableCollection<AnikiOverlayNeverSuspendGameItem>());
+        }
+
+        [DontSerialize]
+        private ObservableCollection<AnikiSplashDisabledGameItem> gameLaunchSplashDisabledGameItems
+            = new ObservableCollection<AnikiSplashDisabledGameItem>();
+
+        [DontSerialize]
+        public ObservableCollection<AnikiSplashDisabledGameItem> GameLaunchSplashDisabledGameItems
+        {
+            get => gameLaunchSplashDisabledGameItems;
+            private set => SetValue(ref gameLaunchSplashDisabledGameItems, value ?? new ObservableCollection<AnikiSplashDisabledGameItem>());
         }
         #region Options (bindables)
         public bool ShowDesktopSidebarSettingsShortcut
@@ -6080,6 +6595,7 @@ namespace AnikiHelper
         }
 
         public const double DefaultGameLaunchSplashBackgroundDimming = 95d / 255d;
+        public const int DefaultGameLaunchSplashMaximumWaitMs = 90000;
 
         private double gameLaunchSplashBackgroundDimming = DefaultGameLaunchSplashBackgroundDimming;
         public double GameLaunchSplashBackgroundDimming
@@ -6592,7 +7108,9 @@ namespace AnikiHelper
             set => SetValue(ref gameLaunchSplashAutoDetectReadyEnabled, value);
         }
 
-        private int gameLaunchSplashMaximumWaitMs = 15000;
+        public int GameLaunchSplashMaximumWaitSettingsVersion { get; set; } = 0;
+
+        private int gameLaunchSplashMaximumWaitMs = DefaultGameLaunchSplashMaximumWaitMs;
         public int GameLaunchSplashMaximumWaitMs
         {
             get => gameLaunchSplashMaximumWaitMs;
@@ -6631,6 +7149,12 @@ namespace AnikiHelper
 
         public Dictionary<Guid, int> CustomGameLaunchSplashMinimumDurations { get; set; }
             = new Dictionary<Guid, int>();
+
+        public Dictionary<Guid, int> CustomGameLaunchSplashMaximumWaits { get; set; }
+            = new Dictionary<Guid, int>();
+
+        public Dictionary<Guid, string> GameLaunchSplashDisabledGames { get; set; }
+            = new Dictionary<Guid, string>();
 
         private bool shutdownVideoEnabled = true;
         public bool ShutdownVideoEnabled
@@ -6857,6 +7381,16 @@ namespace AnikiHelper
         #endregion
 
         #region Stats + strings
+
+        [DontSerialize]
+        private bool isPlayerProfileLoading;
+        [DontSerialize]
+        public bool IsPlayerProfileLoading
+        {
+            get => isPlayerProfileLoading;
+            set => SetValue(ref isPlayerProfileLoading, value);
+        }
+
         public int TotalCount { get => totalCount; set => SetValue(ref totalCount, value); }
 
         public int InstalledCount
@@ -6989,6 +7523,27 @@ namespace AnikiHelper
         }
 
         [DontSerialize]
+        private string randomLoginCommunityVideoPath = string.Empty;
+
+        [DontSerialize]
+        public string RandomLoginCommunityVideoPath
+        {
+            get => randomLoginCommunityVideoPath;
+            set
+            {
+                var finalValue = value ?? string.Empty;
+                if (!string.Equals(randomLoginCommunityVideoPath, finalValue, StringComparison.Ordinal))
+                {
+                    SetValue(ref randomLoginCommunityVideoPath, finalValue);
+                    OnPropertyChanged(nameof(IsRandomLoginCommunityPack));
+                }
+            }
+        }
+
+        [DontSerialize]
+        public bool IsRandomLoginCommunityPack => !string.IsNullOrWhiteSpace(RandomLoginCommunityVideoPath);
+
+        [DontSerialize]
         private string soundPackDefaultAudioRoot = string.Empty;
         [DontSerialize]
         public string SoundPackDefaultAudioRoot
@@ -7038,14 +7593,29 @@ namespace AnikiHelper
         public string SoundPackExitGameDetailsPath { get => ResolveSoundPackRuntimePath(soundPackExitGameDetailsPath, "ExitGameDetails.wav"); set => SetValue(ref soundPackExitGameDetailsPath, value ?? string.Empty); }
 
         [DontSerialize]
+        private string soundPackLoginConfirmPath = string.Empty;
+        [DontSerialize]
+        public string SoundPackLoginConfirmPath { get => ResolveSoundPackRuntimePath(soundPackLoginConfirmPath, "LoginConfirm.wav"); set => SetValue(ref soundPackLoginConfirmPath, value ?? string.Empty); }
+
+        [DontSerialize]
+        private string soundPackOpenPanelPath = string.Empty;
+        [DontSerialize]
+        public string SoundPackOpenPanelPath { get => ResolveSoundPackRuntimePath(soundPackOpenPanelPath, "OpenPanel.wav"); set => SetValue(ref soundPackOpenPanelPath, value ?? string.Empty); }
+
+        [DontSerialize]
         private string soundPackOpenAdditionalViewPath = string.Empty;
         [DontSerialize]
         public string SoundPackOpenAdditionalViewPath { get => ResolveSoundPackRuntimePath(soundPackOpenAdditionalViewPath, "OpenAdditionalView.wav"); set => SetValue(ref soundPackOpenAdditionalViewPath, value ?? string.Empty); }
 
         [DontSerialize]
-        private string soundPackChangeDisplayPath = string.Empty;
+        private string soundPackCloseAdditionalViewPath = string.Empty;
         [DontSerialize]
-        public string SoundPackChangeDisplayPath { get => ResolveSoundPackRuntimePath(soundPackChangeDisplayPath, "ChangeDisplay.wav"); set => SetValue(ref soundPackChangeDisplayPath, value ?? string.Empty); }
+        public string SoundPackCloseAdditionalViewPath { get => ResolveSoundPackRuntimePath(soundPackCloseAdditionalViewPath, "CloseAdditionalView.wav"); set => SetValue(ref soundPackCloseAdditionalViewPath, value ?? string.Empty); }
+
+        [DontSerialize]
+        private string soundPackHomeHubOpenPath = string.Empty;
+        [DontSerialize]
+        public string SoundPackHomeHubOpenPath { get => ResolveSoundPackRuntimePath(soundPackHomeHubOpenPath, "HomeHubOpen.wav"); set => SetValue(ref soundPackHomeHubOpenPath, value ?? string.Empty); }
 
         [DontSerialize]
         private string soundPackHomeHubClosePath = string.Empty;
@@ -7116,8 +7686,11 @@ namespace AnikiHelper
             OnPropertyChanged(nameof(SoundPackNotiPath));
             OnPropertyChanged(nameof(SoundPackEnterGameDetailsPath));
             OnPropertyChanged(nameof(SoundPackExitGameDetailsPath));
+            OnPropertyChanged(nameof(SoundPackLoginConfirmPath));
+            OnPropertyChanged(nameof(SoundPackOpenPanelPath));
             OnPropertyChanged(nameof(SoundPackOpenAdditionalViewPath));
-            OnPropertyChanged(nameof(SoundPackChangeDisplayPath));
+            OnPropertyChanged(nameof(SoundPackCloseAdditionalViewPath));
+            OnPropertyChanged(nameof(SoundPackHomeHubOpenPath));
             OnPropertyChanged(nameof(SoundPackHomeHubClosePath));
             OnPropertyChanged(nameof(SoundPackSessionSummaryPath));
             OnPropertyChanged(nameof(SoundPackWarningPath));
@@ -7170,8 +7743,28 @@ namespace AnikiHelper
             set => SetValue(ref isKonamiModeActive, value);
         }
 
-        // anti-repetition between two launches
+        // Legacy anti-repetition value kept for backwards compatibility.
         public int LastLoginRandomIndex { get; set; }
+
+        // Stable candidate id used by the shared random engine (builtin:12, loginpack:<packId>, ...).
+        public string LastLoginRandomCandidateId { get; set; } = string.Empty;
+
+        // Candidate blacklist. Empty means every locally available built-in/community Login is eligible.
+        // The selector UI will edit this list; keeping it persisted here makes the random engine ready now.
+        public List<string> LoginRandomExcludedCandidateIds { get; set; } = new List<string>();
+
+        // Stable id of the Theme Color used on the previous Random session.
+        // Used only to avoid an immediate repeat when the pool has another choice.
+        public string LastThemeColorRandomCandidateId { get; set; } = string.Empty;
+
+        // Theme Color candidate blacklist. Empty means every built-in/community color is eligible.
+        public List<string> ThemeColorRandomExcludedCandidateIds { get; set; } = new List<string>();
+
+        // Stable id of the Visual Pack used on the previous Random session.
+        public string LastVisualPackRandomCandidateId { get; set; } = string.Empty;
+
+        // Visual Pack candidate blacklist. Empty means every built-in/community Visual Pack is eligible.
+        public List<string> VisualPackRandomExcludedCandidateIds { get; set; } = new List<string>();
 
         public AnikiHelperSettings() { }
 
@@ -7542,8 +8135,19 @@ namespace AnikiHelper
             HideAnikiThemePresetPreviewCommand = new RelayCommand(() => plugin?.HideAnikiThemePresetPreview());
             ReloadAnikiThemeSettingsCommand = new RelayCommand(() => plugin?.ReloadAnikiThemeSettings());
             SelectAnikiThemeSettingsCategoryCommand = new RelayCommand<string>(p => SelectAnikiThemeSettingsCategory(p));
+            ToggleLoginRandomPoolCandidateCommand = new RelayCommand<string>(ToggleLoginRandomPoolCandidate);
+            SelectAllLoginRandomCandidatesCommand = new RelayCommand(SelectAllLoginRandomCandidates);
+            ClearAllLoginRandomCandidatesCommand = new RelayCommand(ClearAllLoginRandomCandidates);
+            ToggleThemeColorRandomPoolCandidateCommand = new RelayCommand<string>(ToggleThemeColorRandomPoolCandidate);
+            SelectAllThemeColorRandomCandidatesCommand = new RelayCommand(SelectAllThemeColorRandomCandidates);
+            ClearAllThemeColorRandomCandidatesCommand = new RelayCommand(ClearAllThemeColorRandomCandidates);
+            ToggleVisualPackRandomPoolCandidateCommand = new RelayCommand<string>(ToggleVisualPackRandomPoolCandidate);
+            SelectAllVisualPackRandomCandidatesCommand = new RelayCommand(SelectAllVisualPackRandomCandidates);
+            ClearAllVisualPackRandomCandidatesCommand = new RelayCommand(ClearAllVisualPackRandomCandidates);
             ClearInGameOverlayNeverSuspendGamesCommand = new RelayCommand(ClearInGameOverlayNeverSuspendGames);
+            ClearGameLaunchSplashDisabledGamesCommand = new RelayCommand(ClearGameLaunchSplashDisabledGames);
             PreviewScreenSaverCommand = new RelayCommand(() => plugin?.PreviewScreenSaver());
+            TestGlobalNotificationCommand = new RelayCommand(() => plugin?.ShowTestGlobalNotification());
 
 
             // Keep the constructor lightweight. Media, memories and achievement caches
@@ -7551,6 +8155,8 @@ namespace AnikiHelper
             // remains lazy-loaded only when the user opens it.
             var hubShortcutsDefaultsMigrationApplied = false;
             var debugLogsStateNeedsSave = false;
+            var globalNotificationOverlayMigrationApplied = false;
+            var splashMaximumWaitMigrationApplied = false;
             var saved = loadPersistedSettings ? LoadSettingsSafe(plugin) : null;
             if (saved != null)
             {
@@ -7660,6 +8266,18 @@ namespace AnikiHelper
 
                 LoginRandomIndex = saved.LoginRandomIndex;
                 LastLoginRandomIndex = saved.LastLoginRandomIndex;
+                LastLoginRandomCandidateId = saved.LastLoginRandomCandidateId ?? string.Empty;
+                LoginRandomExcludedCandidateIds = saved.LoginRandomExcludedCandidateIds != null
+                    ? new List<string>(saved.LoginRandomExcludedCandidateIds)
+                    : new List<string>();
+                LastThemeColorRandomCandidateId = saved.LastThemeColorRandomCandidateId ?? string.Empty;
+                ThemeColorRandomExcludedCandidateIds = saved.ThemeColorRandomExcludedCandidateIds != null
+                    ? new List<string>(saved.ThemeColorRandomExcludedCandidateIds)
+                    : new List<string>();
+                LastVisualPackRandomCandidateId = saved.LastVisualPackRandomCandidateId ?? string.Empty;
+                VisualPackRandomExcludedCandidateIds = saved.VisualPackRandomExcludedCandidateIds != null
+                    ? new List<string>(saved.VisualPackRandomExcludedCandidateIds)
+                    : new List<string>();
                 LastSeenWhatsNewVersion = saved.LastSeenWhatsNewVersion ?? string.Empty;
                 SteamBannerResetMigrationVersion = saved.SteamBannerResetMigrationVersion;
                 PendingFirstSetupAddonInstallIds = saved.PendingFirstSetupAddonInstallIds != null
@@ -7751,11 +8369,32 @@ namespace AnikiHelper
                 GameLaunchSplashCustomPriority5 = saved.GameLaunchSplashCustomPriority5;
                 GameLaunchSplashMinimumDurationMs = saved.GameLaunchSplashMinimumDurationMs;
                 GameLaunchSplashAutoDetectReadyEnabled = saved.GameLaunchSplashAutoDetectReadyEnabled;
-                GameLaunchSplashMaximumWaitMs = saved.GameLaunchSplashMaximumWaitMs;
+
+                // GameLaunchSplashMaximumWaitMs existed before it was exposed/used by the UI.
+                // Existing configs therefore commonly contain the old unused 15-second default.
+                // Migrate those configs once to the current 90-second behavior. The version marker
+                // is required so a user can intentionally choose 15 seconds afterwards.
+                if (saved.GameLaunchSplashMaximumWaitSettingsVersion < CurrentGameLaunchSplashMaximumWaitSettingsVersion)
+                {
+                    GameLaunchSplashMaximumWaitMs = DefaultGameLaunchSplashMaximumWaitMs;
+                    GameLaunchSplashMaximumWaitSettingsVersion = CurrentGameLaunchSplashMaximumWaitSettingsVersion;
+                    splashMaximumWaitMigrationApplied = true;
+                }
+                else
+                {
+                    GameLaunchSplashMaximumWaitMs = saved.GameLaunchSplashMaximumWaitMs;
+                    GameLaunchSplashMaximumWaitSettingsVersion = saved.GameLaunchSplashMaximumWaitSettingsVersion;
+                }
+
                 CustomGameLaunchSplashImages = saved.CustomGameLaunchSplashImages
                     ?? new Dictionary<Guid, string>();
                 CustomGameLaunchSplashMinimumDurations = saved.CustomGameLaunchSplashMinimumDurations
                     ?? new Dictionary<Guid, int>();
+                CustomGameLaunchSplashMaximumWaits = saved.CustomGameLaunchSplashMaximumWaits
+                    ?? new Dictionary<Guid, int>();
+                GameLaunchSplashDisabledGames = saved.GameLaunchSplashDisabledGames != null
+                    ? new Dictionary<Guid, string>(saved.GameLaunchSplashDisabledGames)
+                    : new Dictionary<Guid, string>();
                 ShutdownVideoEnabled = saved.ShutdownVideoEnabled;
                 LastSteamRecentCheckUtc = saved.LastSteamRecentCheckUtc;
                 EventSoundsEnabled = saved.EventSoundsEnabled;
@@ -7795,6 +8434,19 @@ namespace AnikiHelper
 
                 NewsScanEnabled = saved.NewsScanEnabled;
                 LastNewsScanUtc = saved.LastNewsScanUtc;
+
+                GlobalNotificationOverlayDefaultsVersion = saved.GlobalNotificationOverlayDefaultsVersion;
+                if (GlobalNotificationOverlayDefaultsVersion < 1)
+                {
+                    GlobalNotificationOverlayEnabled = true;
+                    GlobalNotificationOverlayDefaultsVersion = 1;
+                    globalNotificationOverlayMigrationApplied = true;
+                    logger?.Info("[AnikiHelper][Migration] Global Notification Overlay enabled by default.");
+                }
+                else
+                {
+                    GlobalNotificationOverlayEnabled = saved.GlobalNotificationOverlayEnabled;
+                }
 
                 NewsSourceATitle = string.IsNullOrWhiteSpace(saved.NewsSourceATitle) ? "News" : saved.NewsSourceATitle;
                 NewsSourceBTitle = string.IsNullOrWhiteSpace(saved.NewsSourceBTitle) ? "Reviews" : saved.NewsSourceBTitle;
@@ -7963,16 +8615,35 @@ namespace AnikiHelper
                 CustomGameLaunchSplashMinimumDurations = new Dictionary<Guid, int>();
             }
 
+            if (CustomGameLaunchSplashMaximumWaits == null)
+            {
+                CustomGameLaunchSplashMaximumWaits = new Dictionary<Guid, int>();
+            }
+
+            if (GameLaunchSplashDisabledGames == null)
+            {
+                GameLaunchSplashDisabledGames = new Dictionary<Guid, string>();
+            }
+
             if (InGameOverlayNeverSuspendGames == null)
             {
                 InGameOverlayNeverSuspendGames = new Dictionary<Guid, string>();
             }
 
             RefreshGameLaunchSplashCustomPriorityOptions();
+            RefreshGameLaunchSplashDisabledGameItems();
             RefreshInGameOverlayNeverSuspendGameItems();
+
+            if (saved == null)
+            {
+                GameLaunchSplashMaximumWaitSettingsVersion = CurrentGameLaunchSplashMaximumWaitSettingsVersion;
+            }
 
             if (saved == null && loadPersistedSettings)
             {
+                GlobalNotificationOverlayEnabled = true;
+                GlobalNotificationOverlayDefaultsVersion = 1;
+
                 try
                 {
                     plugin.SavePluginSettings(this);
@@ -7986,6 +8657,8 @@ namespace AnikiHelper
             else if (loadPersistedSettings && saved != null &&
                      (hubShortcutsDefaultsMigrationApplied ||
                       debugLogsStateNeedsSave ||
+                      globalNotificationOverlayMigrationApplied ||
+                      splashMaximumWaitMigrationApplied ||
                       saved.SteamApiKeyStorageNeedsSave ||
                       saved.SteamWebApiTokenStorageNeedsSave ||
                       saved.VideoTmdbTokenStorageNeedsSave))
@@ -8040,7 +8713,7 @@ namespace AnikiHelper
                 {
                     PrepareCurrentGameMediaLoading();
 
-                    plugin?.OpenWindow("ScreenShotsThumbsWindowStyle|SecondaryMusic");
+                    plugin?.OpenWindow("ScreenShotsThumbsWindowStyle|NoDim|SecondaryMusic|AdditionalViewSound");
                     plugin?.HookScreenshotsLazyLoad();
 
                     _ = RefreshCurrentGameMediaFromSelectedGameAsync();
@@ -8111,8 +8784,7 @@ namespace AnikiHelper
             OpenMediaGalleryGamesWindowCommand = new RelayCommand(
                 () =>
                 {
-                    LoadMediaGalleryGamesFromCache();
-                    plugin?.OpenWindow("MediaGalleryGamesWindowStyle|SecondaryMusic");
+                    OpenMediaGalleryGamesWindow();
                 }
             );
 
@@ -8161,8 +8833,37 @@ namespace AnikiHelper
 
             OpenQuickAccessAudioSwitcherCommand = new RelayCommand(() =>
             {
-                plugin?.OpenChildWindow("AudioSwitcherWindowStyle|FocusFirst|RefocusAfterClick");
+                plugin?.OpenChildWindow("AudioSwitcherWindowStyle|FocusFirst|RefocusAfterClick|OpenPanelSound");
                 IsQuickAccessFeaturesOpen = false;
+            });
+
+            OpenCommunityPacksHubCommand = new RelayCommand(() =>
+            {
+                try
+                {
+                    IsQuickAccessFeaturesOpen = false;
+
+                    Action openCommunityHub = () =>
+                        AnikiHelperFullscreen.Views.FullscreenSettingsView.OpenCommunityPacksHub();
+
+                    // Community Packs is a plugin-owned WPF window, not a theme OpenWindow style.
+                    // When launched from Quick Access, fully close the outgoing Quick Access window
+                    // first and let its dim/focus cleanup finish before opening the modal Hub.
+                    // The Settings > Customization path still calls OpenCommunityPacksHub directly
+                    // and therefore keeps its existing behavior unchanged.
+                    if (plugin != null)
+                    {
+                        plugin.OpenAfterTopBarManagerClosed(openCommunityHub);
+                    }
+                    else
+                    {
+                        openCommunityHub();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper] Failed to open Community Packs from Quick Access.");
+                }
             });
 
             OpenPackCreatorDownloadPageCommand = new RelayCommand(() =>
@@ -8202,27 +8903,10 @@ namespace AnikiHelper
             OpenAchievementActionsCommand = new RelayCommand<object>(
                 achievement =>
                 {
-                    if (achievement == null)
+                    if (!PrepareAchievementActionsForOverlay(achievement))
                     {
                         return;
                     }
-
-                    SelectedAchievementActionItem = achievement;
-
-                    // Snapshot the two writeable states for the modal. PA rebuilds its
-                    // dynamic list after a write, so the original AchievementDetail can
-                    // become stale while the modal is still open.
-                    selectedAchievementGoalState = GetSelectedAchievementBool("IsGoal");
-                    selectedAchievementCapstoneState = GetSelectedAchievementBool("IsCapstone");
-
-                    selectedAchievementFocusApiName = GetSelectedAchievementString("ApiName");
-                    selectedAchievementFocusName = GetSelectedAchievementString("Name");
-
-                    OnPropertyChanged(nameof(SelectedAchievementIsGoal));
-                    OnPropertyChanged(nameof(SelectedAchievementIsCapstone));
-
-                    SelectedAchievementCapturePath = string.Empty;
-                    SelectedAchievementCaptureIsVideo = false;
 
                     // RefocusAfterClick keeps controller focus on the clicked physical
                     // action button even if PA rebuilds its list in the background.
@@ -8241,17 +8925,10 @@ namespace AnikiHelper
             OpenSelectedAchievementCaptureCommand = new RelayCommand<object>(
                 captureKind =>
                 {
-                    var kind = captureKind?.ToString();
-                    var path = GetSelectedAchievementCapturePath(kind);
-
-                    if (!IsUsableAchievementCapturePath(path))
+                    if (!PrepareSelectedAchievementCaptureForOverlay(captureKind))
                     {
                         return;
                     }
-
-                    SelectedAchievementCapturePath = path;
-                    SelectedAchievementCaptureIsVideo =
-                        string.Equals(kind, "Video", StringComparison.OrdinalIgnoreCase);
 
                     // Keep the action menu underneath. B closes only the viewer and
                     // returns to the achievement menu, console-style.
@@ -8328,7 +9005,7 @@ namespace AnikiHelper
                 {
                     if (PrepareSelectedGameLinksWindow())
                     {
-                        plugin?.OpenWindow("GameLinksWindowStyle|FocusFirst|SecondaryMusic");
+                        plugin?.OpenWindow("GameLinksWindowStyle|FocusFirst|SecondaryMusic|AdditionalViewSound");
                     }
                 }
             );
@@ -9363,7 +10040,7 @@ namespace AnikiHelper
 
                     if (visualizerWasStillRefreshing)
                     {
-                        global::AnikiHelper.AnikiLog.Debug(logger, 
+                        global::AnikiHelper.AnikiLog.Debug(logger,
                             "[AnikiHelper] Screenshots Visualizer data is still stale after game stop. Waiting for its refresh."
                         );
 
@@ -9387,7 +10064,7 @@ namespace AnikiHelper
 
                         if (visualizerRefreshCompleted)
                         {
-                            global::AnikiHelper.AnikiLog.Debug(logger, 
+                            global::AnikiHelper.AnikiLog.Debug(logger,
                                 "[AnikiHelper] Screenshots Visualizer refresh completed. Updating Aniki media cache again."
                             );
 
@@ -9399,7 +10076,7 @@ namespace AnikiHelper
                         }
                         else
                         {
-                            global::AnikiHelper.AnikiLog.Debug(logger, 
+                            global::AnikiHelper.AnikiLog.Debug(logger,
                                 "[AnikiHelper] Timed out while waiting for Screenshots Visualizer refresh."
                             );
                         }
@@ -9455,7 +10132,7 @@ namespace AnikiHelper
                 }
                 catch (Exception ex)
                 {
-                    global::AnikiHelper.AnikiLog.Debug(logger, 
+                    global::AnikiHelper.AnikiLog.Debug(logger,
                         ex,
                         "[AnikiHelper] Failed to generate thumbnail during silent stopped-game refresh."
                     );
@@ -10194,7 +10871,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     ex,
                     $"[AnikiHelper][Achievements] Failed to read achievement property '{propertyName}'.");
                 return null;
@@ -10260,6 +10937,47 @@ namespace AnikiHelper
             }
 
             return string.Empty;
+        }
+
+        internal bool PrepareAchievementActionsForOverlay(object achievement)
+        {
+            if (achievement == null)
+            {
+                return false;
+            }
+
+            SelectedAchievementActionItem = achievement;
+
+            // Snapshot writeable states because PlayniteAchievements can rebuild the
+            // DynamicAchievements collection immediately after a Goal/Capstone write.
+            selectedAchievementGoalState = GetSelectedAchievementBool("IsGoal");
+            selectedAchievementCapstoneState = GetSelectedAchievementBool("IsCapstone");
+
+            selectedAchievementFocusApiName = GetSelectedAchievementString("ApiName");
+            selectedAchievementFocusName = GetSelectedAchievementString("Name");
+
+            OnPropertyChanged(nameof(SelectedAchievementIsGoal));
+            OnPropertyChanged(nameof(SelectedAchievementIsCapstone));
+
+            SelectedAchievementCapturePath = string.Empty;
+            SelectedAchievementCaptureIsVideo = false;
+            return true;
+        }
+
+        internal bool PrepareSelectedAchievementCaptureForOverlay(object captureKind)
+        {
+            var kind = captureKind?.ToString();
+            var path = GetSelectedAchievementCapturePath(kind);
+
+            if (!IsUsableAchievementCapturePath(path))
+            {
+                return false;
+            }
+
+            SelectedAchievementCapturePath = path;
+            SelectedAchievementCaptureIsVideo =
+                string.Equals(kind, "Video", StringComparison.OrdinalIgnoreCase);
+            return true;
         }
 
         private void ExecuteSelectedAchievementItemCommand(
@@ -10416,7 +11134,7 @@ namespace AnikiHelper
                         }
                         catch (Exception ex)
                         {
-                            global::AnikiHelper.AnikiLog.Debug(logger, 
+                            global::AnikiHelper.AnikiLog.Debug(logger,
                                 ex,
                                 "[AnikiHelper][Achievements] Failed to focus rebuilt achievement row.");
                         }
@@ -10427,7 +11145,7 @@ namespace AnikiHelper
             }
             catch (Exception ex)
             {
-                global::AnikiHelper.AnikiLog.Debug(logger, 
+                global::AnikiHelper.AnikiLog.Debug(logger,
                     ex,
                     "[AnikiHelper][Achievements] Achievement focus restoration failed.");
                 return false;
@@ -10614,15 +11332,15 @@ namespace AnikiHelper
             switch (featureId.Trim().ToLowerInvariant())
             {
                 case "achievements":
-                    openDestination = () => plugin?.OpenWindow("AchievementsWindow|SortButton|SecondaryMusic");
+                    openDestination = () => plugin?.OpenWindow("AchievementsWindow|SortButton|SecondaryMusic|AdditionalViewSound");
                     break;
 
                 case "friends":
-                    openDestination = () => plugin?.OpenWindow("FriendsStyle|SecondaryMusic");
+                    openDestination = () => plugin?.OpenWindow("FriendsStyle|SecondaryMusic|AdditionalViewSound");
                     break;
 
                 case "music-player":
-                    openDestination = () => plugin?.OpenWindow("MusicPlayerWindowStyle|FocusFirst");
+                    openDestination = () => plugin?.OpenWindow("MusicPlayerWindowStyle|FocusFirst|AdditionalViewSound");
                     break;
 
                 case "web-browser":
@@ -10630,15 +11348,16 @@ namespace AnikiHelper
                     break;
 
                 case "media-gallery":
-                    openDestination = () =>
-                    {
-                        LoadMediaGalleryGamesFromCache();
-                        plugin?.OpenWindow("MediaGalleryGamesWindowStyle|SecondaryMusic");
-                    };
+                    openDestination = OpenMediaGalleryGamesWindow;
                     break;
 
                 case "video-player":
                     openDestination = () => plugin?.OpenVideoPlayer();
+                    break;
+
+                case "community-packs":
+                    openDestination = () =>
+                        AnikiHelperFullscreen.Views.FullscreenSettingsView.OpenCommunityPacksHub();
                     break;
 
                 case "software-tools":
@@ -10651,12 +11370,12 @@ namespace AnikiHelper
 
                 case "audio-switcher":
                     openDestination = () =>
-                        plugin?.OpenChildWindow("AudioSwitcherWindowStyle|FocusFirst|RefocusAfterClick");
+                        plugin?.OpenChildWindow("AudioSwitcherWindowStyle|FocusFirst|RefocusAfterClick|OpenPanelSound");
                     break;
 
                 case "controller-manager":
                     openDestination = () =>
-                        plugin?.OpenWindow("ControllerManagerWindowStyle|ControllerManagerTesterButton");
+                        plugin?.OpenWindow("ControllerManagerWindowStyle|ControllerManagerTesterButton|AdditionalViewSound");
                     break;
             }
 
@@ -10701,20 +11420,19 @@ namespace AnikiHelper
 
                 if (string.Equals(actionId, HubFeatureMediaGalleryId, StringComparison.OrdinalIgnoreCase))
                 {
-                    LoadMediaGalleryGamesFromCache();
-                    plugin?.OpenWindow("MediaGalleryGamesWindowStyle|SecondaryMusic");
+                    OpenMediaGalleryGamesWindow();
                     return;
                 }
 
                 if (string.Equals(actionId, HubFeatureSteamFriendsId, StringComparison.OrdinalIgnoreCase))
                 {
-                    plugin?.OpenWindow("FriendsStyle|SecondaryMusic");
+                    plugin?.OpenWindow("FriendsStyle|SecondaryMusic|AdditionalViewSound");
                     return;
                 }
 
                 if (string.Equals(actionId, HubFeatureSteamStoreId, StringComparison.OrdinalIgnoreCase))
                 {
-                    plugin?.OpenWindow("SteamStoreStyle|FocusFirst|SecondaryMusic");
+                    plugin?.OpenWindow("SteamStoreStyle|FocusFirst|SecondaryMusic|AdditionalViewSound");
                     return;
                 }
 
@@ -10729,7 +11447,7 @@ namespace AnikiHelper
                         return;
                     }
 
-                    plugin?.OpenWindow("MusicPlayerWindowStyle|FocusFirst");
+                    plugin?.OpenWindow("MusicPlayerWindowStyle|FocusFirst|AdditionalViewSound");
                     return;
                 }
 
@@ -11779,6 +12497,11 @@ namespace AnikiHelper
                 ReplaceMediaGameCollection(MediaGalleryGames, sorted);
 
                 OnPropertyChanged(nameof(MediaGalleryGames));
+
+                // The fullscreen grid binds to the lightweight visible collection, not the
+                // complete cache. Rebuild it progressively so changing sort order does not
+                // force every card/cover to be recreated in one UI frame.
+                _ = PopulateVisibleMediaGalleryGamesAsync(sorted);
             }
             catch (Exception ex)
             {
@@ -11798,6 +12521,192 @@ namespace AnikiHelper
             }
         }
 
+        private void ResetVisibleMediaGalleryGames()
+        {
+            // Cancel any population still running from the previous opening/sort operation.
+            visibleMediaGalleryGamesLoadVersion++;
+            VisibleMediaGalleryGames.Clear();
+            OnPropertyChanged(nameof(VisibleMediaGalleryGames));
+        }
+
+        private async Task PopulateVisibleMediaGalleryGamesAsync(IEnumerable<AnikiMediaGameItem> games)
+        {
+            var items = (games ?? Enumerable.Empty<AnikiMediaGameItem>())
+                .Where(x => x != null)
+                .ToList();
+
+            var requestVersion = ++visibleMediaGalleryGamesLoadVersion;
+            var dispatcher = Application.Current?.Dispatcher;
+
+            if (dispatcher == null)
+            {
+                return;
+            }
+
+            // Always start from an empty visual collection. The complete MediaGalleryGames
+            // cache remains intact in memory and is cheap to sort/count; only card creation is
+            // staggered across frames.
+            await dispatcher.InvokeAsync(new Action(() =>
+            {
+                if (requestVersion != visibleMediaGalleryGamesLoadVersion)
+                {
+                    return;
+                }
+
+                VisibleMediaGalleryGames.Clear();
+                OnPropertyChanged(nameof(VisibleMediaGalleryGames));
+            }), DispatcherPriority.DataBind);
+
+            // Let the real Capture Gallery page render once (header, footer, empty grid) before
+            // creating any cover cards. This is the key difference from the old behaviour where
+            // Window.Show() had to wait for the entire WrapPanel to materialize.
+            await dispatcher.InvokeAsync(new Action(() => { }), DispatcherPriority.ContextIdle);
+
+            for (var startIndex = 0; startIndex < items.Count; startIndex += MediaGalleryGamesUiBatchSize)
+            {
+                if (requestVersion != visibleMediaGalleryGamesLoadVersion)
+                {
+                    return;
+                }
+
+                var batchStart = startIndex;
+                var batchEnd = Math.Min(batchStart + MediaGalleryGamesUiBatchSize, items.Count);
+
+                await dispatcher.InvokeAsync(new Action(() =>
+                {
+                    if (requestVersion != visibleMediaGalleryGamesLoadVersion)
+                    {
+                        return;
+                    }
+
+                    for (var i = batchStart; i < batchEnd; i++)
+                    {
+                        VisibleMediaGalleryGames.Add(items[i]);
+                    }
+                }), DispatcherPriority.Background);
+
+                // Give WPF a render opportunity between batches so covers appear naturally and
+                // controller input/audio are not blocked by one large layout pass.
+                if (batchEnd < items.Count)
+                {
+                    await Task.Delay(MediaGalleryGamesUiBatchDelayMs).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private void OpenMediaGalleryGamesWindow()
+        {
+            try
+            {
+                // Keep the complete cache in memory, but never bind that complete collection
+                // directly while a new Window is being constructed. Otherwise the second and
+                // subsequent openings synchronously recreate every card before Window.Show().
+                var needsInitialLoad = !mediaGalleryGamesCacheLoaded;
+                MediaGalleryLoading = needsInitialLoad;
+
+                // The UI-facing list must be empty before the XAML is instantiated. That makes
+                // the real page itself cheap to create and lets it appear immediately.
+                ResetVisibleMediaGalleryGames();
+
+                plugin?.OpenWindow("MediaGalleryGamesWindowStyle|NoDim|SecondaryMusic|AdditionalViewSound");
+
+                if (needsInitialLoad)
+                {
+                    _ = LoadMediaGalleryGamesFromCacheForOpenAsync();
+                }
+                else
+                {
+                    // No disk read on subsequent openings: reuse the cached items and materialize
+                    // their visual cards in small batches after the page has rendered.
+                    var cachedItems = MediaGalleryGames.ToList();
+                    _ = PopulateVisibleMediaGalleryGamesAsync(cachedItems);
+                }
+            }
+            catch (Exception ex)
+            {
+                MediaGalleryLoading = false;
+                logger?.Warn(ex, "[AnikiHelper] Failed to open media gallery games window.");
+            }
+        }
+
+        private async Task LoadMediaGalleryGamesFromCacheForOpenAsync()
+        {
+            var requestVersion = ++mediaGalleryGamesLoadVersion;
+
+            try
+            {
+                if (screenshotMediaCacheService == null)
+                {
+                    screenshotMediaCacheService = new ScreenshotMediaCacheService(
+                        plugin.PlayniteApi,
+                        plugin.GetPluginUserDataPath(),
+                        logger
+                    );
+                }
+
+                var cacheService = screenshotMediaCacheService;
+
+                // Pure file I/O/deserialization stays off the UI thread.
+                var games = await Task.Run(() => cacheService.LoadGamesCacheSnapshot()).ConfigureAwait(false);
+
+                if (requestVersion != mediaGalleryGamesLoadVersion)
+                {
+                    return;
+                }
+
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                List<AnikiMediaGameItem> sortedSnapshot = null;
+
+                await dispatcher.InvokeAsync(new Action(() =>
+                {
+                    if (requestVersion != mediaGalleryGamesLoadVersion)
+                    {
+                        return;
+                    }
+
+                    sortedSnapshot = SortMediaGalleryGames(games).ToList();
+                    ReplaceMediaGameCollection(MediaGalleryGames, sortedSnapshot);
+                    mediaGalleryGamesCacheLoaded = true;
+                    OnPropertyChanged(nameof(MediaGalleryGames));
+                    MediaGalleryLoading = false;
+                }), DispatcherPriority.DataBind);
+
+                if (requestVersion != mediaGalleryGamesLoadVersion || sortedSnapshot == null)
+                {
+                    return;
+                }
+
+                await PopulateVisibleMediaGalleryGamesAsync(sortedSnapshot).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to asynchronously load media gallery games cache.");
+
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher != null)
+                {
+                    dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (requestVersion != mediaGalleryGamesLoadVersion)
+                        {
+                            return;
+                        }
+
+                        MediaGalleryGames.Clear();
+                        ResetVisibleMediaGalleryGames();
+                        mediaGalleryGamesCacheLoaded = true;
+                        OnPropertyChanged(nameof(MediaGalleryGames));
+                        MediaGalleryLoading = false;
+                    }), DispatcherPriority.DataBind);
+                }
+            }
+        }
+
         public void LoadMediaGalleryGamesFromCache()
         {
             try
@@ -11812,16 +12721,25 @@ namespace AnikiHelper
                 }
 
                 var games = screenshotMediaCacheService.LoadGamesCache();
+                var sorted = SortMediaGalleryGames(games).ToList();
 
-                ReplaceMediaGameCollection(MediaGalleryGames, SortMediaGalleryGames(games));
+                ReplaceMediaGameCollection(MediaGalleryGames, sorted);
+                mediaGalleryGamesCacheLoaded = true;
 
                 OnPropertyChanged(nameof(MediaGalleryGames));
+
+                // If Capture Gallery is currently visible this refresh will update it smoothly;
+                // if it is closed, the next OpenMediaGalleryGamesWindow call clears this visual
+                // collection before creating the window anyway.
+                _ = PopulateVisibleMediaGalleryGamesAsync(sorted);
             }
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[AnikiHelper] Failed to load media gallery games cache.");
 
                 MediaGalleryGames.Clear();
+                ResetVisibleMediaGalleryGames();
+                mediaGalleryGamesCacheLoaded = true;
                 OnPropertyChanged(nameof(MediaGalleryGames));
             }
         }
@@ -11900,7 +12818,7 @@ namespace AnikiHelper
 
                 PrepareCurrentGameMediaLoading();
 
-                plugin?.OpenWindow("ScreenShotsThumbsWindowStyle|SecondaryMusic");
+                plugin?.OpenWindow("ScreenShotsThumbsWindowStyle|NoDim|SecondaryMusic|AdditionalViewSound");
 
                 await Application.Current.Dispatcher.InvokeAsync(
                     () => { },
@@ -12079,7 +12997,96 @@ namespace AnikiHelper
                 target.Add(item);
             }
         }
-public bool IsInGameOverlaySuspendGameEnabled()
+        public bool IsGameLaunchSplashDisabled(Guid gameId)
+        {
+            return gameId != Guid.Empty &&
+                   GameLaunchSplashDisabledGames != null &&
+                   GameLaunchSplashDisabledGames.ContainsKey(gameId);
+        }
+
+        public void ToggleGameLaunchSplashDisabled(Playnite.SDK.Models.Game game)
+        {
+            if (game == null || game.Id == Guid.Empty)
+            {
+                return;
+            }
+
+            SetGameLaunchSplashDisabled(game.Id, !IsGameLaunchSplashDisabled(game.Id), game.Name);
+        }
+
+        public void SetGameLaunchSplashDisabled(Guid gameId, bool disabled, string gameName = null)
+        {
+            if (gameId == Guid.Empty)
+            {
+                return;
+            }
+
+            if (GameLaunchSplashDisabledGames == null)
+            {
+                GameLaunchSplashDisabledGames = new Dictionary<Guid, string>();
+            }
+
+            if (disabled)
+            {
+                GameLaunchSplashDisabledGames[gameId] = string.IsNullOrWhiteSpace(gameName)
+                    ? gameId.ToString()
+                    : gameName;
+            }
+            else
+            {
+                GameLaunchSplashDisabledGames.Remove(gameId);
+            }
+
+            RefreshGameLaunchSplashDisabledGameItems();
+            OnPropertyChanged(nameof(GameLaunchSplashDisabledGames));
+
+            try
+            {
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to save game launch splash disabled list.");
+            }
+        }
+
+        public void ClearGameLaunchSplashDisabledGames()
+        {
+            if (GameLaunchSplashDisabledGames == null || GameLaunchSplashDisabledGames.Count == 0)
+            {
+                return;
+            }
+
+            GameLaunchSplashDisabledGames.Clear();
+            RefreshGameLaunchSplashDisabledGameItems();
+            OnPropertyChanged(nameof(GameLaunchSplashDisabledGames));
+
+            try
+            {
+                plugin?.SavePluginSettings(this);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Failed to clear game launch splash disabled list.");
+            }
+        }
+
+        private void RefreshGameLaunchSplashDisabledGameItems()
+        {
+            var items = new ObservableCollection<AnikiSplashDisabledGameItem>();
+
+            if (GameLaunchSplashDisabledGames != null)
+            {
+                foreach (var pair in GameLaunchSplashDisabledGames.OrderBy(x => x.Value ?? string.Empty))
+                {
+                    items.Add(new AnikiSplashDisabledGameItem(this, pair.Key, pair.Value));
+                }
+            }
+
+            GameLaunchSplashDisabledGameItems = items;
+        }
+
+        public bool IsInGameOverlaySuspendGameEnabled()
         {
             return string.Equals(InGameOverlayGameBehavior, "SuspendGame", StringComparison.OrdinalIgnoreCase);
         }
@@ -12475,6 +13482,7 @@ public bool IsInGameOverlaySuspendGameEnabled()
             RefreshHubApps();
             EnsureHubCurrentPageInRange();
             RefreshGameLaunchSplashCustomPriorityOptions();
+            RefreshGameLaunchSplashDisabledGameItems();
             RefreshInGameOverlayNeverSuspendGameItems();
         }
 
@@ -12592,23 +13600,27 @@ public bool IsInGameOverlaySuspendGameEnabled()
         }
         private bool PrepareSelectedGameLinksWindow()
         {
+            var selectedGame = plugin?.PlayniteApi?.MainView?.SelectedGames?.FirstOrDefault();
+            return PrepareGameLinksWindow(selectedGame);
+        }
+
+        internal bool PrepareGameLinksWindow(Game game)
+        {
             try
             {
                 SelectedGameLinks.Clear();
 
-                var selectedGame = plugin?.PlayniteApi?.MainView?.SelectedGames?.FirstOrDefault();
-
-                if (selectedGame == null)
+                if (game == null)
                 {
                     SelectedGameLinksGameName = string.Empty;
                     return false;
                 }
 
-                SelectedGameLinksGameName = selectedGame.Name ?? string.Empty;
+                SelectedGameLinksGameName = game.Name ?? string.Empty;
 
-                if (selectedGame.Links != null)
+                if (game.Links != null)
                 {
-                    foreach (var link in selectedGame.Links)
+                    foreach (var link in game.Links)
                     {
                         if (link == null || string.IsNullOrWhiteSpace(link.Url))
                         {
@@ -12651,7 +13663,7 @@ public bool IsInGameOverlaySuspendGameEnabled()
                 }
 
                 // Always open the window. The theme displays an empty-state message
-                // when the selected game has no valid links.
+                // when the game has no valid links.
                 return true;
             }
             catch
@@ -14007,26 +15019,24 @@ public bool IsInGameOverlaySuspendGameEnabled()
 
             try
             {
-                foreach (var file in Directory.EnumerateFiles(themeDirectory, "*.xaml", SearchOption.AllDirectories))
+                // Aniki ReMake exposes its compatibility marker from Constants.xaml.
+                // Do not recursively scan/read every XAML file in the theme just to find
+                // a resource whose location is known. This check is used by the Settings
+                // dashboard and can run during plugin startup, so keeping it to one small
+                // file avoids unnecessary synchronous disk I/O before the first theme frame.
+                var constantsPath = Path.Combine(themeDirectory, "Constants.xaml");
+                if (!File.Exists(constantsPath))
                 {
-                    try
-                    {
-                        var content = File.ReadAllText(file);
-                        if (content.IndexOf("Aniki_ThemeMarker", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            return true;
-                        }
-                    }
-                    catch
-                    {
-                    }
+                    return false;
                 }
+
+                var content = File.ReadAllText(constantsPath);
+                return content.IndexOf("Aniki_ThemeMarker", StringComparison.OrdinalIgnoreCase) >= 0;
             }
             catch
             {
+                return false;
             }
-
-            return false;
         }
 
         private bool IsExtensionInstalled(params string[] markers)
@@ -14662,11 +15672,33 @@ public bool IsInGameOverlaySuspendGameEnabled()
             }
         }
 
-        public void DeleteCompletePack(string localId)
+        public CompletePackDeleteAnalysis AnalyzeCompletePackDelete(string localId)
         {
             try
             {
-                plugin?.DeleteCompletePack(localId);
+                return plugin?.AnalyzeCompletePackDelete(localId) ?? new CompletePackDeleteAnalysis();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[AnikiHelperSettingsViewModel] AnalyzeCompletePackDelete failed: " + ex.Message);
+                throw;
+            }
+        }
+
+        public void DeleteCompletePack(string localId)
+        {
+            DeleteCompletePack(localId, false);
+        }
+
+        public void DeleteCompletePack(string localId, bool deleteIncludedPacks)
+        {
+            try
+            {
+                plugin?.DeleteCompletePack(localId, deleteIncludedPacks);
+                RefreshCustomVisualPackLibrary();
+                RefreshCustomColorPackLibrary();
+                RefreshLoginPackLibrary();
+                RefreshSoundPackLibrary();
                 RefreshCompletePackLibrary();
             }
             catch (Exception ex)

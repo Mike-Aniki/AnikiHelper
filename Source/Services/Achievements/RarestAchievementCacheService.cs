@@ -16,7 +16,7 @@ namespace AnikiHelper.Services.Achievements
         {
             this.logger = logger;
 
-            var cacheRoot = Path.Combine(pluginUserDataPath, "AchievementCache");
+            var cacheRoot = global::AnikiHelper.AnikiCacheLayout.AchievementsRoot(pluginUserDataPath);
             Directory.CreateDirectory(cacheRoot);
 
             cachePath = Path.Combine(cacheRoot, "rarest_achievement_cache.json");

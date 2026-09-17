@@ -1329,6 +1329,73 @@ namespace AnikiHelper.Services.VideoPlayer
         private string homeHeroOverview = string.Empty;
         [DontSerialize] public string HomeHeroOverview { get => homeHeroOverview; private set => SetValue(ref homeHeroOverview, value ?? string.Empty); }
 
+        // Compatibility mirrors for themes that bind to VisibleHome* properties.
+        // They now update immediately from the real Home collections; no staged render pipeline.
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleContinueWatchingVideos = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleContinueWatchingVideos
+        {
+            get => visibleContinueWatchingVideos;
+            private set => SetValue(ref visibleContinueWatchingVideos, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleRecentVideos = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleRecentVideos
+        {
+            get => visibleRecentVideos;
+            private set => SetValue(ref visibleRecentVideos, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleHomeFavorites = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleHomeFavorites
+        {
+            get => visibleHomeFavorites;
+            private set => SetValue(ref visibleHomeFavorites, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleHomeMovies = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleHomeMovies
+        {
+            get => visibleHomeMovies;
+            private set => SetValue(ref visibleHomeMovies, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleHomeSeries = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleHomeSeries
+        {
+            get => visibleHomeSeries;
+            private set => SetValue(ref visibleHomeSeries, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleHomeAnime = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleHomeAnime
+        {
+            get => visibleHomeAnime;
+            private set => SetValue(ref visibleHomeAnime, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleHomeCustom = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleHomeCustom
+        {
+            get => visibleHomeCustom;
+            private set => SetValue(ref visibleHomeCustom, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
+        private IReadOnlyList<AnikiVideoBrowserItem> visibleHomeCollections = Array.Empty<AnikiVideoBrowserItem>();
+        [DontSerialize]
+        public IReadOnlyList<AnikiVideoBrowserItem> VisibleHomeCollections
+        {
+            get => visibleHomeCollections;
+            private set => SetValue(ref visibleHomeCollections, value ?? Array.Empty<AnikiVideoBrowserItem>());
+        }
+
         private IReadOnlyList<AnikiVideoBrowserItem> continueWatchingVideos = Array.Empty<AnikiVideoBrowserItem>();
         [DontSerialize]
         public IReadOnlyList<AnikiVideoBrowserItem> ContinueWatchingVideos
@@ -1338,6 +1405,7 @@ namespace AnikiHelper.Services.VideoPlayer
             {
                 SetValue(ref continueWatchingVideos, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasContinueWatchingVideos));
+                VisibleContinueWatchingVideos = ContinueWatchingVideos;
                 RebuildHubVideoCenterItems();
             }
         }
@@ -1474,6 +1542,7 @@ namespace AnikiHelper.Services.VideoPlayer
             {
                 SetValue(ref recentVideos, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasRecentVideos));
+                VisibleRecentVideos = RecentVideos;
                 RefreshHomeHeroSelection();
                 RebuildHubVideoCenterItems();
             }
@@ -1870,6 +1939,7 @@ namespace AnikiHelper.Services.VideoPlayer
                 SetValue(ref homeCollections, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasHomeCollections));
                 OnPropertyChanged(nameof(HasMultipleHomeCollections));
+                VisibleHomeCollections = HomeCollections;
             }
         }
         [DontSerialize] public bool HasHomeCollections => HomeCollections.Count > 0;
@@ -1884,6 +1954,7 @@ namespace AnikiHelper.Services.VideoPlayer
             {
                 SetValue(ref homeMovies, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasHomeMovies));
+                VisibleHomeMovies = HomeMovies;
             }
         }
         [DontSerialize] public bool HasHomeMovies => HomeMovies.Count > 0;
@@ -1897,6 +1968,7 @@ namespace AnikiHelper.Services.VideoPlayer
             {
                 SetValue(ref homeSeries, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasHomeSeries));
+                VisibleHomeSeries = HomeSeries;
             }
         }
         [DontSerialize] public bool HasHomeSeries => HomeSeries.Count > 0;
@@ -1910,6 +1982,7 @@ namespace AnikiHelper.Services.VideoPlayer
             {
                 SetValue(ref homeAnime, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasHomeAnime));
+                VisibleHomeAnime = HomeAnime;
             }
         }
         [DontSerialize] public bool HasHomeAnime => HomeAnime.Count > 0;
@@ -1923,6 +1996,7 @@ namespace AnikiHelper.Services.VideoPlayer
             {
                 SetValue(ref homeCustom, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasHomeCustom));
+                VisibleHomeCustom = HomeCustom;
             }
         }
         [DontSerialize] public bool HasHomeCustom => HomeCustom.Count > 0;
@@ -1938,6 +2012,7 @@ namespace AnikiHelper.Services.VideoPlayer
                 SetValue(ref homeFavorites, value ?? Array.Empty<AnikiVideoBrowserItem>());
                 OnPropertyChanged(nameof(HasHomeFavorites));
                 OnPropertyChanged(nameof(HomeSubtitle));
+                VisibleHomeFavorites = HomeFavorites;
             }
         }
         [DontSerialize] public bool HasHomeFavorites => HomeFavorites.Count > 0;
@@ -5201,6 +5276,18 @@ namespace AnikiHelper.Services.VideoPlayer
             ScheduleStaleMediaHistoryCleanup();
         }
 
+        private void SyncVisibleHomeRows()
+        {
+            VisibleContinueWatchingVideos = ContinueWatchingVideos;
+            VisibleRecentVideos = RecentVideos;
+            VisibleHomeFavorites = HomeFavorites;
+            VisibleHomeMovies = HomeMovies;
+            VisibleHomeSeries = HomeSeries;
+            VisibleHomeAnime = HomeAnime;
+            VisibleHomeCustom = HomeCustom;
+            VisibleHomeCollections = HomeCollections;
+        }
+
         public void Open()
         {
             try
@@ -5213,8 +5300,9 @@ namespace AnikiHelper.Services.VideoPlayer
                 // Open the browser immediately, then warm LibVLC on a worker thread. This keeps
                 // the UI responsive while making the first video start almost instantly.
                 ShowHome();
+                SyncVisibleHomeRows();
                 EnsureKeyboardInputHook();
-                windowManager?.OpenWindow(WindowStyleKey + "|FocusFirst|NoDim|SecondaryMusic");
+                windowManager?.OpenWindow(WindowStyleKey + "|FocusFirst|NoDim|SecondaryMusic|AdditionalViewSound");
                 _ = HookBrowserWindowAsync();
                 _ = WarmupVlcAsync();
             }
@@ -12818,6 +12906,64 @@ namespace AnikiHelper.Services.VideoPlayer
             _ = LoadHomeLibrariesAsync(cts);
         }
 
+        private async Task PublishHomeLibraryRailWhenReadyAsync(
+            string kind,
+            Task<IReadOnlyList<AnikiVideoBrowserItem>> buildTask,
+            CancellationTokenSource owner)
+        {
+            try
+            {
+                var items = await buildTask.ConfigureAwait(false)
+                    ?? Array.Empty<AnikiVideoBrowserItem>();
+                owner.Token.ThrowIfCancellationRequested();
+
+                if (!string.Equals(kind, "favorites", StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyCachedLibraryArtworkFast(items, kind);
+                }
+
+                await InvokeOnUiAsync(() =>
+                {
+                    if (!ReferenceEquals(homeLibraryCts, owner) ||
+                        owner.IsCancellationRequested ||
+                        !IsHome)
+                    {
+                        return;
+                    }
+
+                    var focusSnapshot = CaptureHomeFocusSnapshot();
+                    switch ((kind ?? string.Empty).Trim().ToLowerInvariant())
+                    {
+                        case "movies":
+                            HomeMovies = ReuseHomeItemsWhenLayoutMatches(HomeMovies, items, 6);
+                            break;
+                        case "series":
+                            HomeSeries = ReuseHomeItemsWhenLayoutMatches(HomeSeries, items, 6);
+                            break;
+                        case "anime":
+                            HomeAnime = ReuseHomeItemsWhenLayoutMatches(HomeAnime, items, 6);
+                            break;
+                        case "custom":
+                            HomeCustom = ReuseHomeItemsWhenLayoutMatches(HomeCustom, items, 6);
+                            break;
+                        case "favorites":
+                            HomeFavorites = ReuseHomeItemsWhenLayoutMatches(HomeFavorites, items, 6);
+                            break;
+                    }
+
+                    RestoreHomeFocusSnapshot(focusSnapshot);
+                }).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                global::AnikiHelper.AnikiLog.Debug(logger, ex,
+                    $"[AnikiHelper][VideoCenter] Early Home rail publish failed. Kind={kind ?? "<none>"}.");
+            }
+        }
+
         private async Task LoadHomeLibrariesAsync(CancellationTokenSource owner)
         {
             try
@@ -12839,6 +12985,17 @@ namespace AnikiHelper.Services.VideoPlayer
                 var collectionsTask = HasMoviesLibrary
                     ? BuildMovieCollectionsAsync(owner.Token)
                     : Task.FromResult(new MovieCollectionBuildResult());
+
+                // Publish each Home rail as soon as its own library scan is ready. Previously the
+                // Home waited for Task.WhenAll below, so one slow/unavailable source (for example
+                // Movies on a sleeping NAS) kept already-ready TV Shows/Anime/Custom rows hidden.
+                // The complete pass still runs afterwards for Recently Added, Collections, cache
+                // persistence and artwork warmups.
+                _ = PublishHomeLibraryRailWhenReadyAsync("movies", movieTask, owner);
+                _ = PublishHomeLibraryRailWhenReadyAsync("series", seriesTask, owner);
+                _ = PublishHomeLibraryRailWhenReadyAsync("anime", animeTask, owner);
+                _ = PublishHomeLibraryRailWhenReadyAsync("custom", customTask, owner);
+                _ = PublishHomeLibraryRailWhenReadyAsync("favorites", favoritesTask, owner);
 
                 await Task.WhenAll(movieTask, seriesTask, animeTask, customTask, favoritesTask, collectionsTask).ConfigureAwait(false);
                 owner.Token.ThrowIfCancellationRequested();
@@ -19489,6 +19646,14 @@ namespace AnikiHelper.Services.VideoPlayer
             {
                 RemoveKeyboardInputHook();
                 Interlocked.Increment(ref playerFocusRequestId);
+                VisibleContinueWatchingVideos = Array.Empty<AnikiVideoBrowserItem>();
+                VisibleRecentVideos = Array.Empty<AnikiVideoBrowserItem>();
+                VisibleHomeFavorites = Array.Empty<AnikiVideoBrowserItem>();
+                VisibleHomeMovies = Array.Empty<AnikiVideoBrowserItem>();
+                VisibleHomeSeries = Array.Empty<AnikiVideoBrowserItem>();
+                VisibleHomeAnime = Array.Empty<AnikiVideoBrowserItem>();
+                VisibleHomeCustom = Array.Empty<AnikiVideoBrowserItem>();
+                VisibleHomeCollections = Array.Empty<AnikiVideoBrowserItem>();
                 PersistResumeForCurrent(forceSave: true);
                 SavePersistentHomeCache();
                 CancelBrowseRequest();

@@ -78,8 +78,8 @@ namespace AnikiHelper.Services
             this.logger = logger;
             this.steamStoreService = steamStoreService;
 
-            steamStoreCacheFolder = Path.Combine(pluginUserDataPath, "SteamStore", "StoreCache");
-            imageCacheFolder = Path.Combine(pluginUserDataPath, "SteamStore", "ImageCache");
+            steamStoreCacheFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "StoreCache");
+            imageCacheFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "ImageCache");
 
             Directory.CreateDirectory(steamStoreCacheFolder);
             Directory.CreateDirectory(imageCacheFolder);

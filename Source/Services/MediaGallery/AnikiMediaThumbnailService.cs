@@ -19,7 +19,7 @@ namespace AnikiHelper.Services.MediaGallery
         {
             this.logger = logger;
 
-            cacheDirectory = Path.Combine(pluginUserDataPath, "ScreenshotCache", "Thumbnails");
+            cacheDirectory = Path.Combine(global::AnikiHelper.AnikiCacheLayout.ScreenshotsRoot(pluginUserDataPath), "Thumbnails");
 
             try
             {

@@ -94,6 +94,10 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             "<ControlTemplate\\s+x:Key=\"VideoTpl_(?<index>\\d+)\"[\\s\\S]*?</ControlTemplate>",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly Regex RandomTemplateNameRegex = new Regex(
+            @"<!--\s*(?<index>\d+)\s+(?<name>.*?)\s*-->\s*<ControlTemplate\s+x:Key=""VideoTpl_(?<templateIndex>\d+)""",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
         private static readonly Regex Sha256Regex = new Regex("^[A-Fa-f0-9]{64}$", RegexOptions.Compiled);
 
         private readonly IPlayniteAPI api;
@@ -316,6 +320,57 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                     return false;
                 }
             }
+        }
+
+
+        public IReadOnlyDictionary<int, string> GetRandomDisplayNames(string themePath)
+        {
+            var result = new Dictionary<int, string>();
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(themePath) || !Directory.Exists(themePath))
+                {
+                    return result;
+                }
+
+                var randomXaml = Path.Combine(themePath, "Themes Option", "5.LoginScreen", "Connexion", "LoginRandom.xaml");
+                if (!File.Exists(randomXaml))
+                {
+                    randomXaml = Directory.EnumerateFiles(themePath, "LoginRandom.xaml", SearchOption.AllDirectories).FirstOrDefault();
+                }
+
+                if (string.IsNullOrWhiteSpace(randomXaml) || !File.Exists(randomXaml))
+                {
+                    return result;
+                }
+
+                var text = File.ReadAllText(randomXaml);
+                foreach (Match match in RandomTemplateNameRegex.Matches(text))
+                {
+                    if (!int.TryParse(match.Groups["index"].Value, out var index) ||
+                        !int.TryParse(match.Groups["templateIndex"].Value, out var templateIndex) ||
+                        index != templateIndex ||
+                        index <= 0 ||
+                        index == LuckyDayRandomIndex ||
+                        index == CustomRandomIndex)
+                    {
+                        continue;
+                    }
+
+                    var name = (match.Groups["name"].Value ?? string.Empty).Trim();
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        result[index] = name;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][LoginMedia] Failed to read Random Login display names.");
+            }
+
+            return result;
         }
 
         public IReadOnlyList<int> GetAvailableRandomIndexes(string themePath)

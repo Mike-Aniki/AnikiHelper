@@ -3,39 +3,15 @@ using Playnite.SDK.Events;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
 using AnikiHelper.Services.WebBrowser;
 
 namespace AnikiHelper.Services.InGameOverlay
 {
-    /// <summary>Routes P10 input and borrows Playnite-owned SDL handles for analog/in-game fallback.</summary>
+    /// <summary>Routes P10 input and reads Playnite SDK 6.17 controller state for analog/in-game fallback.</summary>
     internal sealed class AnikiOverlayInputListener : IDisposable
     {
-        private const int SDL_CONTROLLER_AXIS_LEFTX = 0;
-        private const int SDL_CONTROLLER_AXIS_LEFTY = 1;
-        private const int SDL_CONTROLLER_AXIS_RIGHTX = 2;
-        private const int SDL_CONTROLLER_AXIS_RIGHTY = 3;
-        private const int SDL_CONTROLLER_AXIS_TRIGGERLEFT = 4;
-        private const int SDL_CONTROLLER_AXIS_TRIGGERRIGHT = 5;
-
-        private const int SDL_CONTROLLER_BUTTON_A = 0;
-        private const int SDL_CONTROLLER_BUTTON_B = 1;
-        private const int SDL_CONTROLLER_BUTTON_X = 2;
-        private const int SDL_CONTROLLER_BUTTON_Y = 3;
-        private const int SDL_CONTROLLER_BUTTON_BACK = 4;
-        private const int SDL_CONTROLLER_BUTTON_GUIDE = 5;
-        private const int SDL_CONTROLLER_BUTTON_START = 6;
-        private const int SDL_CONTROLLER_BUTTON_LEFTSTICK = 7;
-        private const int SDL_CONTROLLER_BUTTON_RIGHTSTICK = 8;
-        private const int SDL_CONTROLLER_BUTTON_LEFTSHOULDER = 9;
-        private const int SDL_CONTROLLER_BUTTON_RIGHTSHOULDER = 10;
-        private const int SDL_CONTROLLER_BUTTON_DPAD_UP = 11;
-        private const int SDL_CONTROLLER_BUTTON_DPAD_DOWN = 12;
-        private const int SDL_CONTROLLER_BUTTON_DPAD_LEFT = 13;
-        private const int SDL_CONTROLLER_BUTTON_DPAD_RIGHT = 14;
-
         private const int GuideComboGraceMs = 180;
         private const int ShortcutChordGraceMs = 400;
         private const int VirtualKeyboardHoldDurationMs = 600;
@@ -45,6 +21,7 @@ namespace AnikiHelper.Services.InGameOverlay
         private const int LeftStickSoloClickMaxDurationMs = 500;
         private const int AnalogPollIntervalMs = 16;
 
+        private readonly IPlayniteAPI playniteApi;
         private readonly AnikiHelperSettings settings;
         private readonly ILogger logger;
         private readonly Action onShortcutPressed;
@@ -56,7 +33,7 @@ namespace AnikiHelper.Services.InGameOverlay
         private readonly Func<bool> isOverlayEnabled;
         private readonly Func<bool> isOverlayVisible;
         private readonly Action<ControllerInput> onOverlayButtonPressed;
-        private readonly Func<bool> shouldUseSdlDigitalFallback;
+        private readonly Func<bool> shouldUsePolledDigitalFallback;
         private readonly Func<bool> isWebBrowserActive;
         private readonly Action<WebBrowserGamepadInputState> onWebBrowserInput;
 
@@ -66,16 +43,15 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private readonly Dictionary<int, HashSet<ControllerInput>> heldButtonsByController =
             new Dictionary<int, HashSet<ControllerInput>>();
-        private readonly HashSet<int> analogControllerIds = new HashSet<int>();
-        private readonly HashSet<ControllerInput> sdlFallbackHeldButtons = new HashSet<ControllerInput>();
+        private readonly HashSet<ControllerInput> polledFallbackHeldButtons = new HashSet<ControllerInput>();
 
         private DispatcherTimer analogTimer;
         private bool isStarted;
-        private bool analogBridgeAvailable = true;
-        private bool analogBridgeSuccessLogged;
-        private bool sdlDigitalFallbackActive;
-        private bool sdlDigitalFallbackSuccessLogged;
-        private bool sdlDigitalFallbackNoControllerLogged;
+        private bool controllerStateReadSuccessLogged;
+        private bool controllerStateReadFailureLogged;
+        private bool polledDigitalFallbackActive;
+        private bool polledDigitalFallbackSuccessLogged;
+        private bool polledDigitalFallbackNoControllerLogged;
 
         private bool shortcutHeld;
         private bool virtualKeyboardShortcutHeld;
@@ -113,6 +89,7 @@ namespace AnikiHelper.Services.InGameOverlay
         }
 
         public AnikiOverlayInputListener(
+            IPlayniteAPI playniteApi,
             AnikiHelperSettings settings,
             ILogger logger,
             Action onShortcutPressed,
@@ -124,10 +101,11 @@ namespace AnikiHelper.Services.InGameOverlay
             Func<bool> isOverlayEnabled,
             Func<bool> isOverlayVisible,
             Action<ControllerInput> onOverlayButtonPressed,
-            Func<bool> shouldUseSdlDigitalFallback,
+            Func<bool> shouldUsePolledDigitalFallback,
             Func<bool> isWebBrowserActive,
             Action<WebBrowserGamepadInputState> onWebBrowserInput)
         {
+            this.playniteApi = playniteApi;
             this.settings = settings;
             this.logger = logger;
             this.onShortcutPressed = onShortcutPressed;
@@ -139,7 +117,7 @@ namespace AnikiHelper.Services.InGameOverlay
             this.isOverlayEnabled = isOverlayEnabled;
             this.isOverlayVisible = isOverlayVisible;
             this.onOverlayButtonPressed = onOverlayButtonPressed;
-            this.shouldUseSdlDigitalFallback = shouldUseSdlDigitalFallback;
+            this.shouldUsePolledDigitalFallback = shouldUsePolledDigitalFallback;
             this.isWebBrowserActive = isWebBrowserActive;
             this.onWebBrowserInput = onWebBrowserInput;
         }
@@ -155,10 +133,9 @@ namespace AnikiHelper.Services.InGameOverlay
             StartAnalogTimer();
 
             DebugLog(
-                $"[AnikiHelper][OverlayInput][P10] Native button routing started. " +
-                $"ControllersSeen={analogControllerIds.Count}. " +
-                "SDL borrows Playnite-owned handles for analog input and in-game digital fallback only; " +
-                "Aniki does not init/open/update/close SDL controllers.");
+                "[AnikiHelper][OverlayInput][P10] Native button routing started. " +
+                "Analog state is read through Playnite SDK 6.17 GetConnectedControllers2(); " +
+                "Aniki Helper no longer reads SDL controller handles directly.");
         }
 
         public void Stop()
@@ -173,12 +150,11 @@ namespace AnikiHelper.Services.InGameOverlay
             onGamepadMouseSuspendInput?.Invoke();
 
             heldButtonsByController.Clear();
-            analogControllerIds.Clear();
-            sdlFallbackHeldButtons.Clear();
-            sdlDigitalFallbackActive = false;
+            polledFallbackHeldButtons.Clear();
+            polledDigitalFallbackActive = false;
             ResetTransientState();
 
-            DebugLog("[AnikiHelper][OverlayInput][P10] Native controller router stopped. No SDL worker thread to join.");
+            DebugLog("[AnikiHelper][OverlayInput][P10] Native controller router stopped.");
         }
 
         public void HandleControllerConnected(OnControllerConnectedArgs args)
@@ -191,22 +167,10 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
-                // Normally we seed borrowed SDL access only after Playnite reports native input,
-                // which preserves Playnite's controller filtering. If a controller is connected
-                // while the game already owns foreground, P10 digital callbacks may be suspended;
-                // in that specific case the connection InstanceId is enough to enable the fallback.
-                var fallbackNeeded = false;
-                try { fallbackNeeded = shouldUseSdlDigitalFallback?.Invoke() == true; } catch { }
-
-                if (fallbackNeeded)
-                {
-                    analogControllerIds.Add(controller.InstanceId);
-                }
-
                 DebugLog(
                     $"[AnikiHelper][OverlayInput][P10] Controller connected. " +
-                    $"InstanceId={controller.InstanceId}, Name='{controller.Name}', FallbackSeeded={fallbackNeeded}. " +
-                    "Normal SDL access still follows Playnite-owned handles.");
+                    $"InstanceId={controller.InstanceId}, Name='{controller.Name}', Enabled={controller.Enabled}. " +
+                    "State is provided by Playnite SDK.");
             }
             catch (Exception ex)
             {
@@ -224,13 +188,9 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
-                analogControllerIds.Remove(controller.InstanceId);
                 heldButtonsByController.Remove(controller.InstanceId);
-                if (analogControllerIds.Count == 0)
-                {
-                    sdlFallbackHeldButtons.Clear();
-                    sdlDigitalFallbackActive = false;
-                }
+                polledFallbackHeldButtons.Clear();
+                polledDigitalFallbackActive = false;
                 ResetTransientStateAfterTopologyChange();
 
                 DebugLog(
@@ -269,9 +229,9 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 if (transition.PressedNow)
                 {
-                    if (string.Equals(source, "SDL", StringComparison.Ordinal))
+                    if (string.Equals(source, "SDK-Poll", StringComparison.Ordinal))
                     {
-                        DebugLog($"[AnikiHelper][OverlayInput][SDL-Fallback] Overlay button pressed: {button}.");
+                        DebugLog($"[AnikiHelper][OverlayInput][SDK-Poll] Overlay button pressed: {button}.");
                     }
 
                     RouteOverlayButton(button);
@@ -407,21 +367,21 @@ namespace AnikiHelper.Services.InGameOverlay
 
             try
             {
-                var useSdlDigitalFallback = false;
-                try { useSdlDigitalFallback = shouldUseSdlDigitalFallback?.Invoke() == true; } catch { }
+                var usePolledDigitalFallback = false;
+                try { usePolledDigitalFallback = shouldUsePolledDigitalFallback?.Invoke() == true; } catch { }
 
-                if (useSdlDigitalFallback)
+                if (usePolledDigitalFallback)
                 {
-                    PollSdlDigitalFallback();
+                    PollSdkDigitalFallback();
                 }
-                else if (sdlDigitalFallbackActive)
+                else if (polledDigitalFallbackActive)
                 {
-                    StopSdlDigitalFallback();
+                    StopSdkDigitalFallback();
                 }
 
                 // Hold-based shortcuts are driven by the currently active digital source:
-                // P10 while Playnite owns input, or borrowed SDL button state while the game
-                // owns foreground. The same state machine is reused for both paths.
+                // P10 events while Playnite owns input, or SDK-polled button state when a fallback
+                // is requested. The same state machine is reused for both paths.
                 if (isOverlayVisible?.Invoke() != true && isWebBrowserActive?.Invoke() != true)
                 {
                     if (HandleBrowserPostCloseSuppression())
@@ -506,40 +466,36 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
-        private void PollSdlDigitalFallback()
+        private void PollSdkDigitalFallback()
         {
-            if (!analogBridgeAvailable)
+            if (!polledDigitalFallbackActive)
             {
-                return;
-            }
-
-            if (!sdlDigitalFallbackActive)
-            {
-                // P10 can stop between a press and its release when the game takes foreground.
-                // Drop that stale native state before SDL becomes the temporary source of truth.
+                // A source handoff can happen between a press and its release. Drop stale
+                // event-driven state before the SDK-polled state becomes the source of truth.
                 heldButtonsByController.Clear();
-                sdlFallbackHeldButtons.Clear();
+                polledFallbackHeldButtons.Clear();
                 ResetTransientState();
-                sdlDigitalFallbackActive = true;
-                sdlDigitalFallbackNoControllerLogged = false;
+                polledDigitalFallbackActive = true;
+                polledDigitalFallbackNoControllerLogged = false;
 
                 DebugLog(
-                    "[AnikiHelper][OverlayInput][SDL-Fallback] Enabled because the current game owns controller foreground. " +
-                    "Borrowing Playnite-owned SDL handles; no SDL init/open/update/close calls are made.");
+                    "[AnikiHelper][OverlayInput][SDK-Poll] Digital fallback enabled. " +
+                    "Reading ButtonInputState from Playnite SDK 6.17.");
             }
 
-            if (analogControllerIds.Count == 0)
+            var controllers = GetConnectedControllers2Safe();
+            if (controllers == null || !controllers.Any(controller => controller != null && controller.Enabled))
             {
-                if (!sdlDigitalFallbackNoControllerLogged)
+                if (!polledDigitalFallbackNoControllerLogged)
                 {
-                    sdlDigitalFallbackNoControllerLogged = true;
-                    DebugLog(
-                        "[AnikiHelper][OverlayInput][SDL-Fallback] Waiting for a Playnite-known controller InstanceId; " +
-                        "use/connect the controller in Playnite once so its owned SDL handle can be borrowed.");
+                    polledDigitalFallbackNoControllerLogged = true;
+                    DebugLog("[AnikiHelper][OverlayInput][SDK-Poll] Waiting for an enabled Playnite controller.");
                 }
 
                 return;
             }
+
+            polledDigitalFallbackNoControllerLogged = false;
 
             var states = new Dictionary<ControllerInput, bool>
             {
@@ -560,106 +516,70 @@ namespace AnikiHelper.Services.InGameOverlay
                 [ControllerInput.DPadRight] = false
             };
 
-            var lockTaken = false;
-
             try
             {
-                SDL_LockJoysticks();
-                lockTaken = true;
-
-                foreach (var instanceId in analogControllerIds.ToArray())
+                foreach (var controller in controllers)
                 {
-                    var controller = SDL_GameControllerFromInstanceID(instanceId);
-                    if (controller == IntPtr.Zero)
+                    if (controller == null || !controller.Enabled)
                     {
                         continue;
                     }
 
-                    states[ControllerInput.A] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_A);
-                    states[ControllerInput.B] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_B);
-                    states[ControllerInput.X] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_X);
-                    states[ControllerInput.Y] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_Y);
-                    states[ControllerInput.Back] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_BACK);
-                    states[ControllerInput.Guide] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_GUIDE);
-                    states[ControllerInput.Start] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_START);
-                    states[ControllerInput.LeftStick] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_LEFTSTICK);
-                    states[ControllerInput.RightStick] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
-                    states[ControllerInput.LeftShoulder] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-                    states[ControllerInput.RightShoulder] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
-                    states[ControllerInput.DPadUp] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_UP);
-                    states[ControllerInput.DPadDown] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
-                    states[ControllerInput.DPadLeft] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT);
-                    states[ControllerInput.DPadRight] |= IsSdlButtonPressed(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+                    foreach (var button in states.Keys.ToArray())
+                    {
+                        states[button] |= IsSdkButtonPressed(controller, button);
+                    }
                 }
-            }
-            catch (DllNotFoundException ex)
-            {
-                DisableAnalogBridge(ex, "SDL2.dll is unavailable");
-                return;
-            }
-            catch (EntryPointNotFoundException ex)
-            {
-                DisableAnalogBridge(ex, "required SDL button/locking entry point is unavailable");
-                return;
             }
             catch (Exception ex)
             {
-                DebugLog(ex, "[AnikiHelper][OverlayInput][SDL-Fallback] Failed to read borrowed SDL button state.");
+                DebugLog(ex, "[AnikiHelper][OverlayInput][SDK-Poll] Failed to read ButtonInputState.");
                 return;
-            }
-            finally
-            {
-                if (lockTaken)
-                {
-                    try { SDL_UnlockJoysticks(); } catch { }
-                }
             }
 
             foreach (var state in states)
             {
-                var transition = UpdateSdlFallbackButtonState(state.Key, state.Value);
+                var transition = UpdatePolledFallbackButtonState(state.Key, state.Value);
                 if (!transition.PressedNow && !transition.ReleasedNow)
                 {
                     continue;
                 }
 
-                ProcessButtonTransition(state.Key, transition, "SDL");
+                ProcessButtonTransition(state.Key, transition, "SDK-Poll");
             }
 
-            if (!sdlDigitalFallbackSuccessLogged)
+            if (!polledDigitalFallbackSuccessLogged)
             {
-                sdlDigitalFallbackSuccessLogged = true;
-                DebugLog(
-                    "[AnikiHelper][OverlayInput][SDL-Fallback] Digital state is available from Playnite-owned SDL handles.");
+                polledDigitalFallbackSuccessLogged = true;
+                DebugLog("[AnikiHelper][OverlayInput][SDK-Poll] Digital controller state is available.");
             }
         }
 
-        private void StopSdlDigitalFallback()
+        private void StopSdkDigitalFallback()
         {
-            sdlDigitalFallbackActive = false;
-            sdlFallbackHeldButtons.Clear();
+            polledDigitalFallbackActive = false;
+            polledFallbackHeldButtons.Clear();
 
-            // Do not clear heldButtonsByController here: P10 may already have resumed and
-            // delivered a fresh button event before this timer observes the foreground change.
-            // Keeping the native state avoids dropping that first valid P10 transition.
+            // Do not clear event-driven state here: a fresh P10 event may already have arrived
+            // before this timer observes the source handoff.
             ResetTransientState();
-            DebugLog("[AnikiHelper][OverlayInput][SDL-Fallback] Disabled; native P10 button routing resumed.");
+            DebugLog("[AnikiHelper][OverlayInput][SDK-Poll] Digital fallback disabled; native P10 event routing resumed.");
         }
 
-        private ButtonTransition UpdateSdlFallbackButtonState(ControllerInput button, bool pressed)
+        private ButtonTransition UpdatePolledFallbackButtonState(ControllerInput button, bool pressed)
         {
-            var wasHeld = sdlFallbackHeldButtons.Contains(button);
+            var wasHeld = polledFallbackHeldButtons.Contains(button);
 
             if (pressed)
             {
-                sdlFallbackHeldButtons.Add(button);
+                polledFallbackHeldButtons.Add(button);
             }
             else
             {
-                sdlFallbackHeldButtons.Remove(button);
+                polledFallbackHeldButtons.Remove(button);
             }
 
-            var isHeld = sdlFallbackHeldButtons.Contains(button);
+            var isHeld = polledFallbackHeldButtons.Contains(button);
             return new ButtonTransition
             {
                 PressedNow = isHeld && !wasHeld,
@@ -667,110 +587,134 @@ namespace AnikiHelper.Services.InGameOverlay
             };
         }
 
-        private static bool IsSdlButtonPressed(IntPtr controller, int button)
+        private IReadOnlyList<IGamepad> GetConnectedControllers2Safe()
         {
-            return SDL_GameControllerGetButton(controller, button) != 0;
+            try
+            {
+                var controllers = playniteApi?.GetConnectedControllers2();
+                controllerStateReadFailureLogged = false;
+                return controllers;
+            }
+            catch (Exception ex)
+            {
+                if (!controllerStateReadFailureLogged)
+                {
+                    controllerStateReadFailureLogged = true;
+                    DebugLog(ex, "[AnikiHelper][OverlayInput][SDK6.17] GetConnectedControllers2 failed.");
+                }
+
+                return null;
+            }
+        }
+
+        internal bool IsButtonCurrentlyPressed(ControllerInput button)
+        {
+            try
+            {
+                var controllers = GetConnectedControllers2Safe();
+                if (controllers != null)
+                {
+                    foreach (var controller in controllers)
+                    {
+                        if (controller != null && controller.Enabled && IsSdkButtonPressed(controller, button))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex, "[AnikiHelper][OverlayInput][SDK6.17] Failed to read current button state.");
+            }
+
+            // Fallback to the event-driven state if a controller snapshot is temporarily
+            // unavailable during a focus handoff.
+            return IsHeld(button);
+        }
+
+        private static bool IsSdkButtonPressed(IGamepad controller, ControllerInput button)
+        {
+            if (controller?.ButtonInputState == null)
+            {
+                return false;
+            }
+
+            return controller.ButtonInputState.TryGetValue(button, out var state) &&
+                   state == ControllerInputState.Pressed;
+        }
+
+        private static short GetSdkAxis(IGamepad controller, ControllerInput axis)
+        {
+            if (controller?.AnalogInputState == null)
+            {
+                return 0;
+            }
+
+            return controller.AnalogInputState.TryGetValue(axis, out var value) ? value : (short)0;
         }
 
         private AnalogState ReadAnalogState()
         {
             var result = new AnalogState();
+            var controllers = GetConnectedControllers2Safe();
 
-            if (!analogBridgeAvailable || analogControllerIds.Count == 0)
+            if (controllers == null)
             {
                 return result;
             }
 
-            var lockTaken = false;
-
             try
             {
-                SDL_LockJoysticks();
-                lockTaken = true;
+                var enabledControllerFound = false;
 
-                foreach (var instanceId in analogControllerIds.ToArray())
+                foreach (var controller in controllers)
                 {
-                    var controller = SDL_GameControllerFromInstanceID(instanceId);
-                    if (controller == IntPtr.Zero)
+                    if (controller == null || !controller.Enabled)
                     {
                         continue;
                     }
 
+                    enabledControllerFound = true;
+
                     result.LeftX = SelectAxisWithGreatestMagnitude(
                         result.LeftX,
-                        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX));
+                        GetSdkAxis(controller, ControllerInput.LeftStickX));
                     result.LeftY = SelectAxisWithGreatestMagnitude(
                         result.LeftY,
-                        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY));
+                        GetSdkAxis(controller, ControllerInput.LeftStickY));
                     result.RightX = SelectAxisWithGreatestMagnitude(
                         result.RightX,
-                        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX));
+                        GetSdkAxis(controller, ControllerInput.RightStickX));
                     result.RightY = SelectAxisWithGreatestMagnitude(
                         result.RightY,
-                        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY));
+                        GetSdkAxis(controller, ControllerInput.RightStickY));
                     result.LeftTrigger = Math.Max(
                         result.LeftTrigger,
-                        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT));
+                        GetSdkAxis(controller, ControllerInput.TriggerLeft));
                     result.RightTrigger = Math.Max(
                         result.RightTrigger,
-                        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT));
+                        GetSdkAxis(controller, ControllerInput.TriggerRight));
                 }
 
-                if (!analogBridgeSuccessLogged)
+                if (enabledControllerFound && !controllerStateReadSuccessLogged)
                 {
-                    analogBridgeSuccessLogged = true;
+                    controllerStateReadSuccessLogged = true;
                     DebugLog(
-                        "[AnikiHelper][OverlayInput][Analog] Reading axes from Playnite-owned SDL controller handles. " +
-                        "No SDL init/open/update/close calls are made by Aniki Helper.");
+                        "[AnikiHelper][OverlayInput][SDK6.17] Analog state is available through GetConnectedControllers2().");
                 }
-            }
-            catch (DllNotFoundException ex)
-            {
-                DisableAnalogBridge(ex, "SDL2.dll is unavailable");
-            }
-            catch (EntryPointNotFoundException ex)
-            {
-                DisableAnalogBridge(ex, "required SDL analog/locking entry point is unavailable");
             }
             catch (Exception ex)
             {
-                DebugLog(ex, "[AnikiHelper][OverlayInput][Analog] Axis read failed.");
-            }
-            finally
-            {
-                if (lockTaken)
-                {
-                    try { SDL_UnlockJoysticks(); } catch { }
-                }
+                DebugLog(ex, "[AnikiHelper][OverlayInput][SDK6.17] Analog state read failed.");
             }
 
             return result;
         }
 
-        private void DisableAnalogBridge(Exception ex, string reason)
-        {
-            if (!analogBridgeAvailable)
-            {
-                return;
-            }
-
-            analogBridgeAvailable = false;
-            logger?.Warn(ex, $"[AnikiHelper] SDL controller bridge disabled because {reason}. Native P10 input remains available whenever Playnite forwards it.");
-        }
-
         private ButtonTransition UpdateButtonState(OnControllerButtonStateChangedArgs args)
         {
             var controllerId = args.Controller?.InstanceId ?? int.MinValue;
-
-            // Playnite only emits normal input state changes for controllers it is actively
-            // processing. Registering the InstanceId here means the analog bridge follows the
-            // same controller selection as P10, without trusting or duplicating SDL topology.
-            if (args.Controller != null && analogControllerIds.Add(controllerId))
-            {
-                DebugLog(
-                    $"[AnikiHelper][OverlayInput][P10] Analog controller registered from native input. " +
-                    $"InstanceId={controllerId}, Name='{args.Controller.Name}'.");
-            }
 
             var wasHeld = IsHeld(args.Button);
 
@@ -803,7 +747,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private bool IsHeld(ControllerInput button)
         {
-            if (sdlFallbackHeldButtons.Contains(button))
+            if (polledFallbackHeldButtons.Contains(button))
             {
                 return true;
             }
@@ -1299,16 +1243,12 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 if (transition.PressedNow)
                 {
+                    // Guide is also handled by Windows/Steam/Xbox at the system level.
+                    // Opening our WPF overlay while the physical Guide press is still
+                    // being processed can make Window.Show() stall for roughly a second.
+                    // Record the press here and open on release instead. Shared Guide
+                    // chords (Guide+X / Guide+Y) keep their existing 180 ms grace logic.
                     guidePressedAt = DateTime.UtcNow;
-
-                    if (!IsGuideSharedWithAnotherShortcut())
-                    {
-                        guidePressedAt = null;
-                        shortcutHeld = true;
-                        TriggerShortcut("Guide press");
-                        return true;
-                    }
-
                     return false;
                 }
 
@@ -1531,19 +1471,5 @@ namespace AnikiHelper.Services.InGameOverlay
             Stop();
         }
 
-        [DllImport("SDL2.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr SDL_GameControllerFromInstanceID(int joystickInstanceId);
-
-        [DllImport("SDL2.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern short SDL_GameControllerGetAxis(IntPtr gamecontroller, int axis);
-
-        [DllImport("SDL2.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern byte SDL_GameControllerGetButton(IntPtr gamecontroller, int button);
-
-        [DllImport("SDL2.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void SDL_LockJoysticks();
-
-        [DllImport("SDL2.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void SDL_UnlockJoysticks();
     }
 }

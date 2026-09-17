@@ -162,10 +162,10 @@ namespace AnikiHelper
         // JSON CACHE PATH 
         private string GetNewsCachePath(string sourceKey)
         {
-            var root = Path.Combine(
+            var pluginRoot = Path.Combine(
                 api.Paths.ExtensionsDataPath,
-                "96a983a3-3f13-4dce-a474-4052b718bb52",
-                "News Cache");
+                "96a983a3-3f13-4dce-a474-4052b718bb52");
+            var root = global::AnikiHelper.AnikiCacheLayout.NewsRoot(pluginRoot);
 
             if (!Directory.Exists(root))
             {
@@ -178,10 +178,11 @@ namespace AnikiHelper
         // IMAGES CACHE PATH
         private string GetImagesRoot(string subFolder)
         {
-            var root = Path.Combine(
+            var pluginRoot = Path.Combine(
                 api.Paths.ExtensionsDataPath,
-                "96a983a3-3f13-4dce-a474-4052b718bb52",
-                "News Cache",
+                "96a983a3-3f13-4dce-a474-4052b718bb52");
+            var root = Path.Combine(
+                global::AnikiHelper.AnikiCacheLayout.NewsRoot(pluginRoot),
                 subFolder);
 
             if (!Directory.Exists(root))

@@ -427,6 +427,97 @@ namespace AnikiHelper.Services.UI
             }
         }
 
+        public bool HandleHubTriggerPageNavigation(string buttonName, string stateName)
+        {
+            try
+            {
+                var isLeftTrigger =
+                    string.Equals(buttonName, "TriggerLeft", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(buttonName, "LeftTrigger", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(buttonName, "LT", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(buttonName, "L2", StringComparison.OrdinalIgnoreCase);
+
+                var isRightTrigger =
+                    string.Equals(buttonName, "TriggerRight", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(buttonName, "RightTrigger", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(buttonName, "RT", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(buttonName, "R2", StringComparison.OrdinalIgnoreCase);
+
+                if (!isLeftTrigger && !isRightTrigger)
+                {
+                    return false;
+                }
+
+                var isPressed = string.Equals(stateName, "Pressed", StringComparison.OrdinalIgnoreCase);
+                var isReleased = string.Equals(stateName, "Released", StringComparison.OrdinalIgnoreCase);
+                if (!isPressed && !isReleased)
+                {
+                    return false;
+                }
+
+                if (isWelcomeHubOpen != null && !isWelcomeHubOpen())
+                {
+                    return false;
+                }
+
+                if (setHubCurrentPage == null || getHubCurrentPage == null)
+                {
+                    return false;
+                }
+
+                var focused = Keyboard.FocusedElement as DependencyObject;
+                var window = focused != null ? Window.GetWindow(focused) : null;
+                var root = window as DependencyObject ?? Application.Current?.MainWindow as DependencyObject;
+                if (root == null)
+                {
+                    return false;
+                }
+
+                var hubRoot = FindCachedVisualChildByName<FrameworkElement>(root, "HubRoot");
+                if (hubRoot?.IsVisible != true)
+                {
+                    return false;
+                }
+
+                // The Store is displayed over the Hub. Do not steal LT/RT while that overlay
+                // owns the screen; only the actual Welcome Hub gets first/last-page jumps.
+                var steamStoreOverlay = FindCachedVisualChildByName<FrameworkElement>(root, "SteamStoreOverlay");
+                if (steamStoreOverlay?.IsVisible == true)
+                {
+                    return false;
+                }
+
+                if (focused != null && !IsDescendantOf(focused, hubRoot))
+                {
+                    return false;
+                }
+
+                // Consume the release as well so Playnite cannot perform its native trigger action
+                // after Aniki handled the press.
+                if (isReleased)
+                {
+                    return true;
+                }
+
+                var currentPage = ClampHubPage(getHubCurrentPage());
+                var targetPage = isLeftTrigger ? 1 : GetHubMaxPage();
+                targetPage = ClampHubPage(targetPage);
+
+                if (targetPage == currentPage)
+                {
+                    return true;
+                }
+
+                setHubCurrentPage(targetPage);
+                ScheduleFocusCurrentHubPage(root, targetPage > currentPage ? 1 : -1);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public bool HandleHubHorizontalControllerNavigation(string buttonName, string stateName)
         {
             try

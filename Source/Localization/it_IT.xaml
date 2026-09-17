@@ -293,6 +293,7 @@
     <sys:String x:Key="LOCInGameOverlayBackHint">B / Back per chiudere</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToPlaynite">Torna a Playnite</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToGame">Torna al gioco</sys:String>
+    <sys:String x:Key="LOCInGameOverlayResumeGame">Riprendi gioco</sys:String>
     <sys:String x:Key="LOCInGameOverlayQuitGame">Chiudi gioco</sys:String>
     <sys:String x:Key="LOCInGameOverlayGame">Gioco</sys:String>
     <sys:String x:Key="LOCInGameOverlayLastCaptures">Ultime catture</sys:String>
@@ -359,18 +360,26 @@
     <sys:String x:Key="GameLaunchSplash_ShowLogo">Mostra il logo del gioco sulla schermata splash</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Tempi schermata di avvio</sys:String>
-    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">La schermata di avvio resta visibile almeno per la durata minima, quindi si chiude automaticamente appena la vera finestra del gioco è pronta. Se il rilevamento non riesce, un limite di sicurezza fisso di 90 secondi la chiude. Un timer personalizzato per gioco sostituisce solo la durata minima.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">La schermata di avvio resta visibile almeno per la durata minima, quindi si chiude automaticamente appena la vera finestra del gioco è pronta. Se il rilevamento non riesce, si chiude dopo il tempo massimo di attesa configurato. Un timer personalizzato per gioco sostituisce solo la durata minima.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Durata minima di visualizzazione</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Definisce per quanto tempo la schermata splash resta visibile come minimo.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Rileva automaticamente quando la finestra del gioco è pronta</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Quando è attivo, Aniki Helper mantiene la schermata di avvio visibile almeno per la durata minima configurata, poi la chiude quando rileva la vera finestra del gioco. I timer personalizzati per gioco sostituiscono la durata minima ma continuano a usare il rilevamento automatico.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Timer di sicurezza per chiusura automatica</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Definisce il tempo massimo che Aniki Helper attende prima di chiudere automaticamente la schermata splash.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Title">Giochi con schermata splash disattivata</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Help">I giochi per cui la schermata splash è stata disattivata da clic destro → Aniki Helper → Splash Screen vengono mostrati qui. Deseleziona un gioco per riattivarla.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Clear">Svuota elenco giochi disattivati</sys:String>
+    <sys:String x:Key="LOCAnikiHelperDisableSplashThisGame">Disattiva la schermata splash per questo gioco</sys:String>
+    <sys:String x:Key="LOCAnikiHelperEnableSplashThisGame">Attiva la schermata splash per questo gioco</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Reimposta</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Imposta timer minimo per questo gioco</sys:String>
     <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Reimposta timer minimo per questo gioco</sys:String>
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Durata minima della schermata di avvio per questo gioco, in secondi:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWait">Set maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMaximumWait">Reset maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWaitPrompt">Maximum automatic-detection wait for this game, in seconds:</sys:String>
     <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Valore timer non valido.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Attiva audio video splash</sys:String>
@@ -711,7 +720,7 @@
     <sys:String x:Key="ThemeConfiguration_ImportError">Errore durante l'importazione della configurazione tema:</sys:String>
 
     <!-- Reorganized settings navigation -->
-    <sys:String x:Key="SettingsNav_Home">Αρχική</sys:String>
+    <sys:String x:Key="SettingsNav_Home">Home</sys:String>
     <sys:String x:Key="SettingsNav_AnikiPacks">Aniki Packs</sys:String>
     <sys:String x:Key="SettingsNav_ThemeFeatures">Funzionalità del tema</sys:String>
     <sys:String x:Key="SettingsNav_Steam">Steam</sys:String>
@@ -1601,6 +1610,9 @@
     <sys:String x:Key="CompletePack_ExportSuccess">Pacchetto completo “{0}” esportato correttamente.</sys:String>
     <sys:String x:Key="CompletePack_ExportError">Impossibile esportare il pacchetto completo:</sys:String>
     <sys:String x:Key="CompletePack_DeleteConfirm">Eliminare il pacchetto completo “{0}” dalla libreria? I singoli pacchetti dei componenti resteranno installati.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteChoice">Eliminare il Complete Pack «{0}»?&#10;&#10;SÌ = Elimina il Complete Pack e tutti i pack Visual, Color, Login e Sound installati inclusi.&#10;&#10;NO = Elimina solo il Complete Pack e conserva i pack inclusi installati.&#10;&#10;ANNULLA = Non eliminare nulla.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSharedWarning">Alcuni pack inclusi sono utilizzati anche da questi Complete Pack installati:&#10;&#10;{0}&#10;&#10;Eliminando i pack inclusi verranno rimosse anche queste copie dei componenti installati. Gli altri Complete Pack resteranno nella libreria e potranno reinstallare i propri componenti se li applichi di nuovo.&#10;&#10;Continuare?</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSuccessWithComponents">Il Complete Pack «{0}» e i suoi pack inclusi sono stati eliminati.</sys:String>
     <sys:String x:Key="CompletePack_DeleteSuccess">Il pacchetto completo “{0}” è stato eliminato.</sys:String>
     <sys:String x:Key="CompletePack_DeleteError">Impossibile eliminare il pacchetto completo:</sys:String>
     <sys:String x:Key="CompletePack_ComponentVisual">Visual</sys:String>
@@ -1635,6 +1647,7 @@
     <sys:String x:Key="CommunityPack_Refresh">Aggiorna</sys:String>
     <sys:String x:Key="CommunityPack_NoPreview">Nessuna anteprima</sys:String>
     <sys:String x:Key="CommunityPack_Featured">IN EVIDENZA</sys:String>
+    <sys:String x:Key="CommunityPack_IncludedInComplete">✦ Incluso nel Complete Pack: {0}</sys:String>
     <sys:String x:Key="CommunityPack_Updating">Aggiornamento...</sys:String>
     <sys:String x:Key="CommunityPack_Installing">Installazione...</sys:String>
     <sys:String x:Key="CommunityPack_UpdatingStatus">Aggiornamento di {0}...</sys:String>
@@ -1674,4 +1687,54 @@
     <sys:String x:Key="PackCreator_CompleteDesc">Raggruppa più tipi di pacchetto e applica un'esperienza coordinata in un solo passaggio.</sys:String>
     <sys:String x:Key="PackCreator_CommunityTitle">Condividi con la community</sys:String>
     <sys:String x:Key="PackCreator_CommunityDesc">Quando il pacchetto è pronto, usa Share Community Pack nel Creator per aprire il relativo modulo di invio su GitHub. I pacchetti approvati potranno poi essere installati direttamente da Aniki Helper.</sys:String>
+
+    <!-- Unified Community Packs Hub -->
+    <sys:String x:Key="CommunityPack_IncludesLabel">Questo pack include:</sys:String>
+    <sys:String x:Key="CommunityHub_MenuTitle">Pacchetti della community</sys:String>
+    <sys:String x:Key="CommunityHub_MenuDescription">Sfoglia, installa, aggiorna e gestisci i pacchetti Complete, Visual, Login, Color e Sound condivisi dalla community di Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_BrowseButton">✦ Sfoglia i pacchetti della community</sys:String>
+    <sys:String x:Key="CommunityHub_Title">Pacchetti della community</sys:String>
+    <sys:String x:Key="CommunityHub_Description">Sfoglia, installa e gestisci i pacchetti Complete, Visual, Login, Color e Sound condivisi dalla community di Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_TabComplete">Completi</sys:String>
+    <sys:String x:Key="CommunityHub_TabVisual">Visual</sys:String>
+    <sys:String x:Key="CommunityHub_TabLogin">Login</sys:String>
+    <sys:String x:Key="CommunityHub_TabColor">Colori</sys:String>
+    <sys:String x:Key="CommunityHub_TabSound">Suoni</sys:String>
+    <sys:String x:Key="CommunityHub_SortFormat">Ordina: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_SortNewest">Più recenti</sys:String>
+    <sys:String x:Key="CommunityHub_SortUpdated">Aggiornati di recente</sys:String>
+    <sys:String x:Key="CommunityHub_SortPopular">Più popolari</sys:String>
+    <sys:String x:Key="CommunityHub_SortName">Nome A-Z</sys:String>
+    <sys:String x:Key="CommunityHub_SortNameDesc">Nome Z-A</sys:String>
+    <sys:String x:Key="CommunityHub_FilterFormat">Mostra: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_FilterAll">Tutti</sys:String>
+    <sys:String x:Key="CommunityHub_FilterNew">Nuovi</sys:String>
+    <sys:String x:Key="CommunityHub_FilterUpdates">Aggiornamenti</sys:String>
+    <sys:String x:Key="CommunityHub_FilterInstalled">Installati</sys:String>
+    <sys:String x:Key="CommunityHub_NoFilterMatches">Nessun pacchetto corrisponde al filtro corrente.</sys:String>
+    <sys:String x:Key="CommunityHub_ReleasedFormat">Pubblicato il {0}</sys:String>
+    <sys:String x:Key="CommunityHub_UpdatedFormat">Aggiornato il {0}</sys:String>
+    <sys:String x:Key="CommunityHub_NewBadge">NUOVO</sys:String>
+    <sys:String x:Key="CommunityHub_PopularBadge">POPOLARE</sys:String>
+    <sys:String x:Key="CommunityPack_InstallConfirm">Vuoi installare “{0}”?</sys:String>
+
+    <!-- Random Login Pool -->
+    <sys:String x:Key="LoginRandomPool_ConfigureButton">Configura selezione casuale</sys:String>
+    <sys:String x:Key="LoginRandomPool_Title">Selezione login casuale</sys:String>
+    <sys:String x:Key="LoginRandomPool_Description">Scegli quali sfondi di accesso installati possono essere selezionati casualmente all’avvio.</sys:String>
+    <sys:String x:Key="LoginRandomPool_DefaultNote">I nuovi sfondi installati sono abilitati per impostazione predefinita. Lucky Day resta separato.</sys:String>
+    <sys:String x:Key="LoginRandomPool_SelectAll">Seleziona tutto</sys:String>
+    <sys:String x:Key="LoginRandomPool_ClearAll">Deseleziona tutto</sys:String>
+    <sys:String x:Key="LoginRandomPool_Toggle">Attiva / disattiva</sys:String>
+    <sys:String x:Key="LoginRandomPool_BuiltIn">INTEGRATO</sys:String>
+    <sys:String x:Key="LoginRandomPool_Community">COMMUNITY</sys:String>
+    <sys:String x:Key="LoginRandomPool_Empty">Nessuno sfondo di accesso idoneo installato.</sys:String>
+    <sys:String x:Key="LoginRandomPool_CountFormat">{0} / {1} selezionati</sys:String>
+    <sys:String x:Key="SettingsNav_Notifications">Notifiche</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Enable">Overlay notifiche globale</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Help">Mostra le notifiche Aniki sopra tutte le applicazioni invece che all’interno del tema.</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestButton">Prova notifica</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestMessage">Questa è una notifica di prova Aniki.</sys:String>
+    <sys:String x:Key="LOCNotificationTitleCommunityPacks">Pacchetti della community</sys:String>
+    <sys:String x:Key="CommunityPack_NewNotification">Sono disponibili nuovi pacchetti della community.</sys:String>
 </ResourceDictionary>

@@ -625,31 +625,68 @@ namespace AnikiHelper
                     return;
                 }
 
-                var confirmationText = string.Format(
+                var choiceText = string.Format(
                     GetResourceText(
-                        "CompletePack_DeleteConfirm",
-                        "Delete Complete Pack '{0}' from the library? Its individual component packs remain installed."),
+                        "CompletePack_DeleteChoice",
+                        "Delete Complete Pack '{0}'?\n\nYES = Delete the Complete Pack and all of its installed Visual, Color, Login and Sound Packs.\n\nNO = Delete the Complete Pack only and keep its included packs installed.\n\nCANCEL = Keep everything."),
                     pack.Name);
-                var confirmation = vm.Api != null
+
+                var choice = vm.Api != null
                     ? vm.Api.Dialogs.ShowMessage(
-                        confirmationText,
+                        choiceText,
                         "Aniki Helper",
-                        MessageBoxButton.YesNo,
+                        MessageBoxButton.YesNoCancel,
                         MessageBoxImage.Warning)
                     : MessageBox.Show(
-                        confirmationText,
+                        choiceText,
                         "Aniki Helper",
-                        MessageBoxButton.YesNo,
+                        MessageBoxButton.YesNoCancel,
                         MessageBoxImage.Warning);
 
-                if (confirmation != MessageBoxResult.Yes)
+                if (choice == MessageBoxResult.Cancel || choice == MessageBoxResult.None)
                 {
                     return;
                 }
 
-                vm.DeleteCompletePack(pack.Id);
+                var deleteIncludedPacks = choice == MessageBoxResult.Yes;
+                if (deleteIncludedPacks)
+                {
+                    var analysis = vm.AnalyzeCompletePackDelete(pack.Id);
+                    if (analysis?.HasSharedComponents == true)
+                    {
+                        var sharedPackNames = string.Join(
+                            Environment.NewLine,
+                            analysis.SharedWithCompletePackNames.Select(x => "• " + x));
+                        var sharedWarning = string.Format(
+                            GetResourceText(
+                                "CompletePack_DeleteSharedWarning",
+                                "Some included packs are also used by these installed Complete Packs:\n\n{0}\n\nDeleting the included packs will remove those installed component copies too. The other Complete Packs remain in your library and can reinstall their components if you apply them again.\n\nContinue?"),
+                            sharedPackNames);
+
+                        var sharedConfirmation = vm.Api != null
+                            ? vm.Api.Dialogs.ShowMessage(
+                                sharedWarning,
+                                "Aniki Helper",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Warning)
+                            : MessageBox.Show(
+                                sharedWarning,
+                                "Aniki Helper",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Warning);
+
+                        if (sharedConfirmation != MessageBoxResult.Yes)
+                        {
+                            return;
+                        }
+                    }
+                }
+
+                vm.DeleteCompletePack(pack.Id, deleteIncludedPacks);
                 ShowInformation(string.Format(
-                    GetResourceText("CompletePack_DeleteSuccess", "Complete Pack '{0}' was deleted."),
+                    deleteIncludedPacks
+                        ? GetResourceText("CompletePack_DeleteSuccessWithComponents", "Complete Pack '{0}' and its included packs were deleted.")
+                        : GetResourceText("CompletePack_DeleteSuccess", "Complete Pack '{0}' was deleted."),
                     pack.Name));
             }
             catch (Exception ex)
@@ -1787,6 +1824,14 @@ namespace AnikiHelper
             if (DataContext is AnikiHelperSettingsViewModel vm)
             {
                 vm.Settings.GameLaunchSplashMinimumDurationMs = 2400;
+            }
+        }
+
+        private void ResetSplashMaxDuration_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is AnikiHelperSettingsViewModel vm)
+            {
+                vm.Settings.GameLaunchSplashMaximumWaitMs = AnikiHelperSettings.DefaultGameLaunchSplashMaximumWaitMs;
             }
         }
 

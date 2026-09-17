@@ -371,7 +371,7 @@ namespace AnikiHelper
             var userDataPath = Path.Combine(api.Paths.ExtensionsDataPath, PluginId);
             Directory.CreateDirectory(userDataPath);
 
-            cacheFilePath = Path.Combine(userDataPath, "palette_cache_v2.json");
+            cacheFilePath = global::AnikiHelper.AnikiCacheLayout.DynamicPaletteCachePath(userDataPath);
             LoadAccentCache();
 
             // Timer léger : il ne suit plus le jeu sélectionné.

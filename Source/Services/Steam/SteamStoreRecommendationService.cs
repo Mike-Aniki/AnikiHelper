@@ -66,10 +66,10 @@ namespace AnikiHelper.Services
             this.steamStoreService = steamStoreService;
             this.personalizationService = personalizationService ?? new SteamStorePersonalizationService();
 
-            recommendedCacheFolder = Path.Combine(pluginUserDataPath, "SteamStore", "StoreCache");
-            legacyRecommendedCacheFolder = Path.Combine(pluginUserDataPath, "SteamStore", "RecommendedCache");
-            legacyRecommendedFolder = Path.Combine(pluginUserDataPath, "SteamStore", "Recommended");
-            imageCacheFolder = Path.Combine(pluginUserDataPath, "SteamStore", "ImageCache");
+            recommendedCacheFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "StoreCache");
+            legacyRecommendedCacheFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "RecommendedCache");
+            legacyRecommendedFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "Recommended");
+            imageCacheFolder = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath), "ImageCache");
             Directory.CreateDirectory(recommendedCacheFolder);
             Directory.CreateDirectory(imageCacheFolder);
 

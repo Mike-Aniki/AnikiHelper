@@ -18,6 +18,20 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             = new Dictionary<string, AnikiThemeVariable>(StringComparer.OrdinalIgnoreCase);
     }
 
+    // Synthetic entry shown once in the Theme Customization category.
+    // It replaces the five per-pack Community buttons with a single Community Hub entry.
+    public sealed class AnikiCommunityPacksMenuItem
+    {
+        [DontSerialize]
+        public string DisplayName { get; set; } = string.Empty;
+
+        [DontSerialize]
+        public string DisplayDescription { get; set; } = string.Empty;
+
+        [DontSerialize]
+        public bool NeedRestart => false;
+    }
+
     public class AnikiPresetGroup : ObservableObject
     {
         public string Id { get; set; }

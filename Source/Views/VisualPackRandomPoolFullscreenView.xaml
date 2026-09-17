@@ -1,0 +1,278 @@
+﻿<UserControl
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:pctrls="clr-namespace:Playnite.FullscreenApp.Controls;assembly=Playnite.FullscreenApp"
+    xmlns:pin="clr-namespace:Playnite.Input;assembly=Playnite"
+    xmlns:views="clr-namespace:AnikiHelperFullscreen.Views;assembly=AnikiHelper"
+    FocusManager.IsFocusScope="True"
+    KeyboardNavigation.TabNavigation="Cycle"
+    KeyboardNavigation.DirectionalNavigation="Contained">
+
+    <UserControl.Resources>
+        <Style x:Key="RandomPoolActionButtonStyle" TargetType="{x:Type pctrls:ButtonEx}">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="18,8"/>
+            <Setter Property="Margin" Value="6,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type pctrls:ButtonEx}">
+                        <Border x:Name="Root"
+                                CornerRadius="9"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource FocusGameBorderBrush}"/>
+                                <Setter TargetName="Root" Property="BorderThickness" Value="2"/>
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ButtonBackgroundFocus}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RandomPoolCandidateButtonStyle" TargetType="{x:Type pctrls:ButtonEx}">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Background" Value="{DynamicResource BackgroundItem}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource MenuBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="8,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type pctrls:ButtonEx}">
+                        <Border x:Name="Root"
+                                CornerRadius="12"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="14,10">
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource FocusGameBorderBrush}"/>
+                                <Setter TargetName="Root" Property="BorderThickness" Value="3"/>
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ButtonBackgroundFocus}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="72"/>
+            <RowDefinition Height="86"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid.InputBindings>
+            <pin:GameControllerInputBinding Button="X" Command="{Binding Settings.SelectAllVisualPackRandomCandidatesCommand}"/>
+            <pin:GameControllerInputBinding Button="Y" Command="{Binding Settings.ClearAllVisualPackRandomCandidatesCommand}"/>
+        </Grid.InputBindings>
+
+        <Grid Grid.Row="0">
+            <Border Background="{DynamicResource TopBar}" Opacity="{DynamicResource OpacityBar}"/>
+            <Border Background="{DynamicResource GlassMainBrush}" Opacity="{DynamicResource OpacityBar}" IsHitTestVisible="False"/>
+            <Border Height="1.5" VerticalAlignment="Bottom" Background="{DynamicResource SeparatorTopBarBrush}" Opacity="{DynamicResource OpacityBar}"/>
+            <Grid Margin="26,0">
+                <TextBlock Text="Random Visual Pack Pool"
+                           FontFamily="{DynamicResource FontMain}"
+                           Foreground="{DynamicResource TextBrush}"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <pctrls:ButtonEx Content="Select all"
+                                     Command="{Binding Settings.SelectAllVisualPackRandomCandidatesCommand}"
+                                     Style="{StaticResource RandomPoolActionButtonStyle}"/>
+                    <pctrls:ButtonEx Content="Clear all"
+                                     Command="{Binding Settings.ClearAllVisualPackRandomCandidatesCommand}"
+                                     Style="{StaticResource RandomPoolActionButtonStyle}"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="34,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Choose which built-in Visual Packs and installed Community Visual Packs can be selected by Random at startup."
+                           FontFamily="{DynamicResource FontMain}"
+                           Foreground="{DynamicResource TextAltBrush}"
+                           FontSize="15"
+                           TextWrapping="Wrap"/>
+                <TextBlock Text="Newly installed Visual Packs are enabled by default."
+                           FontFamily="{DynamicResource FontMain}"
+                           Foreground="{DynamicResource TextAltBrush}"
+                           FontSize="12"
+                           Opacity="0.75"
+                           Margin="0,4,0,0"/>
+            </StackPanel>
+            <TextBlock Grid.Column="1"
+                       Text="{Binding Settings.VisualPackRandomPoolCountText}"
+                       FontFamily="{DynamicResource FontMain}"
+                       Foreground="{DynamicResource TextBrush}"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="24,0,24,8">
+            <TextBlock Text="No eligible Visual Packs are available."
+                       FontFamily="{DynamicResource FontMain}"
+                       Foreground="{DynamicResource TextAltBrush}"
+                       FontSize="22"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Settings.VisualPackRandomPoolHasItems}" Value="False">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalContentAlignment="Top"
+                          Focusable="False">
+                <ItemsControl ItemsSource="{Binding Settings.VisualPackRandomPoolItems}"
+                              VerticalAlignment="Top"
+                              Focusable="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid IsItemsHost="True"
+                                         Columns="2"
+                                         VerticalAlignment="Top"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <pctrls:ButtonEx Tag="RandomPoolCandidate"
+                                             Height="72"
+                                             Style="{StaticResource RandomPoolCandidateButtonStyle}"
+                                             Command="{Binding DataContext.Settings.ToggleVisualPackRandomPoolCandidateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                             CommandParameter="{Binding Id}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="42"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Width="28" Height="28" CornerRadius="7"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            BorderThickness="2">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="{DynamicResource MenuBorderBrush}"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsIncluded}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource FocusGameBorderBrush}"/>
+                                                        <Setter Property="Background" Value="{DynamicResource ButtonBackgroundFocus}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="✓"
+                                                   FontSize="19"
+                                                   FontWeight="Bold"
+                                                   Foreground="{DynamicResource TextBrush}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsIncluded}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+
+                                    <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
+                                               FontFamily="{DynamicResource FontMain}"
+                                               Foreground="{DynamicResource TextBrush}"
+                                               FontSize="18"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+
+                                    <Border Grid.Column="2"
+                                            Padding="9,3"
+                                            CornerRadius="7"
+                                            Background="{DynamicResource OverlayMenu}"
+                                            VerticalAlignment="Center">
+                                        <Grid>
+                                            <TextBlock Text="BUILT-IN"
+                                                       FontFamily="{DynamicResource FontMain}"
+                                                       Foreground="{DynamicResource TextAltBrush}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCommunityPack}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="COMMUNITY"
+                                                       FontFamily="{DynamicResource FontMain}"
+                                                       Foreground="{DynamicResource TextHighlightBrush}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCommunityPack}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </pctrls:ButtonEx>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+    </Grid>
+</UserControl>

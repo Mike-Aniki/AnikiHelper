@@ -4,6 +4,7 @@ using Playnite.SDK.Models;
 using AnikiHelper.Services.ColorPacks;
 using AnikiHelper.Services.CompletePacks;
 using AnikiHelper.Services.LoginPacks;
+using AnikiHelper.Services.Randomization;
 using AnikiHelper.Services.SoundPacks;
 using AnikiHelper.Services.VisualPacks;
 using System;
@@ -73,6 +74,7 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             "ShowWebBrowserButton",
             "ShowMediaGalleryButton",
             "ShowVideoPlayerButton",
+            "ShowCommunityPacksButton",
             "ShowSoftwareToolsButton",
             "ShowAudioSwitcherButton",
             "ShowControllerManagerButton"
@@ -97,8 +99,10 @@ namespace AnikiHelper.Services.AnikiThemeSettings
         private readonly LoginBackgroundMediaService loginBackgroundMediaService;
         private readonly VisualPackImportService visualPackImportService;
         private VisualPackLibrarySnapshot customVisualPackLibrarySnapshot;
+        private VisualPackRandomCandidate activeRandomVisualPackCandidate;
         private readonly ColorPackImportService colorPackImportService;
         private ColorPackLibrarySnapshot customColorPackLibrarySnapshot;
+        private ThemeColorRandomCandidate activeRandomThemeColorCandidate;
         private readonly LoginPackImportService loginPackImportService;
         private LoginPackLibrarySnapshot loginPackLibrarySnapshot;
         private readonly SoundPackImportService soundPackImportService;
@@ -111,17 +115,20 @@ namespace AnikiHelper.Services.AnikiThemeSettings
         private const string VisualPackPresetGroupId = "VisualPack";
         private const string VisualPackFilterVariableId = "VisualPackType";
         private const string CustomVisualPackFilterValue = "Custom";
+        private const string RandomVisualPackFilterValue = "Random";
         private const string CustomVisualPackPresetKey = "Custom";
         internal const string CustomVisualPackVirtualKeyPrefix = "__AnikiHelperVisualPack__:";
 
         private const string ThemeColorPresetGroupId = "Interface";
         private const string ThemeColorFilterVariableId = "ThemeColorStyle";
         private const string CustomColorPackFilterValue = "Custom";
+        private const string RandomThemeColorFilterValue = "Random";
         private const string CustomColorPackPresetKey = "Custom";
         internal const string CustomColorPackVirtualKeyPrefix = "__AnikiHelperColorPack__:";
 
         private const string LoginBackgroundPresetGroupId = "LoginBackground";
         private const string LoginBackgroundFilterVariableId = "LoginBackgroundType";
+        private const string RandomLoginFilterValue = "Random";
         private const string LoginPackFilterValue = "Community";
         private const string LegacyCustomLoginPresetKey = "Login43";
         internal const string LoginPackVirtualKeyPrefix = "__AnikiHelperLoginPack__:";
@@ -387,7 +394,9 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                 SyncVariableBindableValues(optionValues);
 
                 LoadSelectedPresetFiles();
+                LoadRandomVisualPackOverride();
                 LoadSelectedCustomColorPack();
+                LoadRandomThemeColorOverride();
 
                 var generatedResource = BuildGeneratedResourceDictionary(optionValues);
 
@@ -1125,12 +1134,30 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 var coverWidth = coverBounds.Width;
                 var coverHeight = coverBounds.Height;
-                const double horizontalExpansion = 240.0;
-                const double verticalExpansion = 18.0;
+                const double horizontalExpansion = 200.0;
+                const double verticalExpansion = 0.0;
                 const double safeEdge = 12.0;
+                const double targetAspectRatio = 16.0 / 10.0;
 
-                var finalWidth = Math.Min(coverWidth + horizontalExpansion, Math.Max(coverWidth, hostWidth - (safeEdge * 2)));
-                var finalHeight = Math.Min(coverHeight + verticalExpansion, Math.Max(coverHeight, hostHeight - (safeEdge * 2)));
+                
+                var desiredWidth = coverWidth + horizontalExpansion;
+                var desiredHeight = coverHeight + verticalExpansion;
+
+                if ((desiredWidth / desiredHeight) < targetAspectRatio)
+                {
+                    desiredWidth = desiredHeight * targetAspectRatio;
+                }
+                else
+                {
+                    desiredHeight = desiredWidth / targetAspectRatio;
+                }
+
+                // Keep the exact 16:9 ratio if the target frame has to be reduced to stay on screen.
+                var availableWidth = Math.Max(1.0, hostWidth - (safeEdge * 2));
+                var availableHeight = Math.Max(1.0, hostHeight - (safeEdge * 2));
+                var fitScale = Math.Min(1.0, Math.Min(availableWidth / desiredWidth, availableHeight / desiredHeight));
+                var finalWidth = desiredWidth * fitScale;
+                var finalHeight = desiredHeight * fitScale;
 
                 var desiredLeft = coverBounds.Left - ((finalWidth - coverWidth) / 2.0);
                 var desiredTop = coverBounds.Top - ((finalHeight - coverHeight) / 2.0);
@@ -2153,6 +2180,27 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 settings.AnikiThemeSettingsValues[key] = finalValue;
 
+                if (string.Equals(key, ThemeColorFilterVariableId, StringComparison.OrdinalIgnoreCase))
+                {
+                    // A deliberate category change starts a fresh Random Color session when
+                    // the user enters Random again, while startup keeps one pick for the session.
+                    activeRandomThemeColorCandidate = null;
+
+                    // Dynamic contains a single preset. Selecting the category is equivalent
+                    // to selecting that preset directly, including its restart requirement.
+                    if (string.Equals(finalValue, "Dynamic", StringComparison.OrdinalIgnoreCase))
+                    {
+                        MarkRestartRequired();
+                    }
+                }
+
+                if (string.Equals(key, VisualPackFilterVariableId, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Same behavior for Random Visual Pack: one stable pick per session,
+                    // but entering Random manually generates a fresh session pick.
+                    activeRandomVisualPackCandidate = null;
+                }
+
                 ApplyExclusiveMainViewInfoOptions(key, finalValue);
 
                 // Changing a preset filter (for example VisualPackType) must only refresh
@@ -2649,6 +2697,26 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                    string.Equals(filterValue, CustomVisualPackFilterValue, StringComparison.OrdinalIgnoreCase);
         }
 
+        private bool IsRandomVisualPackFilterActive()
+        {
+            try
+            {
+                if (currentFile?.Variables == null ||
+                    !currentFile.Variables.TryGetValue(VisualPackFilterVariableId, out var variable) ||
+                    variable == null)
+                {
+                    return false;
+                }
+
+                var value = GetStoredValueOrDefault(VisualPackFilterVariableId, variable) ?? string.Empty;
+                return string.Equals(value, RandomVisualPackFilterValue, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void RefreshCustomVisualPackRuntimeImages(string packId = null)
         {
             try
@@ -2940,6 +3008,26 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             }
         }
 
+        private bool IsRandomThemeColorFilterActive()
+        {
+            try
+            {
+                if (currentFile?.Variables == null ||
+                    !currentFile.Variables.TryGetValue(ThemeColorFilterVariableId, out var variable) ||
+                    variable == null)
+                {
+                    return false;
+                }
+
+                var value = GetStoredValueOrDefault(ThemeColorFilterVariableId, variable) ?? string.Empty;
+                return string.Equals(value, RandomThemeColorFilterValue, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void LoadSelectedCustomColorPack()
         {
             if (!IsCustomColorPackFilterActive() || Application.Current == null)
@@ -3113,6 +3201,375 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             }
         }
 
+        public IReadOnlyList<VisualPackRandomCandidate> GetAvailableVisualPackRandomCandidates()
+        {
+            var result = new List<VisualPackRandomCandidate>();
+
+            try
+            {
+                if (currentFile?.Presets != null &&
+                    currentFile.Presets.TryGetValue(VisualPackPresetGroupId, out var group) &&
+                    group?.Items != null)
+                {
+                    foreach (var preset in group.Items)
+                    {
+                        if (preset == null || string.IsNullOrWhiteSpace(preset.Key) ||
+                            string.Equals(preset.Key, CustomVisualPackPresetKey, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        result.Add(new VisualPackRandomCandidate
+                        {
+                            Id = "visualpack:preset:" + preset.Key.Trim(),
+                            DisplayName = string.IsNullOrWhiteSpace(preset.DisplayName) ? preset.Key : preset.DisplayName,
+                            PresetKey = preset.Key
+                        });
+                    }
+                }
+
+                // Installed Visual Packs are already local. No network/catalog access is used
+                // by Random at startup.
+                var library = visualPackImportService?.GetLibrary();
+                foreach (var pack in library?.Packs ?? new List<VisualPackLibraryPack>())
+                {
+                    if (pack == null || string.IsNullOrWhiteSpace(pack.LocalId))
+                    {
+                        continue;
+                    }
+
+                    var stablePackId = !string.IsNullOrWhiteSpace(pack.PackId)
+                        ? pack.PackId.Trim()
+                        : pack.LocalId.Trim();
+
+                    result.Add(new VisualPackRandomCandidate
+                    {
+                        Id = "visualpack:pack:" + stablePackId,
+                        DisplayName = string.IsNullOrWhiteSpace(pack.Name) ? stablePackId : pack.Name,
+                        CommunityPackId = stablePackId,
+                        CommunityLocalId = pack.LocalId
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][VisualPackRandom] Failed to build the local Random Visual Pack candidate pool.");
+            }
+
+            return result
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id))
+                .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.First())
+                .ToList();
+        }
+
+        private VisualPackRandomCandidate EnsureRandomVisualPackSessionCandidate()
+        {
+            if (!IsRandomVisualPackFilterActive())
+            {
+                activeRandomVisualPackCandidate = null;
+                return null;
+            }
+
+            var available = GetAvailableVisualPackRandomCandidates().ToList();
+            var excluded = new HashSet<string>(
+                settings.VisualPackRandomExcludedCandidateIds ?? new List<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            var enabled = available
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id) && !excluded.Contains(x.Id))
+                .ToList();
+
+            if (activeRandomVisualPackCandidate != null &&
+                enabled.Any(x => string.Equals(x.Id, activeRandomVisualPackCandidate.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                return activeRandomVisualPackCandidate;
+            }
+
+            var picked = RandomSelectionService.Pick(
+                enabled,
+                candidate => candidate.Id,
+                settings.LastVisualPackRandomCandidateId,
+                new Random());
+
+            activeRandomVisualPackCandidate = picked;
+
+            if (picked != null &&
+                !string.Equals(settings.LastVisualPackRandomCandidateId, picked.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.LastVisualPackRandomCandidateId = picked.Id;
+                try
+                {
+                    settings.EndEdit();
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][VisualPackRandom] Failed to persist the last Random Visual Pack candidate.");
+                }
+            }
+
+            DebugLog($"[AnikiHelper][VisualPackRandom] available={available.Count} | enabled={enabled.Count} | pick={picked?.Id ?? "<default>"}");
+            return picked;
+        }
+
+        private void LoadRandomVisualPackOverride()
+        {
+            if (!IsRandomVisualPackFilterActive() || Application.Current == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var picked = EnsureRandomVisualPackSessionCandidate();
+                if (picked == null)
+                {
+                    // Empty/fully excluded pool falls back to the theme's base Visual Pack.
+                    global::AnikiHelper.VisualPackBackgroundComposer.RefreshNow();
+                    return;
+                }
+
+                if (currentFile?.Presets == null ||
+                    !currentFile.Presets.TryGetValue(VisualPackPresetGroupId, out var group) ||
+                    group?.Items == null)
+                {
+                    return;
+                }
+
+                AnikiPresetItem presetToLoad;
+
+                if (picked.IsCommunityPack)
+                {
+                    // Installed packs use the theme's Custom index (153), while the image brushes
+                    // themselves are loaded directly from Helper's persistent local library.
+                    presetToLoad = group.Items.FirstOrDefault(x => x != null &&
+                        string.Equals(x.Key, CustomVisualPackPresetKey, StringComparison.OrdinalIgnoreCase));
+                }
+                else
+                {
+                    presetToLoad = group.Items.FirstOrDefault(x => x != null &&
+                        string.Equals(x.Key, picked.PresetKey, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (presetToLoad?.Files != null)
+                {
+                    foreach (var relativeFile in presetToLoad.Files)
+                    {
+                        if (string.IsNullOrWhiteSpace(relativeFile))
+                        {
+                            continue;
+                        }
+
+                        var filePath = Path.Combine(currentThemePath, relativeFile);
+                        if (!File.Exists(filePath))
+                        {
+                            logger?.Warn($"[AnikiHelper][VisualPackRandom] Visual Pack resource file not found: {filePath}");
+                            continue;
+                        }
+
+                        var resource = GetOrLoadResourceDictionary(filePath);
+                        if (resource != null)
+                        {
+                            Application.Current.Resources.MergedDictionaries.Add(resource);
+                            loadedDictionaries.Add(resource);
+                        }
+                    }
+                }
+
+                if (picked.IsCommunityPack)
+                {
+                    RefreshCustomVisualPackRuntimeImages(picked.CommunityLocalId);
+                }
+
+                global::AnikiHelper.VisualPackBackgroundComposer.RefreshNow();
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][VisualPackRandom] Failed to apply the Random Visual Pack override.");
+            }
+        }
+
+        public IReadOnlyList<ThemeColorRandomCandidate> GetAvailableThemeColorRandomCandidates()
+        {
+            var result = new List<ThemeColorRandomCandidate>();
+
+            try
+            {
+                if (currentFile?.Presets != null &&
+                    currentFile.Presets.TryGetValue(ThemeColorPresetGroupId, out var group) &&
+                    group?.Items != null)
+                {
+                    foreach (var preset in group.Items)
+                    {
+                        if (preset == null || string.IsNullOrWhiteSpace(preset.Key) ||
+                            string.Equals(preset.Key, CustomColorPackPresetKey, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(GetPresetFilterValue(preset), RandomThemeColorFilterValue, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        result.Add(new ThemeColorRandomCandidate
+                        {
+                            Id = "themecolor:preset:" + preset.Key.Trim(),
+                            DisplayName = string.IsNullOrWhiteSpace(preset.DisplayName) ? preset.Key : preset.DisplayName,
+                            PresetKey = preset.Key
+                        });
+                    }
+                }
+
+                // Community Color Packs are already installed locally. Random startup never
+                // downloads anything and does not depend on the Community catalog/network.
+                var library = customColorPackLibrarySnapshot ?? colorPackImportService?.GetLibrary();
+                foreach (var pack in library?.Packs ?? new List<ColorPackLibraryPack>())
+                {
+                    if (pack == null || string.IsNullOrWhiteSpace(pack.LocalId))
+                    {
+                        continue;
+                    }
+
+                    var stablePackId = !string.IsNullOrWhiteSpace(pack.PackId)
+                        ? pack.PackId.Trim()
+                        : pack.LocalId.Trim();
+
+                    result.Add(new ThemeColorRandomCandidate
+                    {
+                        Id = "themecolor:colorpack:" + stablePackId,
+                        DisplayName = string.IsNullOrWhiteSpace(pack.Name) ? stablePackId : pack.Name,
+                        CommunityPackId = stablePackId,
+                        CommunityLocalId = pack.LocalId
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][ThemeColorRandom] Failed to build the local Random Theme Color candidate pool.");
+            }
+
+            return result
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id))
+                .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.First())
+                .ToList();
+        }
+
+        private ThemeColorRandomCandidate EnsureRandomThemeColorSessionCandidate()
+        {
+            if (!IsRandomThemeColorFilterActive())
+            {
+                activeRandomThemeColorCandidate = null;
+                return null;
+            }
+
+            var available = GetAvailableThemeColorRandomCandidates().ToList();
+            var excluded = new HashSet<string>(
+                settings.ThemeColorRandomExcludedCandidateIds ?? new List<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            var enabled = available
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id) && !excluded.Contains(x.Id))
+                .ToList();
+
+            if (activeRandomThemeColorCandidate != null &&
+                enabled.Any(x => string.Equals(x.Id, activeRandomThemeColorCandidate.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                return activeRandomThemeColorCandidate;
+            }
+
+            var picked = RandomSelectionService.Pick(
+                enabled,
+                candidate => candidate.Id,
+                settings.LastThemeColorRandomCandidateId,
+                new Random());
+
+            activeRandomThemeColorCandidate = picked;
+
+            if (picked != null &&
+                !string.Equals(settings.LastThemeColorRandomCandidateId, picked.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.LastThemeColorRandomCandidateId = picked.Id;
+                try
+                {
+                    settings.EndEdit();
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][ThemeColorRandom] Failed to persist the last Random Theme Color candidate.");
+                }
+            }
+
+            DebugLog($"[AnikiHelper][ThemeColorRandom] available={available.Count} | enabled={enabled.Count} | pick={picked?.Id ?? "<default>"}");
+            return picked;
+        }
+
+        private void LoadRandomThemeColorOverride()
+        {
+            if (!IsRandomThemeColorFilterActive() || Application.Current == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var picked = EnsureRandomThemeColorSessionCandidate();
+                if (picked == null)
+                {
+                    // An empty/fully excluded pool intentionally falls back to the theme's base color.
+                    return;
+                }
+
+                if (picked.IsCommunityPack)
+                {
+                    var dictionary = colorPackImportService?.LoadResourceDictionary(picked.CommunityLocalId);
+                    if (dictionary != null)
+                    {
+                        dictionary.Remove("BackgroundImageIndex");
+                        Application.Current.Resources.MergedDictionaries.Add(dictionary);
+                        loadedDictionaries.Add(dictionary);
+                    }
+
+                    return;
+                }
+
+                if (currentFile?.Presets == null ||
+                    !currentFile.Presets.TryGetValue(ThemeColorPresetGroupId, out var group) ||
+                    group?.Items == null)
+                {
+                    return;
+                }
+
+                var preset = group.Items.FirstOrDefault(x => x != null &&
+                    string.Equals(x.Key, picked.PresetKey, StringComparison.OrdinalIgnoreCase));
+                if (preset?.Files == null)
+                {
+                    return;
+                }
+
+                foreach (var relativeFile in preset.Files)
+                {
+                    if (string.IsNullOrWhiteSpace(relativeFile))
+                    {
+                        continue;
+                    }
+
+                    var filePath = Path.Combine(currentThemePath, relativeFile);
+                    if (!File.Exists(filePath))
+                    {
+                        logger?.Warn($"[AnikiHelper][ThemeColorRandom] Theme Color resource file not found: {filePath}");
+                        continue;
+                    }
+
+                    var resource = GetOrLoadResourceDictionary(filePath);
+                    if (resource != null)
+                    {
+                        Application.Current.Resources.MergedDictionaries.Add(resource);
+                        loadedDictionaries.Add(resource);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][ThemeColorRandom] Failed to apply the Random Theme Color override.");
+            }
+        }
+
         public IReadOnlyList<int> GetAvailableLoginRandomIndexes()
         {
             try
@@ -3134,6 +3591,84 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                 logger?.Warn(ex, "[AnikiHelper][LoginMedia] Failed to query installed Random Login backgrounds.");
                 return new List<int>();
             }
+        }
+
+        public IReadOnlyList<LoginRandomCandidate> GetAvailableLoginRandomCandidates()
+        {
+            var result = new List<LoginRandomCandidate>();
+
+            try
+            {
+                var themePath = !string.IsNullOrWhiteSpace(currentThemePath)
+                    ? currentThemePath
+                    : GetFullscreenThemePath();
+                var builtInNames = loginBackgroundMediaService?.GetRandomDisplayNames(themePath)
+                    ?? new Dictionary<int, string>();
+
+                foreach (var index in GetAvailableLoginRandomIndexes())
+                {
+                    if (index <= 0 ||
+                        index == LoginBackgroundMediaService.LuckyDayRandomIndex ||
+                        index == LoginBackgroundMediaService.CustomRandomIndex)
+                    {
+                        continue;
+                    }
+
+                    result.Add(new LoginRandomCandidate
+                    {
+                        Id = "builtin:" + index,
+                        DisplayName = builtInNames.TryGetValue(index, out var builtInName) && !string.IsNullOrWhiteSpace(builtInName)
+                            ? builtInName
+                            : "Login " + index,
+                        BuiltInIndex = index
+                    });
+                }
+
+                // Community Login Packs are already local at this point. Random startup must never
+                // download anything or depend on GitHub/network availability.
+                var library = loginPackImportService?.GetLibrary();
+                foreach (var pack in library?.Packs ?? new List<LoginPackLibraryPack>())
+                {
+                    if (pack == null || string.IsNullOrWhiteSpace(pack.LocalId))
+                    {
+                        continue;
+                    }
+
+                    var videoPath = pack.VideoPath;
+                    if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
+                    {
+                        videoPath = loginPackImportService?.GetVideoPath(pack.LocalId);
+                    }
+
+                    if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
+                    {
+                        continue;
+                    }
+
+                    var stablePackId = !string.IsNullOrWhiteSpace(pack.PackId)
+                        ? pack.PackId.Trim()
+                        : pack.LocalId.Trim();
+
+                    result.Add(new LoginRandomCandidate
+                    {
+                        Id = "loginpack:" + stablePackId,
+                        DisplayName = string.IsNullOrWhiteSpace(pack.Name) ? stablePackId : pack.Name,
+                        CommunityPackId = stablePackId,
+                        CommunityLocalId = pack.LocalId,
+                        VideoPath = videoPath
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][LoginRandom] Failed to build the local Random Login candidate pool.");
+            }
+
+            return result
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id))
+                .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.First())
+                .ToList();
         }
 
         private bool DoesVariableNeedRestart(string key)
@@ -5766,8 +6301,11 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             settings.SoundPackNotiPath = ResolveSoundPackOrDefaultPath(localId, "Noti.wav", audioRoot);
             settings.SoundPackEnterGameDetailsPath = ResolveSoundPackOrDefaultPath(localId, "EnterGameDetails.wav", audioRoot);
             settings.SoundPackExitGameDetailsPath = ResolveSoundPackOrDefaultPath(localId, "ExitGameDetails.wav", audioRoot);
+            settings.SoundPackLoginConfirmPath = ResolveSoundPackOrDefaultPath(localId, "LoginConfirm.wav", audioRoot);
+            settings.SoundPackOpenPanelPath = ResolveSoundPackOrDefaultPath(localId, "OpenPanel.wav", audioRoot);
             settings.SoundPackOpenAdditionalViewPath = ResolveSoundPackOrDefaultPath(localId, "OpenAdditionalView.wav", audioRoot);
-            settings.SoundPackChangeDisplayPath = ResolveSoundPackOrDefaultPath(localId, "ChangeDisplay.wav", audioRoot);
+            settings.SoundPackCloseAdditionalViewPath = ResolveSoundPackOrDefaultPath(localId, "CloseAdditionalView.wav", audioRoot);
+            settings.SoundPackHomeHubOpenPath = ResolveSoundPackOrDefaultPath(localId, "HomeHubOpen.wav", audioRoot);
             settings.SoundPackHomeHubClosePath = ResolveSoundPackOrDefaultPath(localId, "HomeHubClose.wav", audioRoot);
             settings.SoundPackSessionSummaryPath = ResolveSoundPackOrDefaultPath(localId, "SessionSummary.wav", audioRoot);
             settings.SoundPackWarningPath = ResolveSoundPackOrDefaultPath(localId, "Warning.wav", audioRoot);
@@ -5842,7 +6380,6 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
                 SynchronizeNativeSoundFile(localId, "navigation.wav", audioRoot, defaultsRoot);
                 SynchronizeNativeSoundFile(localId, "activation.wav", audioRoot, defaultsRoot);
-                SynchronizeNativeSoundFile(localId, "ChangeDisplay.wav", audioRoot, defaultsRoot);
                 SynchronizeNativeSoundFile(localId, "OpenAdditionalView.wav", audioRoot, defaultsRoot);
             }
             catch (Exception ex)
@@ -6173,6 +6710,19 @@ namespace AnikiHelper.Services.AnikiThemeSettings
                     return false;
                 }
 
+                // Login1 used to live inside the Standard category even though it is the
+                // Random-at-each-launch preset. Preserve existing Random users when the
+                // theme moves Random to its own first-level category.
+                if (settings.AnikiThemeSettingsSelectedPresets.TryGetValue(LoginBackgroundPresetGroupId, out var legacyLoginPreset) &&
+                    string.Equals(legacyLoginPreset, LoginBackgroundMediaService.RandomPresetKey, StringComparison.OrdinalIgnoreCase) &&
+                    (!settings.AnikiThemeSettingsValues.TryGetValue(LoginBackgroundFilterVariableId, out var storedLoginFilter) ||
+                     !string.Equals(storedLoginFilter, RandomLoginFilterValue, StringComparison.OrdinalIgnoreCase)))
+                {
+                    settings.AnikiThemeSettingsValues[LoginBackgroundFilterVariableId] = RandomLoginFilterValue;
+                    changed = true;
+                    DebugLog("[AnikiHelper] Migrated LoginBackgroundType to Random for the existing Random Login preset.");
+                }
+
                 foreach (var groupPair in currentFile.Presets)
                 {
                     var groupId = groupPair.Key;
@@ -6262,7 +6812,10 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             var visibleItems = group.Items.ToList();
             var filterValue = string.Empty;
             var isCustomVisualPackLibrary = false;
+            var isRandomVisualPackMode = false;
             var isCustomColorPackLibrary = false;
+            var isRandomThemeColorMode = false;
+            var isDynamicThemeColorMode = false;
             var isLoginPackLibrary = false;
             VisualPackLibrarySnapshot customLibrary = null;
             ColorPackLibrarySnapshot customColorLibrary = null;
@@ -6275,10 +6828,30 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             {
                 filterValue = GetStoredValueOrDefault(group.FilterBy, filterVariable) ?? string.Empty;
                 isCustomVisualPackLibrary = IsCustomVisualPackLibraryFilter(groupId, filterValue);
+                isRandomVisualPackMode = string.Equals(groupId, VisualPackPresetGroupId, StringComparison.OrdinalIgnoreCase) &&
+                                         string.Equals(filterValue, RandomVisualPackFilterValue, StringComparison.OrdinalIgnoreCase);
                 isCustomColorPackLibrary = IsCustomColorPackLibraryFilter(groupId, filterValue);
+                isRandomThemeColorMode = string.Equals(groupId, ThemeColorPresetGroupId, StringComparison.OrdinalIgnoreCase) &&
+                                         string.Equals(filterValue, RandomThemeColorFilterValue, StringComparison.OrdinalIgnoreCase);
+                isDynamicThemeColorMode = string.Equals(groupId, ThemeColorPresetGroupId, StringComparison.OrdinalIgnoreCase) &&
+                                          string.Equals(filterValue, "Dynamic", StringComparison.OrdinalIgnoreCase);
                 isLoginPackLibrary = IsLoginPackLibraryFilter(groupId, filterValue);
 
-                if (isCustomVisualPackLibrary)
+                if (isRandomVisualPackMode)
+                {
+                    // Random is a first-level mode, not a Visual Pack preset. Keep the user's
+                    // previous concrete selection persisted and replace the selector with the
+                    // Configure Random Pool button in Fullscreen Settings.
+                    visibleItems = new List<AnikiPresetItem>();
+                }
+                else if (isRandomThemeColorMode)
+                {
+                    // Random is a first-level mode, not a color preset. Keep the previous
+                    // concrete Theme Color selection persisted and replace the selector with
+                    // the Configure Random Pool button in Fullscreen Settings.
+                    visibleItems = new List<AnikiPresetItem>();
+                }
+                else if (isCustomVisualPackLibrary)
                 {
                     customLibrary = RefreshCustomVisualPackLibrarySnapshot();
                     visibleItems = BuildInstalledCustomVisualPackItems(groupId, customLibrary);
@@ -6310,11 +6883,12 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
             // Custom is no longer a disabled single preset. The existing selector becomes the
             // installed-pack selector while the real persisted theme preset remains "Custom".
-            group.IsSelectionEnabled = isCustomVisualPackLibrary ||
-                                       isCustomColorPackLibrary ||
-                                       isLoginPackLibrary ||
-                                       string.IsNullOrWhiteSpace(group.DisableSelectionWhenFilterValue) ||
-                                       !string.Equals(filterValue, group.DisableSelectionWhenFilterValue, StringComparison.OrdinalIgnoreCase);
+            group.IsSelectionEnabled = !isDynamicThemeColorMode &&
+                                       (isCustomVisualPackLibrary ||
+                                        isCustomColorPackLibrary ||
+                                        isLoginPackLibrary ||
+                                        string.IsNullOrWhiteSpace(group.DisableSelectionWhenFilterValue) ||
+                                        !string.Equals(filterValue, group.DisableSelectionWhenFilterValue, StringComparison.OrdinalIgnoreCase));
 
             var sameItems = group.FilteredItems.Count == visibleItems.Count &&
                             group.FilteredItems.Select(x => x?.Key).SequenceEqual(visibleItems.Select(x => x?.Key), StringComparer.OrdinalIgnoreCase);
@@ -6329,6 +6903,22 @@ namespace AnikiHelper.Services.AnikiThemeSettings
             }
 
             var changed = false;
+
+            if (isRandomVisualPackMode)
+            {
+                settings.AnikiThemeSettingsSelectedPresets.TryGetValue(groupId, out var storedPreset);
+                group.HasVisibleSelection = false;
+                group.SetSelectedPresetKeySilently(storedPreset ?? string.Empty);
+                return false;
+            }
+
+            if (isRandomThemeColorMode)
+            {
+                settings.AnikiThemeSettingsSelectedPresets.TryGetValue(groupId, out var storedPreset);
+                group.HasVisibleSelection = false;
+                group.SetSelectedPresetKeySilently(storedPreset ?? string.Empty);
+                return false;
+            }
 
             if (isCustomVisualPackLibrary)
             {
@@ -7342,6 +7932,22 @@ namespace AnikiHelper.Services.AnikiThemeSettings
 
             foreach (var groupPair in currentFile.Presets)
             {
+                // Visual Pack Random keeps the user's persisted normal selection untouched.
+                // Do not load that persisted pack underneath the session-only random override.
+                if (string.Equals(groupPair.Key, VisualPackPresetGroupId, StringComparison.OrdinalIgnoreCase) &&
+                    IsRandomVisualPackFilterActive())
+                {
+                    continue;
+                }
+
+                // Theme Color Random keeps the user's persisted normal selection untouched.
+                // Do not load that persisted color underneath the session-only random override.
+                if (string.Equals(groupPair.Key, ThemeColorPresetGroupId, StringComparison.OrdinalIgnoreCase) &&
+                    IsRandomThemeColorFilterActive())
+                {
+                    continue;
+                }
+
                 var selectedPreset = GetSelectedPreset(groupPair.Key, groupPair.Value);
 
                 if (selectedPreset?.Files == null)

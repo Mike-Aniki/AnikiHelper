@@ -1267,6 +1267,7 @@
                                             <TextBlock Text="{DynamicResource EventSounds_Help}"
                                                        Style="{StaticResource SmallNoteText}"
                                                        Margin="0,4,0,8"/>
+
                                 
                                         </StackPanel>
                                     </StackPanel>
@@ -1336,6 +1337,64 @@
                                     </StackPanel>
                                 </Border>
 
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="{DynamicResource SettingsNav_Notifications}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="20,8,22,26">
+                            <Border Style="{StaticResource SettingsPageHeaderCard}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="5"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0"
+                                            Width="5"
+                                            CornerRadius="3"
+                                            Background="{StaticResource HomeGoldBrush}"
+                                            VerticalAlignment="Stretch"/>
+                                    <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                                        <TextBlock Text="{DynamicResource SettingsNav_Notifications}" Style="{StaticResource SettingsPageTitle}"/>
+                                        <TextBlock Text="{DynamicResource GlobalNotificationOverlay_Help}" Style="{StaticResource SettingsPageDescription}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <Border Style="{StaticResource SectionCard}">
+                                <StackPanel>
+                                    <Border Style="{StaticResource SectionHeaderBar}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="3"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.Column="0"
+                                                    Background="{StaticResource AccentBrush}"
+                                                    CornerRadius="2"
+                                                    Margin="0,2,8,2"/>
+
+                                            <TextBlock Grid.Column="1"
+                                                       Style="{StaticResource SectionHeaderTitle}"
+                                                       Text="{DynamicResource GlobalNotificationOverlay_Enable}"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <StackPanel Margin="12,10,12,12">
+                                        <CheckBox Content="{DynamicResource GlobalNotificationOverlay_Enable}"
+                                                  IsChecked="{Binding Settings.GlobalNotificationOverlayEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                                  Margin="0,4,0,8"/>
+
+                                        <TextBlock Text="{DynamicResource GlobalNotificationOverlay_Help}"
+                                                   Style="{StaticResource SmallNoteText}"
+                                                   Margin="0,4,0,8"
+                                                   TextWrapping="Wrap"/>
+
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
@@ -4454,6 +4513,73 @@
                                                    Style="{StaticResource SmallNoteText}"
                                                    Margin="0,4,0,6"
                                                    TextWrapping="Wrap"/>
+
+                                        <TextBlock Text="{DynamicResource GameLaunchSplash_MaxDuration_Title}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="White"
+                                                   Margin="0,10,0,0"
+                                                   TextWrapping="Wrap"/>
+
+                                        <StackPanel Orientation="Horizontal" Margin="0,10,0,5"
+                                                    VerticalAlignment="Center">
+                                            <TextBox Text="{Binding Settings.GameLaunchSplashMaximumWaitSeconds, UpdateSourceTrigger=LostFocus}"
+                                                     Width="80"
+                                                     HorizontalContentAlignment="Right"/>
+
+                                            <TextBlock Text=" sec"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="White"
+                                                       Margin="6,0,0,0"/>
+
+                                            <Button Content="{DynamicResource GameLaunchSplash_ResetTimer}"
+                                                    Style="{StaticResource PrimaryButton}"
+                                                    Click="ResetSplashMaxDuration_Click"
+                                                    Margin="15,0,0,0"
+                                                    MinWidth="90"/>
+                                        </StackPanel>
+
+                                        <TextBlock Text="{DynamicResource GameLaunchSplash_MaxDuration_Help}"
+                                                   Style="{StaticResource SmallNoteText}"
+                                                   Margin="0,4,0,6"
+                                                   TextWrapping="Wrap"/>
+
+                                        <TextBlock Text="{DynamicResource GameLaunchSplash_DisabledGames_Title}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="White"
+                                                   Margin="0,12,0,0"
+                                                   TextWrapping="Wrap"/>
+
+                                        <TextBlock Text="{DynamicResource GameLaunchSplash_DisabledGames_Help}"
+                                                   Style="{StaticResource SmallNoteText}"
+                                                   Margin="0,4,0,8"
+                                                   TextWrapping="Wrap"/>
+
+                                        <Border Background="#10FFFFFF"
+                                                BorderBrush="{StaticResource BorderBrushSoft}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="10"
+                                                Margin="0,4,0,8">
+                                            <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+                                                <ItemsControl ItemsSource="{Binding Settings.GameLaunchSplashDisabledGameItems}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <CheckBox Content="{Binding Name}"
+                                                                      IsChecked="{Binding IsSplashDisabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                      Margin="0,3,0,3"/>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </Border>
+
+                                        <Button Style="{StaticResource SettingsInlineButton}"
+                                                Content="{DynamicResource GameLaunchSplash_DisabledGames_Clear}"
+                                                Command="{Binding Settings.ClearGameLaunchSplashDisabledGamesCommand}"
+                                                HorizontalAlignment="Left"
+                                                Padding="12,6"
+                                                Margin="0,2,0,8"/>
+
                                         <Border Style="{StaticResource SectionSeparator}"/>
                                 
                                         <TextBlock Text="{DynamicResource GameLaunchSplash_VideoEndBehavior_Title}"

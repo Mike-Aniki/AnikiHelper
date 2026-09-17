@@ -293,6 +293,7 @@
     <sys:String x:Key="LOCInGameOverlayBackHint">Kapatmak için B / Back</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToPlaynite">Playnite’a dön</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToGame">Oyuna dön</sys:String>
+    <sys:String x:Key="LOCInGameOverlayResumeGame">Oyuna devam et</sys:String>
     <sys:String x:Key="LOCInGameOverlayQuitGame">Oyundan çık</sys:String>
     <sys:String x:Key="LOCInGameOverlayGame">Oyun</sys:String>
     <sys:String x:Key="LOCInGameOverlayLastCaptures">Son yakalamalar</sys:String>
@@ -359,18 +360,26 @@
     <sys:String x:Key="GameLaunchSplash_ShowLogo">Splash ekranında oyun logosunu göster</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Açılış ekranı zamanlaması</sys:String>
-    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Açılış ekranı en az ayarlanan minimum süre boyunca görünür kalır, ardından gerçek oyun penceresi hazır olduğunda otomatik olarak kapanır. Algılama başarılı olmazsa 90 saniyelik sabit güvenlik sınırı ekranı kapatır. Oyun başına özel zamanlayıcı yalnızca minimum süreyi değiştirir.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Açılış ekranı en az ayarlanan minimum süre boyunca görünür kalır, ardından gerçek oyun penceresi hazır olduğunda otomatik olarak kapanır. Algılama başarılı olmazsa ayarlanan maksimum bekleme süresinden sonra kapanır. Oyun başına özel zamanlayıcı yalnızca minimum süreyi değiştirir.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Minimum görüntüleme süresi</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Splash ekranının minimum ne kadar süre görünür kalacağını belirler.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Oyun penceresi hazır olduğunda otomatik algıla</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Etkinleştirildiğinde Aniki Helper, açılış ekranını en az ayarlanan minimum süre boyunca açık tutar ve gerçek oyun penceresi algılandığında kapatır. Oyun başına özel zamanlayıcılar minimum süreyi geçersiz kılar ancak otomatik algılamayı kullanmaya devam eder.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Otomatik kapanma güvenlik zamanlayıcısı</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Aniki Helper’ın splash ekranını otomatik kapatmadan önce en fazla ne kadar bekleyeceğini belirler.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Title">Açılış ekranı devre dışı olan oyunlar</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Help">Sağ tık → Aniki Helper → Splash Screen üzerinden açılış ekranı devre dışı bırakılan oyunlar burada görünür. Bir oyunun açılış ekranını yeniden etkinleştirmek için işaretini kaldırın.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Clear">Devre dışı oyun listesini temizle</sys:String>
+    <sys:String x:Key="LOCAnikiHelperDisableSplashThisGame">Bu oyun için açılış ekranını devre dışı bırak</sys:String>
+    <sys:String x:Key="LOCAnikiHelperEnableSplashThisGame">Bu oyun için açılış ekranını etkinleştir</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Sıfırla</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Bu oyun için minimum zamanlayıcı ayarla</sys:String>
     <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Bu oyunun minimum zamanlayıcısını sıfırla</sys:String>
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Bu oyun için minimum açılış ekranı süresi, saniye olarak:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWait">Set maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMaximumWait">Reset maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWaitPrompt">Maximum automatic-detection wait for this game, in seconds:</sys:String>
     <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Geçersiz zamanlayıcı değeri.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Splash video sesini etkinleştir</sys:String>
@@ -1601,6 +1610,9 @@
     <sys:String x:Key="CompletePack_ExportSuccess">“{0}” Tam Paketi başarıyla dışa aktarıldı.</sys:String>
     <sys:String x:Key="CompletePack_ExportError">Tam Paket dışa aktarılamadı:</sys:String>
     <sys:String x:Key="CompletePack_DeleteConfirm">“{0}” Tam Paketi kitaplıktan silinsin mi? Tek tek bileşen paketleri yüklü kalacaktır.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteChoice">“{0}” Complete Pack silinsin mi?&#10;&#10;EVET = Complete Pack'i ve içerdiği yüklü Visual, Color, Login ve Sound paketlerinin tamamını sil.&#10;&#10;HAYIR = Yalnızca Complete Pack'i sil ve içerdiği paketleri yüklü bırak.&#10;&#10;İPTAL = Hiçbir şeyi silme.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSharedWarning">Dahil edilen bazı paketler şu yüklü Complete Pack'ler tarafından da kullanılıyor:&#10;&#10;{0}&#10;&#10;Dahil edilen paketleri silmek, bu yüklü bileşen kopyalarını da kaldıracaktır. Diğer Complete Pack'ler kitaplığınızda kalır ve tekrar uygularsanız bileşenlerini yeniden yükleyebilir.&#10;&#10;Devam edilsin mi?</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSuccessWithComponents">“{0}” Complete Pack ve içerdiği paketler silindi.</sys:String>
     <sys:String x:Key="CompletePack_DeleteSuccess">“{0}” Tam Paketi silindi.</sys:String>
     <sys:String x:Key="CompletePack_DeleteError">Tam Paket silinemedi:</sys:String>
     <sys:String x:Key="CompletePack_ComponentVisual">Visual</sys:String>
@@ -1635,6 +1647,7 @@
     <sys:String x:Key="CommunityPack_Refresh">Yenile</sys:String>
     <sys:String x:Key="CommunityPack_NoPreview">Önizleme yok</sys:String>
     <sys:String x:Key="CommunityPack_Featured">ÖNE ÇIKAN</sys:String>
+    <sys:String x:Key="CommunityPack_IncludedInComplete">✦ Complete Pack içinde: {0}</sys:String>
     <sys:String x:Key="CommunityPack_Updating">Güncelleniyor...</sys:String>
     <sys:String x:Key="CommunityPack_Installing">Yükleniyor...</sys:String>
     <sys:String x:Key="CommunityPack_UpdatingStatus">{0} güncelleniyor...</sys:String>
@@ -1674,4 +1687,54 @@
     <sys:String x:Key="PackCreator_CompleteDesc">Birden fazla paket türünü bir araya getirip uyumlu bir deneyimi tek adımda uygulayın.</sys:String>
     <sys:String x:Key="PackCreator_CommunityTitle">Toplulukla paylaş</sys:String>
     <sys:String x:Key="PackCreator_CommunityDesc">Paketiniz hazır olduğunda uygun GitHub gönderim formunu açmak için Creator içindeki Share Community Pack seçeneğini kullanın. Onaylanan paketler daha sonra doğrudan Aniki Helper'dan yüklenebilir.</sys:String>
+
+    <!-- Unified Community Packs Hub -->
+    <sys:String x:Key="CommunityPack_IncludesLabel">Bu paket şunları içerir:</sys:String>
+    <sys:String x:Key="CommunityHub_MenuTitle">Topluluk Paketleri</sys:String>
+    <sys:String x:Key="CommunityHub_MenuDescription">Aniki ReMake topluluğu tarafından paylaşılan Complete, Visual, Login, Color ve Sound paketlerine göz atın, yükleyin, güncelleyin ve yönetin.</sys:String>
+    <sys:String x:Key="CommunityHub_BrowseButton">✦ Topluluk Paketlerine Göz At</sys:String>
+    <sys:String x:Key="CommunityHub_Title">Topluluk Paketleri</sys:String>
+    <sys:String x:Key="CommunityHub_Description">Aniki ReMake topluluğu tarafından paylaşılan Complete, Visual, Login, Color ve Sound paketlerine göz atın, yükleyin ve yönetin.</sys:String>
+    <sys:String x:Key="CommunityHub_TabComplete">Tam</sys:String>
+    <sys:String x:Key="CommunityHub_TabVisual">Visual</sys:String>
+    <sys:String x:Key="CommunityHub_TabLogin">Login</sys:String>
+    <sys:String x:Key="CommunityHub_TabColor">Renkler</sys:String>
+    <sys:String x:Key="CommunityHub_TabSound">Sesler</sys:String>
+    <sys:String x:Key="CommunityHub_SortFormat">Sırala: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_SortNewest">En yeniler</sys:String>
+    <sys:String x:Key="CommunityHub_SortUpdated">Son güncellenenler</sys:String>
+    <sys:String x:Key="CommunityHub_SortPopular">En popüler</sys:String>
+    <sys:String x:Key="CommunityHub_SortName">Ad A-Z</sys:String>
+    <sys:String x:Key="CommunityHub_SortNameDesc">Ad Z-A</sys:String>
+    <sys:String x:Key="CommunityHub_FilterFormat">Göster: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_FilterAll">Tümü</sys:String>
+    <sys:String x:Key="CommunityHub_FilterNew">Yeni</sys:String>
+    <sys:String x:Key="CommunityHub_FilterUpdates">Güncellemeler</sys:String>
+    <sys:String x:Key="CommunityHub_FilterInstalled">Yüklü</sys:String>
+    <sys:String x:Key="CommunityHub_NoFilterMatches">Geçerli filtreyle eşleşen paket yok.</sys:String>
+    <sys:String x:Key="CommunityHub_ReleasedFormat">Yayınlandı {0}</sys:String>
+    <sys:String x:Key="CommunityHub_UpdatedFormat">Güncellendi {0}</sys:String>
+    <sys:String x:Key="CommunityHub_NewBadge">YENİ</sys:String>
+    <sys:String x:Key="CommunityHub_PopularBadge">POPÜLER</sys:String>
+    <sys:String x:Key="CommunityPack_InstallConfirm">“{0}” yüklensin mi?</sys:String>
+
+    <!-- Random Login Pool -->
+    <sys:String x:Key="LoginRandomPool_ConfigureButton">Rastgele seçimi yapılandır</sys:String>
+    <sys:String x:Key="LoginRandomPool_Title">Rastgele giriş havuzu</sys:String>
+    <sys:String x:Key="LoginRandomPool_Description">Başlangıçta rastgele seçilebilecek yüklü giriş arka planlarını seçin.</sys:String>
+    <sys:String x:Key="LoginRandomPool_DefaultNote">Yeni yüklenen arka planlar varsayılan olarak etkindir. Lucky Day ayrı kalır.</sys:String>
+    <sys:String x:Key="LoginRandomPool_SelectAll">Tümünü seç</sys:String>
+    <sys:String x:Key="LoginRandomPool_ClearAll">Seçimi temizle</sys:String>
+    <sys:String x:Key="LoginRandomPool_Toggle">Değiştir</sys:String>
+    <sys:String x:Key="LoginRandomPool_BuiltIn">YERLEŞİK</sys:String>
+    <sys:String x:Key="LoginRandomPool_Community">TOPLULUK</sys:String>
+    <sys:String x:Key="LoginRandomPool_Empty">Uygun giriş arka planı yüklü değil.</sys:String>
+    <sys:String x:Key="LoginRandomPool_CountFormat">{0} / {1} seçili</sys:String>
+    <sys:String x:Key="SettingsNav_Notifications">Bildirimler</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Enable">Genel Bildirim Katmanı</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Help">Aniki bildirimlerini tema içinde göstermek yerine tüm uygulamaların üzerinde gösterir.</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestButton">Bildirimi test et</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestMessage">Bu bir Aniki test bildirimidir.</sys:String>
+    <sys:String x:Key="LOCNotificationTitleCommunityPacks">Topluluk Paketleri</sys:String>
+    <sys:String x:Key="CommunityPack_NewNotification">Yeni topluluk paketleri mevcut.</sys:String>
 </ResourceDictionary>

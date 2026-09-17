@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Animation;
@@ -24,14 +25,15 @@ namespace AnikiHelper.Services.InGameOverlay
         private const string IconBack = "\uE72B";
         private const string IconHome = "\uE80F";
         private const string IconPower = "\uE7E8";
-        private const string IconGame = "\uE7FC";
-        private const string IconMedia = "\uE714";
+        private const string IconGame = "\uE768";
+        private const string IconMedia = "\uE91B";
         private const string IconAudio = "\uE995";
         private const string IconFriends = "\uE716";
-        private const string IconMusic = "\uE189";
-        private const string IconUniPlaySong = "\uE7F3";
-        private const string IconTrophy = "\uE7C1";
+        private const string IconMusic = "\uE8D6";
+        private const string IconTrophy = "\uE903";
         private const string IconKeyboard = "\uE765";
+        private const string IconApps = "\uECAA";
+        private const string IconLink = "\uEF71";
 
         private enum OverlaySection
         {
@@ -41,11 +43,36 @@ namespace AnikiHelper.Services.InGameOverlay
             Achievements
         }
 
+        private sealed class AchievementsSelectedGameContext
+        {
+            public Guid Id { get; set; }
+            public string DisplayName { get; set; }
+            public string BackgroundImage { get; set; }
+        }
+
+        private sealed class AchievementsThemeContext
+        {
+            public object SelectedGame { get; set; }
+        }
+
         private OverlaySection activeSection = OverlaySection.Game;
         private bool isSectionPanelOpen;
         private readonly List<Button> topBarButtons = new List<Button>();
 
         private StackPanel overlayButtonStack;
+        private Button resumeButton;
+        private TextBlock resumeButtonIconText;
+        private TextBlock resumeButtonLabelText;
+        private Border quickGameCard;
+        private Border quickGameCoverBorder;
+        private Image quickGameCoverImage;
+        private TextBlock quickGameTitleText;
+        private TextBlock quickGameMetaText;
+        private TextBlock quickGamePlaytimeText;
+        private TextBlock quickGameSessionText;
+        private Grid quickGameAchievementRow;
+        private TextBlock quickGameAchievementLabelText;
+        private TextBlock quickGameAchievementValueText;
         private Grid rootGrid;
         private Grid panel;
         private TranslateTransform panelTransform;
@@ -58,6 +85,10 @@ namespace AnikiHelper.Services.InGameOverlay
         private bool isUniPlaySongVisible;
         private ContentControl friendsHost;
         private bool isFriendsVisible;
+        private ContentControl friendsActionHost;
+        private bool isFriendsActionVisible;
+        private ContentControl friendsProfileHost;
+        private bool isFriendsProfileVisible;
         private ContentControl lastCapturesHost;
         private bool isLastCapturesVisible;
         private Grid capturePreviewLayer;
@@ -65,12 +96,31 @@ namespace AnikiHelper.Services.InGameOverlay
         private TextBlock capturePreviewTitleText;
         private TextBlock capturePreviewMetaText;
         private TextBlock capturePreviewIndexText;
+        private TextBlock capturePreviewFooterText;
+        private Window captureVideoPreviewWindow;
+        private MediaElement capturePreviewVideo;
+        private TextBlock capturePreviewVideoTitleText;
+        private TextBlock capturePreviewVideoMetaText;
+        private TextBlock capturePreviewVideoIndexText;
+        private bool capturePreviewVideoPaused;
+        private bool captureVideoWindowClosingInternally;
         private AnikiMediaItem capturePreviewItem;
         private bool isCapturePreviewVisible;
         private ContentControl appsHost;
         private bool isAppsVisible;
+        private ContentControl gameLinksHost;
+        private bool isGameLinksVisible;
+        private ButtonBase gameLinksCloseButton;
         private ContentControl achievementsHost;
         private bool isAchievementsVisible;
+        private ContentControl achievementOptionsHost;
+        private bool isAchievementOptionsVisible;
+        private ContentControl achievementActionsHost;
+        private bool isAchievementActionsVisible;
+        private ContentControl achievementCaptureHost;
+        private bool isAchievementCaptureVisible;
+        private string achievementReturnApiName = string.Empty;
+        private string achievementReturnName = string.Empty;
         private Border bottomDimLayer;
         private ContentControl bottomHintHost;
 
@@ -94,7 +144,6 @@ namespace AnikiHelper.Services.InGameOverlay
         private TextBlock achievementsProgressValueText;
         private TextBlock achievementsUnlockedPanelValueText;
         private TextBlock achievementsProgressPanelValueText;
-        private TextBlock footerTitleText;
         private TextBlock clockText;
         private Image userAvatarImage;
         private TextBlock userNameText;
@@ -112,8 +161,9 @@ namespace AnikiHelper.Services.InGameOverlay
         private Button mediaSectionButton;
         private Button audioSectionButton;
         private Button friendsButton;
-        private Button uniPlaySongButton;
         private Button musicButton;
+        private Button appsButton;
+        private Button gameLinksButton;
         private Button achievementsSectionButton;
         private Button keyboardButton;
         private AnikiVirtualKeyboardView virtualKeyboardView;
@@ -167,6 +217,7 @@ namespace AnikiHelper.Services.InGameOverlay
                    isLastCapturesVisible ||
                    isCapturePreviewVisible ||
                    isAppsVisible ||
+                   isGameLinksVisible ||
                    isAchievementsVisible ||
                    (virtualKeyboardView != null && virtualKeyboardView.IsOpen);
         }
@@ -230,6 +281,7 @@ namespace AnikiHelper.Services.InGameOverlay
         {
             RefreshUserInfo();
             RefreshHeader();
+            RefreshQuickGameCard();
             RefreshButtons();
             RefreshInfoValues();
 
@@ -600,40 +652,57 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
-            var orderedButtons = isRunning
-                ? new[]
-                {
-                    returnButton,
-                    keyboardButton,
-                    achievementsSectionButton,
-                    friendsButton,
-                    mediaSectionButton,
-                    musicButton,
-                    uniPlaySongButton,
-                    audioSectionButton,
-                    quitButton
-                }
-                : new[]
-                {
-                    musicButton,
-                    uniPlaySongButton,
-                    audioSectionButton,
-                    friendsButton,
-                    mediaSectionButton,
-                    returnButton,
-                    keyboardButton,
-                    achievementsSectionButton,
-                    quitButton
-                };
-
             overlayButtonStack.Children.Clear();
 
-            foreach (var button in orderedButtons)
+            Action addDivider = () =>
             {
-                if (button != null)
+                overlayButtonStack.Children.Add(new Border
+                {
+                    Height = 1,
+                    Margin = new Thickness(12, 8, 12, 14),
+                    Background = new SolidColorBrush(Color.FromArgb(36, 255, 255, 255)),
+                    IsHitTestVisible = false
+                });
+            };
+
+            Action<Button> addButton = button =>
+            {
+                if (button != null && button.Visibility == Visibility.Visible)
                 {
                     overlayButtonStack.Children.Add(button);
                 }
+            };
+
+            if (isRunning)
+            {
+                addButton(resumeButton);
+                addButton(returnButton);
+                addButton(keyboardButton);
+                addDivider();
+
+                addButton(achievementsSectionButton);
+                addButton(friendsButton);
+                addButton(mediaSectionButton);
+                addButton(gameLinksButton);
+                addDivider();
+
+                addButton(musicButton);
+                addButton(audioSectionButton);
+                addButton(appsButton);
+                addDivider();
+
+                addButton(quitButton);
+            }
+            else
+            {
+                addButton(musicButton);
+                addButton(audioSectionButton);
+                addButton(appsButton);
+                addDivider();
+
+                addButton(friendsButton);
+                addButton(mediaSectionButton);
+                addButton(keyboardButton);
             }
         }
 
@@ -653,10 +722,33 @@ namespace AnikiHelper.Services.InGameOverlay
             SetSectionButtonEnabled(mediaSectionButton, true);
             SetSectionButtonEnabled(audioSectionButton, service.IsAudioSwitcherInstalled);
             SetSectionButtonEnabled(friendsButton, true);
-            SetSectionButtonEnabled(uniPlaySongButton, service.IsUniPlaySongInstalled);
             SetSectionButtonEnabled(musicButton, true);
+            SetSectionButtonEnabled(appsButton, true);
+            SetSectionButtonEnabled(gameLinksButton, isRunning);
             SetSectionButtonEnabled(keyboardButton, true);
             SetSectionButtonEnabled(achievementsSectionButton, isRunning && service.IsPlayniteAchievementsInstalled);
+
+            var openedFromPlaynite = isRunning && service.OverlayOpenedFromPlaynite;
+
+            if (resumeButton != null)
+            {
+                resumeButton.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
+                resumeButton.IsEnabled = isRunning;
+                resumeButton.IsTabStop = isRunning;
+                resumeButton.Focusable = isRunning;
+            }
+
+            if (resumeButtonIconText != null)
+            {
+                resumeButtonIconText.Text = IconGame;
+            }
+
+            if (resumeButtonLabelText != null)
+            {
+                resumeButtonLabelText.Text = openedFromPlaynite
+                    ? Loc("LOCInGameOverlayReturnToGame", "Return to Game")
+                    : Loc("LOCInGameOverlayResumeGame", "Resume Game");
+            }
 
             if (quitButton != null)
             {
@@ -666,19 +758,22 @@ namespace AnikiHelper.Services.InGameOverlay
                 quitButton.Focusable = isRunning;
             }
 
+            // If the overlay was opened from Playnite, "Return to Playnite" would be
+            // redundant. Keep only the game action and name it "Return to Game".
+            var showReturnToPlaynite = isRunning && !openedFromPlaynite;
             if (returnButton != null)
             {
-                returnButton.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
-                returnButton.IsEnabled = isRunning;
-                returnButton.IsTabStop = isRunning;
-                returnButton.Focusable = isRunning;
+                returnButton.Visibility = showReturnToPlaynite ? Visibility.Visible : Visibility.Collapsed;
+                returnButton.IsEnabled = showReturnToPlaynite;
+                returnButton.IsTabStop = showReturnToPlaynite;
+                returnButton.Focusable = showReturnToPlaynite;
             }
 
             RefreshReturnButtonMode();
             RebuildOverlayButtonOrder(isRunning);
 
             firstButton = isRunning
-                ? returnButton
+                ? resumeButton
                 : musicButton;
 
             if (controllerFocusedButton == null ||
@@ -718,33 +813,14 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
-                if (!service.IsGameRunning)
+                if (returnButtonIconText != null)
                 {
-                    if (returnButtonIconText != null)
-                    {
-                        returnButtonIconText.Text = IconBack;
-                    }
-
-                    returnButtonLabelText.Text = Loc("LOCInGameOverlayClose", "Close");
+                    returnButtonIconText.Text = service.IsGameRunning ? IconHome : IconBack;
                 }
-                else if (service.OverlayOpenedFromPlaynite)
-                {
-                    if (returnButtonIconText != null)
-                    {
-                        returnButtonIconText.Text = IconGame;
-                    }
 
-                    returnButtonLabelText.Text = Loc("LOCInGameOverlayGame", "Game");
-                }
-                else
-                {
-                    if (returnButtonIconText != null)
-                    {
-                        returnButtonIconText.Text = IconHome;
-                    }
-
-                    returnButtonLabelText.Text = Loc("LOCInGameOverlayPlaynite", "Playnite");
-                }
+                returnButtonLabelText.Text = service.IsGameRunning
+                    ? Loc("LOCInGameOverlayReturnToPlaynite", "Return to Playnite")
+                    : Loc("LOCInGameOverlayClose", "Close");
             }
             catch
             {
@@ -922,6 +998,11 @@ namespace AnikiHelper.Services.InGameOverlay
                     {
                         sessionValueText.Text = service.CurrentGameSessionTimeValue;
                     }
+
+                    if (quickGameSessionText != null && service.IsGameRunning)
+                    {
+                        quickGameSessionText.Text = service.CurrentGameSessionTimeValue;
+                    }
                 }
                 catch
                 {
@@ -977,6 +1058,159 @@ namespace AnikiHelper.Services.InGameOverlay
             return fallback;
         }
 
+        private FrameworkElement CreateConnectedDevicesFooter()
+        {
+            // Keep this UI inside the Helper: the overlay must not require any Aniki ReMake
+            // XAML modification. The bindings are the same ones used by QuickAccessMenu.xaml.
+            const string xaml = @"
+<Grid xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+      xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+      xmlns:pm=""clr-namespace:Playnite.Extensions.Markup;assembly=Playnite""
+      HorizontalAlignment=""Left""
+      VerticalAlignment=""Center""
+      IsHitTestVisible=""False""
+      Focusable=""False"">
+
+
+    <StackPanel Orientation=""Horizontal""
+                VerticalAlignment=""Center""
+                HorizontalAlignment=""Left""
+                IsHitTestVisible=""False""
+                Focusable=""False"">
+        <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"" Margin=""0,0,15,0"">
+            <StackPanel.Style>
+                <Style TargetType=""StackPanel"">
+                    <Setter Property=""Visibility"" Value=""Collapsed""/>
+                    <Style.Triggers>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=HasConnectedControllers, FallbackValue=False}"" Value=""True"">
+                            <Setter Property=""Visibility"" Value=""Visible""/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <Viewbox Width=""22"" Height=""22"" Margin=""0,0,5,0"">
+                <Path Data=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=PrimaryControllerIconGeometry, Converter={pm:PluginConverter Plugin=ControllerSessionManager, Converter=IconGeometryConverter}}""
+                      Stretch=""Uniform"" Fill=""#FFFFFFFF"" Stroke=""#FFFFFFFF"" StrokeThickness=""0.45"" StrokeLineJoin=""Round""/>
+            </Viewbox>
+            <TextBlock Text=""1"" Foreground=""#FFFFFFFF"" FontSize=""13"" FontWeight=""Bold"" VerticalAlignment=""Center""/>
+            <TextBlock Text=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=PrimaryControllerBatteryLabel}""
+                       Foreground=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=PrimaryControllerBatteryBrush}""
+                       FontSize=""13"" FontWeight=""SemiBold"" Margin=""6,0,0,0"" VerticalAlignment=""Center"">
+                <TextBlock.Style>
+                    <Style TargetType=""TextBlock"">
+                        <Setter Property=""Visibility"" Value=""Collapsed""/>
+                        <Style.Triggers>
+                            <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=HasPrimaryControllerBattery, FallbackValue=False}"" Value=""True"">
+                                <Setter Property=""Visibility"" Value=""Visible""/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </StackPanel>
+
+        <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"" Margin=""0,0,15,0"">
+            <StackPanel.Style>
+                <Style TargetType=""StackPanel"">
+                    <Setter Property=""Visibility"" Value=""Collapsed""/>
+                    <Style.Triggers>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=ConnectedCount, FallbackValue=0}"" Value=""2""><Setter Property=""Visibility"" Value=""Visible""/></DataTrigger>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=ConnectedCount, FallbackValue=0}"" Value=""3""><Setter Property=""Visibility"" Value=""Visible""/></DataTrigger>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=ConnectedCount, FallbackValue=0}"" Value=""4""><Setter Property=""Visibility"" Value=""Visible""/></DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <Viewbox Width=""22"" Height=""22"" Margin=""0,0,5,0"">
+                <TextBlock Text=""&#xE7FC;"" FontFamily=""{DynamicResource FontIcons}"" FontSize=""24"" Foreground=""#FF4DA3FF"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            </Viewbox>
+            <TextBlock Text=""2"" Foreground=""#FF4DA3FF"" FontSize=""13"" FontWeight=""Bold"" VerticalAlignment=""Center""/>
+        </StackPanel>
+
+        <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"" Margin=""0,0,15,0"">
+            <StackPanel.Style>
+                <Style TargetType=""StackPanel"">
+                    <Setter Property=""Visibility"" Value=""Collapsed""/>
+                    <Style.Triggers>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=ConnectedCount, FallbackValue=0}"" Value=""3""><Setter Property=""Visibility"" Value=""Visible""/></DataTrigger>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=ConnectedCount, FallbackValue=0}"" Value=""4""><Setter Property=""Visibility"" Value=""Visible""/></DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <Viewbox Width=""22"" Height=""22"" Margin=""0,0,5,0"">
+                <TextBlock Text=""&#xE7FC;"" FontFamily=""{DynamicResource FontIcons}"" FontSize=""24"" Foreground=""#FFFF9A3D"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            </Viewbox>
+            <TextBlock Text=""3"" Foreground=""#FFFF9A3D"" FontSize=""13"" FontWeight=""Bold"" VerticalAlignment=""Center""/>
+        </StackPanel>
+
+        <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"" Margin=""0,0,15,0"">
+            <StackPanel.Style>
+                <Style TargetType=""StackPanel"">
+                    <Setter Property=""Visibility"" Value=""Collapsed""/>
+                    <Style.Triggers>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=ControllerSessionManager, Path=ConnectedCount, FallbackValue=0}"" Value=""4""><Setter Property=""Visibility"" Value=""Visible""/></DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <Viewbox Width=""22"" Height=""22"" Margin=""0,0,5,0"">
+                <TextBlock Text=""&#xE7FC;"" FontFamily=""{DynamicResource FontIcons}"" FontSize=""24"" Foreground=""#FF55C878"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+            </Viewbox>
+            <TextBlock Text=""4"" Foreground=""#FF55C878"" FontSize=""13"" FontWeight=""Bold"" VerticalAlignment=""Center""/>
+        </StackPanel>
+
+        <StackPanel Orientation=""Horizontal"" VerticalAlignment=""Center"">
+            <StackPanel.Style>
+                <Style TargetType=""StackPanel"">
+                    <Setter Property=""Visibility"" Value=""Collapsed""/>
+                    <Style.Triggers>
+                        <DataTrigger Binding=""{pm:PluginSettings Plugin=AudioSwitcher, Path=HasCurrentDeviceBattery, FallbackValue=False}"" Value=""True"">
+                            <Setter Property=""Visibility"" Value=""Visible""/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <Viewbox Width=""19"" Height=""19"" Margin=""0,0,5,0"">
+                <Path Data=""{pm:PluginSettings Plugin=AudioSwitcher, Path=BatteryIndicatorIconGeometry}""
+                      Stretch=""Uniform""
+                      Stroke=""{DynamicResource TextBrush}""
+                      StrokeThickness=""2""
+                      StrokeStartLineCap=""Round""
+                      StrokeEndLineCap=""Round""
+                      StrokeLineJoin=""Round""
+                      Fill=""Transparent""/>
+            </Viewbox>
+            <TextBlock Text=""{pm:PluginSettings Plugin=AudioSwitcher, Path=BatteryIndicatorLabel}""
+                       Foreground=""{DynamicResource TextBrush}""
+                       FontSize=""13""
+                       FontWeight=""SemiBold""
+                       VerticalAlignment=""Center""/>
+        </StackPanel>
+    </StackPanel>
+</Grid>";
+
+            try
+            {
+                var element = XamlReader.Parse(xaml) as FrameworkElement;
+                if (element != null)
+                {
+                    return element;
+                }
+            }
+            catch
+            {
+                // Keep the overlay usable if a future Playnite build changes its markup API.
+            }
+
+            // If the dynamic XAML cannot be created, keep this footer empty rather than
+            // showing an unrelated fallback label.
+            return new Grid
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+                Focusable = false
+            };
+        }
+
         private void BuildUi()
         {
             var root = new Grid
@@ -997,7 +1231,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
             darkLayer = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(176, 0, 0, 0)),
+                Background = new SolidColorBrush(Color.FromArgb(112, 0, 0, 0)),
                 IsHitTestVisible = false,
                 Opacity = 0
             };
@@ -1005,7 +1239,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
             bottomDimLayer = new Border
             {
-                Height = 430,
+                Height = 210,
                 VerticalAlignment = VerticalAlignment.Bottom,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 IsHitTestVisible = false,
@@ -1017,8 +1251,8 @@ namespace AnikiHelper.Services.InGameOverlay
                     GradientStops = new GradientStopCollection
                     {
                         new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.0),
-                        new GradientStop(Color.FromArgb(130, 0, 0, 0), 0.45),
-                        new GradientStop(Color.FromArgb(235, 0, 0, 0), 1.0)
+                        new GradientStop(Color.FromArgb(72, 0, 0, 0), 0.45),
+                        new GradientStop(Color.FromArgb(160, 0, 0, 0), 1.0)
                     }
                 }
             };
@@ -1058,7 +1292,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
             var leftPanel = new Grid
             {
-                Width = 470,
+                Width = 430,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
@@ -1067,7 +1301,7 @@ namespace AnikiHelper.Services.InGameOverlay
             var panelBackground = new Border
             {
                 BorderThickness = new Thickness(0, 0, 1, 0),
-                Background = new SolidColorBrush(Color.FromArgb(235, 14, 14, 24)),
+                Background = new SolidColorBrush(Color.FromArgb(246, 10, 14, 20)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(80, 255, 255, 255))
             };
             panelBackground.SetResourceReference(Border.BackgroundProperty, "OverlayMenu");
@@ -1098,11 +1332,14 @@ namespace AnikiHelper.Services.InGameOverlay
 
             var header = new Grid
             {
-                MinHeight = 96,
-                Margin = new Thickness(12, 10, 18, 10)
+                MinHeight = 258,
+                Margin = new Thickness(16, 14, 18, 14)
             };
             Grid.SetRow(header, 0);
             layout.Children.Add(header);
+
+            header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            header.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             var identityHost = new ContentControl
             {
@@ -1128,7 +1365,12 @@ namespace AnikiHelper.Services.InGameOverlay
                 identityHost.FontSize = 24;
                 identityHost.FontWeight = FontWeights.SemiBold;
             }
+            Grid.SetRow(identityHost, 0);
             header.Children.Add(identityHost);
+
+            quickGameCard = CreateQuickGameCard();
+            Grid.SetRow(quickGameCard, 1);
+            header.Children.Add(quickGameCard);
 
             gameLogoContainer = new Border { Visibility = Visibility.Collapsed };
             gameLogoImage = new Image();
@@ -1145,7 +1387,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
             var contentGrid = new Grid
             {
-                Margin = new Thickness(16, 16, 16, 12)
+                Margin = new Thickness(14, 14, 14, 10)
             };
             contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1161,14 +1403,16 @@ namespace AnikiHelper.Services.InGameOverlay
             Grid.SetRowSpan(overlayButtonStack, 3);
             contentGrid.Children.Add(overlayButtonStack);
 
-            returnButton = CreateButton(IconHome, Loc("LOCInGameOverlayPlaynite", "Playnite"), service.ReturnToPlaynite);
+            resumeButton = CreateButton(IconGame, Loc("LOCInGameOverlayResumeGame", "Resume Game"), service.ReturnToGame);
+            returnButton = CreateButton(IconHome, Loc("LOCInGameOverlayReturnToPlaynite", "Return to Playnite"), service.ReturnToPlaynite);
             keyboardButton = CreateButton(IconKeyboard, Loc("LOCInGameOverlayVirtualKeyboard", "Virtual Keyboard"), ShowVirtualKeyboard);
             mediaSectionButton = CreateButton(IconMedia, Loc("LOCInGameOverlayLastCaptures", "Last Captures"), service.OpenLastCapturesWindow);
             audioSectionButton = CreateButton(IconAudio, Loc("LOCInGameOverlayAudio", "Audio Switcher"), service.OpenAudioSwitcherWindow);
             friendsButton = CreateButton(IconFriends, Loc("LOCInGameOverlayFriends", "Friends"), service.OpenFriendsWindow);
-            uniPlaySongButton = CreateButton(IconUniPlaySong, Loc("LOCInGameOverlayUniPlaySong", "UniPlaySong"), service.OpenUniPlaySongWindow);
             musicButton = CreateButton(IconMusic, Loc("LOCInGameOverlayMusic", "Music Player"), service.OpenMusicPlayerWindow);
-            achievementsSectionButton = CreateButton(IconTrophy, Loc("LOCInGameOverlayAchievements", "Achievements"), service.OpenAchievementsWindow);
+            appsButton = CreateButton(IconApps, Loc("LOCInGameOverlayApps", "Apps"), service.OpenAppsWindow);
+            gameLinksButton = CreateButton(IconLink, Loc("GameLinks_ButtonTooltip", "Game Links"), service.OpenGameLinksWindow, "FontIcoFont");
+            achievementsSectionButton = CreateButton(IconTrophy, Loc("LOCInGameOverlayAchievements", "Achievements"), service.OpenAchievementsWindow, "FontIcomoon");
             quitButton = CreateButton(IconPower, Loc("LOCInGameOverlayQuitGame", "Quit Game"), service.RequestQuitGame);
 
             RebuildOverlayButtonOrder(service.IsGameRunning);
@@ -1190,58 +1434,7 @@ namespace AnikiHelper.Services.InGameOverlay
             Grid.SetRow(footer, 4);
             layout.Children.Add(footer);
 
-            var panelBackHint = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center,
-                Opacity = 0.86
-            };
-
-            var panelBackKey = new Border
-            {
-                Width = 30,
-                Height = 30,
-                CornerRadius = new CornerRadius(15),
-                Background = new SolidColorBrush(Color.FromArgb(210, 245, 241, 234)),
-                Margin = new Thickness(0, 0, 10, 0)
-            };
-            var panelBackKeyText = new TextBlock
-            {
-                Text = "B",
-                FontSize = 16,
-                FontWeight = FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = Brushes.Black
-            };
-            panelBackKey.Child = panelBackKeyText;
-            panelBackHint.Children.Add(panelBackKey);
-
-            var panelBackText = new TextBlock
-            {
-                Text = Loc("LOCBackLabel", "Back"),
-                FontSize = 18,
-                FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
-            };
-            panelBackText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
-            panelBackHint.Children.Add(panelBackText);
-            footer.Children.Add(panelBackHint);
-
-            footerTitleText = new TextBlock
-            {
-                Text = "Aniki Overlay",
-                FontSize = 12,
-                FontWeight = FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Center,
-                Opacity = 0.42,
-                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
-            };
-            footerTitleText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
-            footer.Children.Add(footerTitleText);
+            footer.Children.Add(CreateConnectedDevicesFooter());
 
             sectionContentPanel = new Border
             {
@@ -1249,7 +1442,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 Height = 236,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(504, 146, 0, 0),
+                Margin = new Thickness(458, 146, 0, 0),
                 CornerRadius = new CornerRadius(18),
                 Background = new SolidColorBrush(Color.FromArgb(226, 14, 14, 24)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(68, 255, 255, 255)),
@@ -1305,7 +1498,7 @@ namespace AnikiHelper.Services.InGameOverlay
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(504, 0, 34, 18),
+                Margin = new Thickness(458, 0, 34, 18),
                 Padding = new Thickness(18, 12, 20, 14),
                 Background = new LinearGradientBrush(
                     Color.FromArgb(176, 7, 9, 14),
@@ -1324,38 +1517,51 @@ namespace AnikiHelper.Services.InGameOverlay
             System.Windows.Controls.Panel.SetZIndex(quitConfirmationPanel, 100);
             root.Children.Add(quitConfirmationPanel);
 
+            var mainHintBar = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0.92,
+                IsHitTestVisible = false
+            };
+            mainHintBar.Children.Add(CreateControllerHint("A", Loc("LOCSelectLabel", "Select")));
+            mainHintBar.Children.Add(CreateControllerHint("B", Loc("LOCBackLabel", "Back")));
+
+            var mainHintShell = new Border
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 32, 0),
+                Padding = new Thickness(14, 8, 16, 8),
+                CornerRadius = new CornerRadius(20),
+                Background = new SolidColorBrush(Color.FromArgb(150, 5, 8, 12)),
+                IsHitTestVisible = false,
+                Child = mainHintBar
+            };
+
+            var bottomHintTemplate = FindThemeResource("AnikiControlCenterBottomHintTemplate") as DataTemplate;
+
             bottomHintHost = new ContentControl
             {
-                Content = service,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Bottom,
-                Height = 100,
+                Height = bottomHintTemplate != null ? 110 : 76,
                 IsHitTestVisible = false,
                 Focusable = false,
                 Opacity = 0,
                 Visibility = Visibility.Collapsed
             };
 
-            var bottomHintTemplate = FindThemeResource("AnikiControlCenterBottomHintTemplate") as DataTemplate;
             if (bottomHintTemplate != null)
             {
+                bottomHintHost.Content = service;
                 bottomHintHost.ContentTemplate = bottomHintTemplate;
             }
             else
             {
-                var fallbackHint = new TextBlock
-                {
-                    Text = Loc("LOCInGameOverlayBackHint", "B / Back to close"),
-                    FontSize = 16,
-                    FontWeight = FontWeights.SemiBold,
-                    Opacity = 0.7,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 20, 0),
-                    Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
-                };
-                fallbackHint.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
-                bottomHintHost.Content = fallbackHint;
+                // Compatibility fallback for themes that do not provide the Aniki footer template.
+                bottomHintHost.Content = mainHintShell;
             }
             System.Windows.Controls.Panel.SetZIndex(bottomHintHost, 12);
             root.Children.Add(bottomHintHost);
@@ -1366,6 +1572,368 @@ namespace AnikiHelper.Services.InGameOverlay
 
             RefreshSectionVisibility();
             Refresh();
+        }
+
+        private Border CreateQuickGameCard()
+        {
+            var card = new Border
+            {
+                Margin = new Thickness(0, 12, 0, 0),
+                Padding = new Thickness(12),
+                MinHeight = 154,
+                CornerRadius = new CornerRadius(10),
+                BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            card.SetResourceReference(Border.BorderBrushProperty, "MenuBorderBrush");
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            card.Child = grid;
+
+            var coverViewport = new Grid
+            {
+                Width = 142,
+                Height = 126,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            quickGameCoverBorder = new Border
+            {
+                Width = 84,
+                Height = 126,
+                CornerRadius = new CornerRadius(7),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                Background = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)),
+                ClipToBounds = true,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            quickGameCoverImage = new Image
+            {
+                Stretch = Stretch.UniformToFill,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            quickGameCoverBorder.Child = quickGameCoverImage;
+            coverViewport.Children.Add(quickGameCoverBorder);
+            Grid.SetColumn(coverViewport, 0);
+            grid.Children.Add(coverViewport);
+
+            var infoGrid = new Grid
+            {
+                Margin = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetColumn(infoGrid, 1);
+            grid.Children.Add(infoGrid);
+
+            quickGameTitleText = new TextBlock
+            {
+                Text = string.Empty,
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
+            };
+            quickGameTitleText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            Grid.SetRow(quickGameTitleText, 0);
+            infoGrid.Children.Add(quickGameTitleText);
+
+            quickGameMetaText = new TextBlock
+            {
+                Text = string.Empty,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Opacity = 0.70,
+                Margin = new Thickness(0, 5, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
+            };
+            quickGameMetaText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            Grid.SetRow(quickGameMetaText, 1);
+            infoGrid.Children.Add(quickGameMetaText);
+
+            var statsGrid = new Grid
+            {
+                Margin = new Thickness(0, 9, 0, 0)
+            };
+            statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var playtimeStack = new StackPanel { Orientation = Orientation.Vertical };
+            playtimeStack.Children.Add(CreateQuickGameStatLabel(Loc("LOCInGameOverlayPlaytime", "Playtime")));
+            quickGamePlaytimeText = CreateQuickGameStatValue();
+            playtimeStack.Children.Add(quickGamePlaytimeText);
+            Grid.SetColumn(playtimeStack, 0);
+            statsGrid.Children.Add(playtimeStack);
+
+            var sessionStack = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(10, 0, 0, 0)
+            };
+            sessionStack.Children.Add(CreateQuickGameStatLabel(Loc("LOCInGameOverlaySession", "Session")));
+            quickGameSessionText = CreateQuickGameStatValue();
+            sessionStack.Children.Add(quickGameSessionText);
+            Grid.SetColumn(sessionStack, 1);
+            statsGrid.Children.Add(sessionStack);
+
+            Grid.SetRow(statsGrid, 2);
+            infoGrid.Children.Add(statsGrid);
+
+            quickGameAchievementRow = new Grid
+            {
+                Margin = new Thickness(0, 10, 0, 0),
+                Visibility = Visibility.Collapsed
+            };
+            quickGameAchievementRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var achievementTextStack = new StackPanel
+            {
+                Orientation = Orientation.Vertical
+            };
+
+            quickGameAchievementLabelText = new TextBlock
+            {
+                Text = Loc("LOCInGameOverlayAchievementsLatest", "Latest achievement"),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Opacity = 0.58,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
+            };
+            quickGameAchievementLabelText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            achievementTextStack.Children.Add(quickGameAchievementLabelText);
+
+            quickGameAchievementValueText = new TextBlock
+            {
+                Text = string.Empty,
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 2, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
+            };
+            quickGameAchievementValueText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            achievementTextStack.Children.Add(quickGameAchievementValueText);
+
+            Grid.SetColumn(achievementTextStack, 0);
+            quickGameAchievementRow.Children.Add(achievementTextStack);
+            Grid.SetRow(quickGameAchievementRow, 3);
+            infoGrid.Children.Add(quickGameAchievementRow);
+
+            return card;
+        }
+
+        private TextBlock CreateQuickGameStatLabel(string text)
+        {
+            var label = new TextBlock
+            {
+                Text = text ?? string.Empty,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Opacity = 0.58,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            return label;
+        }
+
+        private TextBlock CreateQuickGameStatValue()
+        {
+            var value = new TextBlock
+            {
+                Text = string.Empty,
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 2, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
+            };
+            value.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            return value;
+        }
+
+        private void ApplyQuickGameCoverAspectRatio()
+        {
+            if (quickGameCoverBorder == null)
+            {
+                return;
+            }
+
+            const double maxWidth = 142.0;
+            const double maxHeight = 126.0;
+
+            var widthRatio = Math.Max(1, service.CoverArtWidthRatio);
+            var heightRatio = Math.Max(1, service.CoverArtHeightRatio);
+            var aspect = widthRatio / (double)heightRatio;
+
+            // Playnite allows custom ratios, not only its presets. Keep pathological custom
+            // values usable inside the overlay while preserving every normal Playnite preset.
+            aspect = Math.Max(0.45, Math.Min(2.50, aspect));
+
+            double width;
+            double height;
+            if (aspect >= (maxWidth / maxHeight))
+            {
+                width = maxWidth;
+                height = maxWidth / aspect;
+            }
+            else
+            {
+                height = maxHeight;
+                width = maxHeight * aspect;
+            }
+
+            quickGameCoverBorder.Width = Math.Max(1.0, width);
+            quickGameCoverBorder.Height = Math.Max(1.0, height);
+        }
+
+        private void RefreshQuickGameCard()
+        {
+            if (quickGameCard == null)
+            {
+                return;
+            }
+
+            if (!service.IsGameRunning)
+            {
+                quickGameCard.Visibility = Visibility.Collapsed;
+                if (quickGameCoverImage != null)
+                {
+                    quickGameCoverImage.Source = null;
+                }
+                return;
+            }
+
+            quickGameCard.Visibility = Visibility.Visible;
+            ApplyQuickGameCoverAspectRatio();
+
+            if (quickGameTitleText != null)
+            {
+                quickGameTitleText.Text = service.CurrentGameName;
+            }
+
+            if (quickGameMetaText != null)
+            {
+                var platform = service.CurrentGamePlatformName;
+                var source = service.CurrentGameSourceName;
+                var parts = new List<string>();
+
+                if (!string.IsNullOrWhiteSpace(platform) && platform != "-")
+                {
+                    parts.Add(platform);
+                }
+
+                if (!string.IsNullOrWhiteSpace(source) && source != "-")
+                {
+                    parts.Add(source);
+                }
+
+                quickGameMetaText.Text = parts.Count > 0 ? string.Join("  •  ", parts) : string.Empty;
+            }
+
+            if (quickGamePlaytimeText != null)
+            {
+                quickGamePlaytimeText.Text = service.CurrentGamePlaytimeValue;
+            }
+
+            if (quickGameSessionText != null)
+            {
+                quickGameSessionText.Text = service.CurrentGameSessionTimeValue;
+            }
+
+            if (quickGameAchievementRow != null && quickGameAchievementLabelText != null && quickGameAchievementValueText != null)
+            {
+                var unlocked = service.CurrentGameAchievementsUnlockedValue;
+                var progress = service.CurrentGameAchievementsProgressValue;
+
+                // The compact running-game card always shows global achievement progress.
+                // Latest-achievement details remain available in the dedicated Achievements section.
+                if (!string.IsNullOrWhiteSpace(unlocked) && unlocked != "-")
+                {
+                    quickGameAchievementLabelText.Text = Loc("LOCInGameOverlayAchievements", "Achievements");
+                    quickGameAchievementValueText.Text = !string.IsNullOrWhiteSpace(progress) && progress != "-"
+                        ? unlocked + "  •  " + progress
+                        : unlocked;
+                    quickGameAchievementRow.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    quickGameAchievementValueText.Text = string.Empty;
+                    quickGameAchievementRow.Visibility = Visibility.Collapsed;
+                }
+            }
+
+            if (quickGameCoverImage != null)
+            {
+                try
+                {
+                    var coverPath = service.CurrentGameCoverPath;
+                    quickGameCoverImage.Source = !string.IsNullOrWhiteSpace(coverPath) && File.Exists(coverPath)
+                        ? ImageMemoryCache.GetOrLoad(coverPath, 320)
+                        : null;
+                }
+                catch
+                {
+                    quickGameCoverImage.Source = null;
+                }
+            }
+        }
+
+        private StackPanel CreateControllerHint(string key, string label)
+        {
+            var hint = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(22, 0, 0, 0)
+            };
+
+            var keyBorder = new Border
+            {
+                Width = 30,
+                Height = 30,
+                CornerRadius = new CornerRadius(15),
+                Background = new SolidColorBrush(Color.FromArgb(230, 245, 241, 234)),
+                Margin = new Thickness(0, 0, 9, 0)
+            };
+            keyBorder.Child = new TextBlock
+            {
+                Text = key,
+                FontSize = 15,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Brushes.Black
+            };
+            hint.Children.Add(keyBorder);
+
+            var text = new TextBlock
+            {
+                Text = label,
+                FontSize = 16,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234))
+            };
+            text.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            hint.Children.Add(text);
+
+            return hint;
         }
 
         private Grid CreateGameSectionPanel()
@@ -1696,10 +2264,6 @@ namespace AnikiHelper.Services.InGameOverlay
                     {
                         service.HideOverlay();
                     }
-                    else if (service.OverlayOpenedFromPlaynite)
-                    {
-                        service.ReturnToGame();
-                    }
                     else
                     {
                         service.ReturnToPlaynite();
@@ -1816,10 +2380,6 @@ namespace AnikiHelper.Services.InGameOverlay
                     {
                         service.HideOverlay();
                     }
-                    else if (service.OverlayOpenedFromPlaynite)
-                    {
-                        service.ReturnToGame();
-                    }
                     else
                     {
                         service.ReturnToPlaynite();
@@ -1859,9 +2419,9 @@ namespace AnikiHelper.Services.InGameOverlay
                 sectionContentPanel.Visibility = showPanel ? Visibility.Visible : Visibility.Collapsed;
                 sectionContentPanel.HorizontalAlignment = HorizontalAlignment.Left;
                 sectionContentPanel.VerticalAlignment = VerticalAlignment.Top;
-                sectionContentPanel.Width = 920;
+                sectionContentPanel.Width = 900;
                 sectionContentPanel.Height = 260;
-                sectionContentPanel.Margin = new Thickness(504, 146, 0, 0);
+                sectionContentPanel.Margin = new Thickness(458, 146, 0, 0);
                 sectionContentPanel.CornerRadius = new CornerRadius(18);
                 sectionContentPanel.BorderThickness = new Thickness(1);
                 sectionContentPanel.Effect = new DropShadowEffect
@@ -1889,7 +2449,9 @@ namespace AnikiHelper.Services.InGameOverlay
 
             if (persistentGameInfoPanel != null)
             {
-                persistentGameInfoPanel.Visibility = service.IsGameRunning ? Visibility.Visible : Visibility.Collapsed;
+                // The old always-visible game card duplicated the compact game card in the sidebar.
+                // Keep the data model alive for the optional section panels, but do not render the persistent card.
+                persistentGameInfoPanel.Visibility = Visibility.Collapsed;
             }
 
             if (gameSectionPanel != null)
@@ -2103,18 +2665,18 @@ namespace AnikiHelper.Services.InGameOverlay
             parent.Children.Add(valueText);
         }
 
-        private Button CreateButton(string icon, string text, Action action)
+        private Button CreateButton(string icon, string text, Action action, string iconFontResource = "FontIcons")
         {
             var button = new Button
             {
-                Height = 58,
-                FontSize = 22,
+                Height = 50,
+                FontSize = 19,
                 FontWeight = FontWeights.SemiBold,
                 Focusable = true,
                 IsTabStop = true,
-                Margin = new Thickness(0, 0, 0, 12),
+                Margin = new Thickness(0, 0, 0, 6),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Padding = new Thickness(18, 0, 18, 0),
+                Padding = new Thickness(14, 0, 14, 0),
                 Cursor = Cursors.Hand,
                 Foreground = new SolidColorBrush(Color.FromRgb(245, 241, 234)),
                 Background = Brushes.Transparent,
@@ -2161,13 +2723,13 @@ namespace AnikiHelper.Services.InGameOverlay
 
             var contentGrid = new Grid();
 
-            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
             contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var iconText = new TextBlock
             {
                 Text = icon,
-                FontSize = 24,
+                FontSize = 21,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -2175,12 +2737,16 @@ namespace AnikiHelper.Services.InGameOverlay
             };
 
             iconText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
-            iconText.SetResourceReference(TextBlock.FontFamilyProperty, "FontIcons");
+            iconText.SetResourceReference(TextBlock.FontFamilyProperty, iconFontResource);
             iconText.FontWeight = FontWeights.Normal;
             Grid.SetColumn(iconText, 0);
             contentGrid.Children.Add(iconText);
 
-            if (action == service.ReturnToPlaynite)
+            if (action == service.ReturnToGame)
+            {
+                resumeButtonIconText = iconText;
+            }
+            else if (action == service.ReturnToPlaynite)
             {
                 returnButtonIconText = iconText;
             }
@@ -2188,7 +2754,7 @@ namespace AnikiHelper.Services.InGameOverlay
             var labelText = new TextBlock
             {
                 Text = text,
-                FontSize = 22,
+                FontSize = 19,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -2199,7 +2765,11 @@ namespace AnikiHelper.Services.InGameOverlay
             Grid.SetColumn(labelText, 1);
             contentGrid.Children.Add(labelText);
 
-            if (action == service.ReturnToPlaynite)
+            if (action == service.ReturnToGame)
+            {
+                resumeButtonLabelText = labelText;
+            }
+            else if (action == service.ReturnToPlaynite)
             {
                 returnButtonLabelText = labelText;
             }
@@ -2213,10 +2783,6 @@ namespace AnikiHelper.Services.InGameOverlay
                     if (!service.IsGameRunning)
                     {
                         service.HideOverlay();
-                    }
-                    else if (service.OverlayOpenedFromPlaynite)
-                    {
-                        service.ReturnToGame();
                     }
                     else
                     {
@@ -2362,7 +2928,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
             var border = new FrameworkElementFactory(typeof(Border));
             border.Name = "ButtonBorder";
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(12));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
             border.SetValue(Border.SnapsToDevicePixelsProperty, true);
 
             border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background")
@@ -2443,13 +3009,15 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private void UpdateAllButtonVisualStates()
         {
+            UpdateButtonVisualState(resumeButton);
             UpdateButtonVisualState(returnButton);
             UpdateButtonVisualState(gameSectionButton);
             UpdateButtonVisualState(mediaSectionButton);
             UpdateButtonVisualState(audioSectionButton);
             UpdateButtonVisualState(friendsButton);
-            UpdateButtonVisualState(uniPlaySongButton);
             UpdateButtonVisualState(musicButton);
+            UpdateButtonVisualState(appsButton);
+            UpdateButtonVisualState(gameLinksButton);
             UpdateButtonVisualState(keyboardButton);
             UpdateButtonVisualState(achievementsSectionButton);
             UpdateButtonVisualState(quitButton);
@@ -2538,6 +3106,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 isFriendsVisible = false;
                 isLastCapturesVisible = false;
                 isAppsVisible = false;
+                isGameLinksVisible = false;
                 isAchievementsVisible = false;
 
                 if (virtualKeyboardView != null)
@@ -2578,6 +3147,11 @@ namespace AnikiHelper.Services.InGameOverlay
                 if (appsHost != null)
                 {
                     appsHost.Visibility = Visibility.Collapsed;
+                }
+
+                if (gameLinksHost != null)
+                {
+                    gameLinksHost.Visibility = Visibility.Collapsed;
                 }
 
                 if (achievementsHost != null)
@@ -2647,6 +3221,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 isAudioSwitcherVisible = false;
                 isUniPlaySongVisible = false;
                 isAppsVisible = false;
+                isGameLinksVisible = false;
                 isAchievementsVisible = false;
 
                 if (virtualKeyboardView != null)
@@ -2675,6 +3250,11 @@ namespace AnikiHelper.Services.InGameOverlay
                 if (appsHost != null)
                 {
                     appsHost.Visibility = Visibility.Collapsed;
+                }
+
+                if (gameLinksHost != null)
+                {
+                    gameLinksHost.Visibility = Visibility.Collapsed;
                 }
 
                 if (achievementsHost != null)
@@ -2800,6 +3380,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 HideFriends(false);
                 HideLastCaptures(false);
                 HideApps(false);
+                HideGameLinks(false);
                 HideAchievements(false);
 
                 isMusicPlayerVisible = true;
@@ -2914,6 +3495,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 HideFriends(false);
                 HideLastCaptures(false);
                 HideApps(false);
+                HideGameLinks(false);
                 HideAchievements(false);
 
                 isAudioSwitcherVisible = true;
@@ -3028,6 +3610,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 HideFriends(false);
                 HideLastCaptures(false);
                 HideApps(false);
+                HideGameLinks(false);
                 HideAchievements(false);
 
                 isUniPlaySongVisible = true;
@@ -3115,7 +3698,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     SetControlCenterChromeVisible(true);
 
-                    controllerFocusedButton = uniPlaySongButton ?? firstButton;
+                    controllerFocusedButton = musicButton ?? firstButton;
                     useControllerFocusVisual = true;
                     FocusSelectedButtonWithoutTraversal();
                     UpdateAllButtonVisualStates();
@@ -3142,7 +3725,13 @@ namespace AnikiHelper.Services.InGameOverlay
                 HideUniPlaySong(false);
                 HideLastCaptures(false);
                 HideApps(false);
+                HideGameLinks(false);
                 HideAchievements(false);
+
+                service.ClearFriendProfileFromOverlay();
+                service.CloseFriendActionsFromOverlay();
+                HideFriendProfileLayer(false);
+                HideFriendActionsLayer(false);
 
                 isFriendsVisible = true;
                 SetControlCenterChromeVisible(false);
@@ -3188,6 +3777,8 @@ namespace AnikiHelper.Services.InGameOverlay
 
             try
             {
+                // Keep the compact Friends view designed specifically for the in-game overlay.
+                // Friend actions/profile are still hosted locally in the same overlay window.
                 var style = FindThemeResource("FriendsWindowStyle") as Style;
                 if (style != null)
                 {
@@ -3209,8 +3800,251 @@ namespace AnikiHelper.Services.InGameOverlay
             {
             }
 
+            // Friends is intentionally read-only inside the in-game overlay.
+            // Friend cards remain focusable for controller navigation/scrolling, but clicking them does nothing.
+
             Panel.SetZIndex(friendsHost, 200);
             rootGrid.Children.Add(friendsHost);
+        }
+
+        private void OnFriendsOverlayButtonClick(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (!isFriendsVisible || isFriendsActionVisible || isFriendsProfileVisible)
+                {
+                    return;
+                }
+
+                var button = e.OriginalSource as DependencyObject;
+                while (button != null && !(button is ButtonBase))
+                {
+                    button = VisualTreeHelper.GetParent(button);
+                }
+
+                var buttonBase = button as ButtonBase;
+                var steamId = buttonBase?.CommandParameter as string;
+                if (string.IsNullOrWhiteSpace(steamId))
+                {
+                    return;
+                }
+
+                if (ShowFriendActionsLayer(steamId))
+                {
+                    e.Handled = true;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void EnsureFriendActionsHost()
+        {
+            if (friendsActionHost != null || rootGrid == null)
+            {
+                return;
+            }
+
+            friendsActionHost = new ContentControl
+            {
+                Width = 1920,
+                Height = 1080,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Focusable = false,
+                Visibility = Visibility.Collapsed
+            };
+
+            try
+            {
+                // Prefer the lightweight overlay-specific action menu.
+                // It keeps the user inside the in-game overlay and only offers Steam chat + Back.
+                var style = FindThemeResource("FriendsActionOverlayStyle") as Style
+                    ?? FindThemeResource("FriendsActionStyle") as Style;
+                if (style != null)
+                {
+                    friendsActionHost.Style = style;
+                }
+            }
+            catch
+            {
+            }
+
+            // Mouse/touch activation follows the same local overlay flow as controller A.
+            friendsActionHost.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler(OnFriendActionsOverlayButtonClick), true);
+
+            Panel.SetZIndex(friendsActionHost, 260);
+            rootGrid.Children.Add(friendsActionHost);
+        }
+
+        private void OnFriendActionsOverlayButtonClick(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (!isFriendsVisible || !isFriendsActionVisible)
+                {
+                    return;
+                }
+
+                var source = e.OriginalSource as DependencyObject;
+                while (source != null && !(source is ButtonBase))
+                {
+                    source = VisualTreeHelper.GetParent(source);
+                }
+
+                var button = source as ButtonBase;
+                if (button == null)
+                {
+                    return;
+                }
+
+                var actionTag = button.Tag?.ToString();
+                if (string.Equals(actionTag, "ChatAction", StringComparison.OrdinalIgnoreCase))
+                {
+                    service.OpenSelectedFriendChatFromOverlay();
+                    HideFriendActionsLayer(true);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (string.Equals(actionTag, "CancelAction", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(actionTag, "B", StringComparison.OrdinalIgnoreCase))
+                {
+                    HideFriendActionsLayer(true);
+                    e.Handled = true;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void EnsureFriendProfileHost()
+        {
+            if (friendsProfileHost != null || rootGrid == null)
+            {
+                return;
+            }
+
+            friendsProfileHost = new ContentControl
+            {
+                Width = 1920,
+                Height = 1080,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Focusable = false,
+                Visibility = Visibility.Collapsed
+            };
+
+            try
+            {
+                var style = FindThemeResource("FriendsStyleProfil") as Style;
+                if (style != null)
+                {
+                    friendsProfileHost.Style = style;
+                }
+            }
+            catch
+            {
+            }
+
+            Panel.SetZIndex(friendsProfileHost, 270);
+            rootGrid.Children.Add(friendsProfileHost);
+        }
+
+        private bool ShowFriendActionsLayer(string steamId)
+        {
+            if (!service.OpenFriendActionsFromOverlay(steamId))
+            {
+                return false;
+            }
+
+            EnsureFriendActionsHost();
+            if (friendsActionHost == null)
+            {
+                return false;
+            }
+
+            HideFriendProfileLayer(false);
+            isFriendsActionVisible = true;
+            controllerFocusedFriendsElement = null;
+            friendsActionHost.Visibility = Visibility.Visible;
+            friendsActionHost.Opacity = 1;
+
+            Dispatcher.BeginInvoke(new Action(FocusFirstFriendsElement), DispatcherPriority.Loaded);
+            return true;
+        }
+
+        private void HideFriendActionsLayer(bool restoreFriendsFocus = true)
+        {
+            isFriendsActionVisible = false;
+            controllerFocusedFriendsElement = null;
+
+            if (friendsActionHost != null)
+            {
+                friendsActionHost.Visibility = Visibility.Collapsed;
+            }
+
+            service.CloseFriendActionsFromOverlay();
+
+            if (restoreFriendsFocus && isFriendsVisible)
+            {
+                Dispatcher.BeginInvoke(new Action(FocusFirstFriendsElement), DispatcherPriority.Loaded);
+            }
+        }
+
+        private bool ShowFriendProfileLayer()
+        {
+            if (!service.OpenSelectedFriendProfileFromOverlay())
+            {
+                return false;
+            }
+
+            EnsureFriendProfileHost();
+            if (friendsProfileHost == null)
+            {
+                return false;
+            }
+
+            isFriendsActionVisible = false;
+            if (friendsActionHost != null)
+            {
+                friendsActionHost.Visibility = Visibility.Collapsed;
+            }
+
+            isFriendsProfileVisible = true;
+            controllerFocusedFriendsElement = null;
+            friendsProfileHost.Visibility = Visibility.Visible;
+            friendsProfileHost.Opacity = 1;
+
+            Dispatcher.BeginInvoke(new Action(FocusFirstFriendsElement), DispatcherPriority.Loaded);
+            return true;
+        }
+
+        private void HideFriendProfileLayer(bool returnToActions = true)
+        {
+            isFriendsProfileVisible = false;
+            controllerFocusedFriendsElement = null;
+
+            if (friendsProfileHost != null)
+            {
+                friendsProfileHost.Visibility = Visibility.Collapsed;
+            }
+
+            service.ClearFriendProfileFromOverlay();
+
+            if (returnToActions && isFriendsVisible)
+            {
+                EnsureFriendActionsHost();
+                if (friendsActionHost != null)
+                {
+                    isFriendsActionVisible = true;
+                    friendsActionHost.Visibility = Visibility.Visible;
+                    friendsActionHost.Opacity = 1;
+                    Dispatcher.BeginInvoke(new Action(FocusFirstFriendsElement), DispatcherPriority.Loaded);
+                }
+            }
         }
 
         private void HideFriends(bool restoreControlCenterChrome = true)
@@ -3219,6 +4053,9 @@ namespace AnikiHelper.Services.InGameOverlay
             {
                 isFriendsVisible = false;
                 controllerFocusedFriendsElement = null;
+
+                HideFriendProfileLayer(false);
+                HideFriendActionsLayer(false);
 
                 if (friendsHost != null)
                 {
@@ -3256,6 +4093,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 HideUniPlaySong(false);
                 HideFriends(false);
                 HideApps(false);
+                HideGameLinks(false);
                 HideAchievements(false);
                 HideCapturePreview(false);
 
@@ -3375,18 +4213,50 @@ namespace AnikiHelper.Services.InGameOverlay
                     return false;
                 }
 
+                capturePreviewItem = mediaItem;
+
+                if (mediaItem.IsVideo)
+                {
+                    var videoPath = service.GetCapturePreviewVideoPath(mediaItem);
+                    if (!string.IsNullOrWhiteSpace(videoPath) && ShowCaptureVideoPreview(mediaItem, videoPath))
+                    {
+                        return true;
+                    }
+                }
+
                 var imagePath = service.GetCapturePreviewImagePath(mediaItem);
                 if (string.IsNullOrWhiteSpace(imagePath))
                 {
+                    capturePreviewItem = null;
                     return false;
                 }
 
+                if (!ShowCapturePreviewImage(mediaItem, imagePath, mediaItem.IsVideo))
+                {
+                    capturePreviewItem = null;
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                capturePreviewItem = null;
+                return false;
+            }
+        }
+
+        private bool ShowCapturePreviewImage(AnikiMediaItem mediaItem, string imagePath, bool isVideoFallback)
+        {
+            try
+            {
                 var bitmap = LoadCapturePreviewBitmap(imagePath);
                 if (bitmap == null)
                 {
                     return false;
                 }
 
+                CloseCaptureVideoPreviewWindow();
                 EnsureCapturePreviewLayer();
                 if (capturePreviewLayer == null || capturePreviewImage == null)
                 {
@@ -3395,38 +4265,17 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 capturePreviewItem = mediaItem;
                 capturePreviewImage.Source = bitmap;
+                capturePreviewImage.Visibility = Visibility.Visible;
 
-                if (capturePreviewTitleText != null)
+                UpdateCapturePreviewHeader(
+                    capturePreviewTitleText,
+                    capturePreviewMetaText,
+                    mediaItem,
+                    isVideoFallback);
+
+                if (capturePreviewFooterText != null)
                 {
-                    var title = !string.IsNullOrWhiteSpace(mediaItem.GameName)
-                        ? mediaItem.GameName
-                        : mediaItem.FileName;
-
-                    capturePreviewTitleText.Text = string.IsNullOrWhiteSpace(title)
-                        ? Loc("LOCImage", "Screenshot")
-                        : title;
-                }
-
-                if (capturePreviewMetaText != null)
-                {
-                    var metaParts = new List<string>();
-
-                    if (!string.IsNullOrWhiteSpace(mediaItem.CaptureDateString))
-                    {
-                        metaParts.Add(mediaItem.CaptureDateString);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(mediaItem.SourceProvider))
-                    {
-                        metaParts.Add(mediaItem.SourceProvider);
-                    }
-
-                    if (mediaItem.IsVideo)
-                    {
-                        metaParts.Add(Loc("Video", "Video thumbnail"));
-                    }
-
-                    capturePreviewMetaText.Text = string.Join("  •  ", metaParts);
+                    capturePreviewFooterText.Text = "← / →     B  " + Loc("LOCBackLabel", "Back");
                 }
 
                 UpdateCapturePreviewIndex();
@@ -3444,6 +4293,76 @@ namespace AnikiHelper.Services.InGameOverlay
                 Focus();
                 capturePreviewLayer.Focus();
                 Keyboard.Focus(capturePreviewLayer);
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool ShowCaptureVideoPreview(AnikiMediaItem mediaItem, string videoPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
+                {
+                    return false;
+                }
+
+                EnsureCaptureVideoPreviewWindow();
+                if (captureVideoPreviewWindow == null || capturePreviewVideo == null)
+                {
+                    return false;
+                }
+
+                if (capturePreviewLayer != null)
+                {
+                    capturePreviewLayer.Visibility = Visibility.Collapsed;
+                }
+
+                if (capturePreviewImage != null)
+                {
+                    capturePreviewImage.Source = null;
+                }
+
+                capturePreviewItem = mediaItem;
+                capturePreviewVideoPaused = false;
+
+                UpdateCapturePreviewHeader(
+                    capturePreviewVideoTitleText,
+                    capturePreviewVideoMetaText,
+                    mediaItem,
+                    false);
+                UpdateCapturePreviewIndex();
+
+                try
+                {
+                    capturePreviewVideo.Stop();
+                }
+                catch
+                {
+                }
+
+                capturePreviewVideo.Volume = service.GetCapturePreviewVideoVolume();
+                capturePreviewVideo.Source = new Uri(Path.GetFullPath(videoPath), UriKind.Absolute);
+
+                isCapturePreviewVisible = true;
+
+                if (lastCapturesHost != null)
+                {
+                    lastCapturesHost.IsHitTestVisible = false;
+                }
+
+                if (!captureVideoPreviewWindow.IsVisible)
+                {
+                    captureVideoPreviewWindow.Show();
+                }
+
+                captureVideoPreviewWindow.Activate();
+                captureVideoPreviewWindow.Focus();
+                capturePreviewVideo.Play();
 
                 return true;
             }
@@ -3495,6 +4414,157 @@ namespace AnikiHelper.Services.InGameOverlay
             imageFrame.Child = capturePreviewImage;
             previewRoot.Children.Add(imageFrame);
 
+            var topBar = CreateCapturePreviewTopBar(
+                out capturePreviewTitleText,
+                out capturePreviewMetaText,
+                out capturePreviewIndexText);
+            previewRoot.Children.Add(topBar);
+
+            var footerBorder = new Border
+            {
+                Padding = new Thickness(18, 9, 18, 9),
+                Margin = new Thickness(0, 0, 0, 24),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                CornerRadius = new CornerRadius(14),
+                Background = new SolidColorBrush(Color.FromArgb(185, 18, 18, 18)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                IsHitTestVisible = false
+            };
+
+            capturePreviewFooterText = new TextBlock
+            {
+                Text = "← / →     B  " + Loc("LOCBackLabel", "Back"),
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 16,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White
+            };
+
+            footerBorder.Child = capturePreviewFooterText;
+            previewRoot.Children.Add(footerBorder);
+
+            previewRoot.MouseLeftButtonUp += (sender, args) =>
+            {
+                args.Handled = true;
+                HideCapturePreview();
+            };
+
+            Panel.SetZIndex(previewRoot, 1000);
+            rootGrid.Children.Add(previewRoot);
+        }
+
+        private void EnsureCaptureVideoPreviewWindow()
+        {
+            if (captureVideoPreviewWindow != null)
+            {
+                return;
+            }
+
+            var videoWindow = new Window
+            {
+                Owner = this,
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize,
+                WindowState = WindowState.Maximized,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Background = Brushes.Black,
+                AllowsTransparency = false,
+                Topmost = true,
+                ShowActivated = true,
+                ShowInTaskbar = false
+            };
+
+            var previewRoot = new Grid
+            {
+                Background = Brushes.Black,
+                Focusable = true
+            };
+
+            var videoFrame = new Border
+            {
+                Margin = new Thickness(58, 80, 58, 112),
+                Padding = new Thickness(12),
+                CornerRadius = new CornerRadius(16),
+                Background = Brushes.Black,
+                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
+                BorderThickness = new Thickness(1)
+            };
+
+            capturePreviewVideo = new MediaElement
+            {
+                LoadedBehavior = MediaState.Manual,
+                UnloadedBehavior = MediaState.Manual,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                ScrubbingEnabled = true,
+                Volume = service.GetCapturePreviewVideoVolume()
+            };
+
+            capturePreviewVideo.MediaOpened += CapturePreviewVideo_MediaOpened;
+            capturePreviewVideo.MediaEnded += CapturePreviewVideo_MediaEnded;
+            capturePreviewVideo.MediaFailed += CapturePreviewVideo_MediaFailed;
+
+            videoFrame.Child = capturePreviewVideo;
+            previewRoot.Children.Add(videoFrame);
+
+            var topBar = CreateCapturePreviewTopBar(
+                out capturePreviewVideoTitleText,
+                out capturePreviewVideoMetaText,
+                out capturePreviewVideoIndexText);
+            previewRoot.Children.Add(topBar);
+
+            var footerBorder = new Border
+            {
+                Padding = new Thickness(18, 9, 18, 9),
+                Margin = new Thickness(0, 0, 0, 24),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                CornerRadius = new CornerRadius(14),
+                Background = new SolidColorBrush(Color.FromArgb(185, 18, 18, 18)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                IsHitTestVisible = false
+            };
+
+            footerBorder.Child = new TextBlock
+            {
+                Text = "← / →     A  " + Loc("VideoPlayer_PlayPause", "Play / Pause") +
+                       "     B  " + Loc("LOCBackLabel", "Back"),
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 16,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White
+            };
+
+            previewRoot.Children.Add(footerBorder);
+
+            previewRoot.MouseLeftButtonUp += (sender, args) =>
+            {
+                args.Handled = true;
+                HideCapturePreview();
+            };
+
+            videoWindow.PreviewKeyDown += (sender, args) =>
+            {
+                if (HandleCapturePreviewKeyDown(args))
+                {
+                    args.Handled = true;
+                }
+            };
+
+            videoWindow.Closed += CaptureVideoPreviewWindow_Closed;
+            videoWindow.Content = previewRoot;
+            captureVideoPreviewWindow = videoWindow;
+        }
+
+        private Grid CreateCapturePreviewTopBar(
+            out TextBlock titleText,
+            out TextBlock metaText,
+            out TextBlock indexText)
+        {
             var topBar = new Grid
             {
                 Height = 64,
@@ -3513,7 +4583,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            capturePreviewTitleText = new TextBlock
+            titleText = new TextBlock
             {
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 25,
@@ -3523,7 +4593,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 MaxWidth = 1420
             };
 
-            capturePreviewMetaText = new TextBlock
+            metaText = new TextBlock
             {
                 Margin = new Thickness(0, 3, 0, 0),
                 FontFamily = new FontFamily("Segoe UI"),
@@ -3533,12 +4603,12 @@ namespace AnikiHelper.Services.InGameOverlay
                 MaxWidth = 1420
             };
 
-            titleStack.Children.Add(capturePreviewTitleText);
-            titleStack.Children.Add(capturePreviewMetaText);
+            titleStack.Children.Add(titleText);
+            titleStack.Children.Add(metaText);
             Grid.SetColumn(titleStack, 0);
             topBar.Children.Add(titleStack);
 
-            capturePreviewIndexText = new TextBlock
+            indexText = new TextBlock
             {
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 20,
@@ -3548,42 +4618,56 @@ namespace AnikiHelper.Services.InGameOverlay
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            Grid.SetColumn(capturePreviewIndexText, 1);
-            topBar.Children.Add(capturePreviewIndexText);
-            previewRoot.Children.Add(topBar);
+            Grid.SetColumn(indexText, 1);
+            topBar.Children.Add(indexText);
+            return topBar;
+        }
 
-            var footerBorder = new Border
+        private void UpdateCapturePreviewHeader(
+            TextBlock titleText,
+            TextBlock metaText,
+            AnikiMediaItem mediaItem,
+            bool isVideoFallback)
+        {
+            if (mediaItem == null)
             {
-                Padding = new Thickness(18, 9, 18, 9),
-                Margin = new Thickness(0, 0, 0, 24),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                CornerRadius = new CornerRadius(14),
-                Background = new SolidColorBrush(Color.FromArgb(185, 18, 18, 18)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)),
-                BorderThickness = new Thickness(1),
-                IsHitTestVisible = false
-            };
+                return;
+            }
 
-            footerBorder.Child = new TextBlock
+            if (titleText != null)
             {
-                Text = "← / →     B  " + Loc("LOCBackLabel", "Back"),
-                FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 16,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = Brushes.White
-            };
+                var title = !string.IsNullOrWhiteSpace(mediaItem.GameName)
+                    ? mediaItem.GameName
+                    : mediaItem.FileName;
 
-            previewRoot.Children.Add(footerBorder);
+                titleText.Text = string.IsNullOrWhiteSpace(title)
+                    ? Loc("LOCImage", "Screenshot")
+                    : title;
+            }
 
-            previewRoot.MouseLeftButtonUp += (sender, args) =>
+            if (metaText != null)
             {
-                args.Handled = true;
-                HideCapturePreview();
-            };
+                var metaParts = new List<string>();
 
-            Panel.SetZIndex(previewRoot, 1000);
-            rootGrid.Children.Add(previewRoot);
+                if (!string.IsNullOrWhiteSpace(mediaItem.CaptureDateString))
+                {
+                    metaParts.Add(mediaItem.CaptureDateString);
+                }
+
+                if (!string.IsNullOrWhiteSpace(mediaItem.SourceProvider))
+                {
+                    metaParts.Add(mediaItem.SourceProvider);
+                }
+
+                if (mediaItem.IsVideo)
+                {
+                    metaParts.Add(isVideoFallback
+                        ? Loc("Video", "Video thumbnail")
+                        : Loc("Video", "Video"));
+                }
+
+                metaText.Text = string.Join("  •  ", metaParts);
+            }
         }
 
         private BitmapSource LoadCapturePreviewBitmap(string imagePath)
@@ -3612,22 +4696,27 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private void UpdateCapturePreviewIndex()
         {
-            if (capturePreviewIndexText == null)
-            {
-                return;
-            }
-
             var items = service.GetOverlayLastCapturePreviewItems();
-            if (items == null || items.Count == 0 || capturePreviewItem == null)
+            var indexText = string.Empty;
+
+            if (items != null && items.Count > 0 && capturePreviewItem != null)
             {
-                capturePreviewIndexText.Text = string.Empty;
-                return;
+                var index = items.FindIndex(item => IsSameCapturePreviewItem(item, capturePreviewItem));
+                if (index >= 0)
+                {
+                    indexText = (index + 1) + " / " + items.Count;
+                }
             }
 
-            var index = items.FindIndex(item => IsSameCapturePreviewItem(item, capturePreviewItem));
-            capturePreviewIndexText.Text = index >= 0
-                ? (index + 1) + " / " + items.Count
-                : string.Empty;
+            if (capturePreviewIndexText != null)
+            {
+                capturePreviewIndexText.Text = indexText;
+            }
+
+            if (capturePreviewVideoIndexText != null)
+            {
+                capturePreviewVideoIndexText.Text = indexText;
+            }
         }
 
         private static bool IsSameCapturePreviewItem(AnikiMediaItem left, AnikiMediaItem right)
@@ -3673,6 +4762,152 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
+        private void CapturePreviewVideo_MediaOpened(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (!isCapturePreviewVisible || capturePreviewItem?.IsVideo != true || capturePreviewVideo == null)
+                {
+                    return;
+                }
+
+                capturePreviewVideo.Volume = service.GetCapturePreviewVideoVolume();
+                if (!capturePreviewVideoPaused)
+                {
+                    capturePreviewVideo.Play();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void CapturePreviewVideo_MediaEnded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (!isCapturePreviewVisible || capturePreviewVideo == null || capturePreviewVideoPaused)
+                {
+                    return;
+                }
+
+                capturePreviewVideo.Position = TimeSpan.Zero;
+                capturePreviewVideo.Play();
+            }
+            catch
+            {
+            }
+        }
+
+        private void CapturePreviewVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)
+        {
+            try
+            {
+                var item = capturePreviewItem;
+                CloseCaptureVideoPreviewWindow();
+
+                if (!isCapturePreviewVisible || item == null)
+                {
+                    return;
+                }
+
+                var thumbnailPath = service.GetCapturePreviewImagePath(item);
+                if (!string.IsNullOrWhiteSpace(thumbnailPath) &&
+                    ShowCapturePreviewImage(item, thumbnailPath, true))
+                {
+                    return;
+                }
+
+                HideCapturePreview();
+            }
+            catch
+            {
+                HideCapturePreview();
+            }
+        }
+
+        private void ToggleCapturePreviewVideoPlayback()
+        {
+            try
+            {
+                if (capturePreviewItem?.IsVideo != true ||
+                    capturePreviewVideo == null ||
+                    captureVideoPreviewWindow?.IsVisible != true)
+                {
+                    return;
+                }
+
+                if (capturePreviewVideoPaused)
+                {
+                    capturePreviewVideoPaused = false;
+                    capturePreviewVideo.Play();
+                }
+                else
+                {
+                    capturePreviewVideoPaused = true;
+                    capturePreviewVideo.Pause();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void CloseCaptureVideoPreviewWindow()
+        {
+            var window = captureVideoPreviewWindow;
+            var video = capturePreviewVideo;
+
+            if (video != null)
+            {
+                try { video.Stop(); } catch { }
+                try { video.Source = null; } catch { }
+            }
+
+            if (window != null)
+            {
+                try
+                {
+                    captureVideoWindowClosingInternally = true;
+                    window.Close();
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    captureVideoWindowClosingInternally = false;
+                }
+            }
+
+            captureVideoPreviewWindow = null;
+            capturePreviewVideo = null;
+            capturePreviewVideoTitleText = null;
+            capturePreviewVideoMetaText = null;
+            capturePreviewVideoIndexText = null;
+            capturePreviewVideoPaused = false;
+        }
+
+        private void CaptureVideoPreviewWindow_Closed(object sender, EventArgs e)
+        {
+            if (captureVideoWindowClosingInternally)
+            {
+                return;
+            }
+
+            captureVideoPreviewWindow = null;
+            capturePreviewVideo = null;
+            capturePreviewVideoTitleText = null;
+            capturePreviewVideoMetaText = null;
+            capturePreviewVideoIndexText = null;
+            capturePreviewVideoPaused = false;
+
+            if (isCapturePreviewVisible)
+            {
+                HideCapturePreview();
+            }
+        }
+
         private void HideCapturePreview(bool restoreLastCapturesFocus = true)
         {
             try
@@ -3684,6 +4919,8 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 isCapturePreviewVisible = false;
                 capturePreviewItem = null;
+
+                CloseCaptureVideoPreviewWindow();
 
                 if (capturePreviewImage != null)
                 {
@@ -3767,6 +5004,10 @@ namespace AnikiHelper.Services.InGameOverlay
                     return true;
 
                 case ControllerInput.A:
+                    if (capturePreviewItem?.IsVideo == true)
+                    {
+                        ToggleCapturePreviewVideoPlayback();
+                    }
                     return true;
             }
 
@@ -3804,6 +5045,10 @@ namespace AnikiHelper.Services.InGameOverlay
             if (e.Key == Key.Enter || e.Key == Key.Space)
             {
                 e.Handled = true;
+                if (capturePreviewItem?.IsVideo == true)
+                {
+                    ToggleCapturePreviewVideoPlayback();
+                }
                 return true;
             }
 
@@ -3821,12 +5066,34 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
+                // GameAchievementsWindow normally inherits Playnite's main-view context
+                // and binds its header/background/logo through SelectedGame. Because the
+                // same theme style is hosted inside our overlay, provide only that missing
+                // root context here. PluginSettings bindings remain independent.
+                var runningGame = service.CurrentGameForThemeBindings;
+                achievementsHost.DataContext = new AchievementsThemeContext
+                {
+                    SelectedGame = runningGame == null
+                        ? null
+                        : new AchievementsSelectedGameContext
+                        {
+                            Id = runningGame.Id,
+                            DisplayName = service.CurrentGameName,
+                            BackgroundImage = runningGame.BackgroundImage
+                        }
+                };
+
                 HideMusicPlayer(false);
                 HideAudioSwitcher(false);
                 HideUniPlaySong(false);
                 HideFriends(false);
                 HideLastCaptures(false);
                 HideApps(false);
+                HideGameLinks(false);
+
+                HideAchievementCaptureLayer(false);
+                HideAchievementActionsLayer(false);
+                HideAchievementOptionsLayer(false);
 
                 isAchievementsVisible = true;
                 SetControlCenterChromeVisible(false);
@@ -3846,7 +5113,7 @@ namespace AnikiHelper.Services.InGameOverlay
                     catch
                     {
                     }
-                }), DispatcherPriority.Loaded);
+                }), DispatcherPriority.ContextIdle);
             }
             catch
             {
@@ -3872,7 +5139,9 @@ namespace AnikiHelper.Services.InGameOverlay
 
             try
             {
-                var style = FindThemeResource("AchievementsWindowStyle") as Style;
+                // Reuse the real game-achievements page from GameDetails.xaml. This keeps
+                // its layout, filters, pin visuals and future theme changes in one place.
+                var style = FindThemeResource("GameAchievementsWindow") as Style;
                 if (style != null)
                 {
                     achievementsHost.Style = style;
@@ -3881,7 +5150,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     achievementsHost.Content = new TextBlock
                     {
-                        Text = "AchievementsWindowStyle not found",
+                        Text = "GameAchievementsWindow not found",
                         FontSize = 30,
                         Foreground = Brushes.White,
                         HorizontalAlignment = HorizontalAlignment.Center,
@@ -3893,8 +5162,268 @@ namespace AnikiHelper.Services.InGameOverlay
             {
             }
 
+            achievementsHost.IsKeyboardFocusWithinChanged += (s, e) =>
+            {
+                if (!achievementsHost.IsKeyboardFocusWithin)
+                {
+                    ScheduleAchievementFocusRestore();
+                }
+            };
+
             Panel.SetZIndex(achievementsHost, 200);
             rootGrid.Children.Add(achievementsHost);
+        }
+
+        private void EnsureAchievementOptionsHost()
+        {
+            if (achievementOptionsHost != null || rootGrid == null)
+            {
+                return;
+            }
+
+            achievementOptionsHost = new ContentControl
+            {
+                Width = 1920,
+                Height = 1080,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Focusable = false,
+                Visibility = Visibility.Collapsed
+            };
+
+            try
+            {
+                var style = FindThemeResource("AchievementsDetailsOptionsWindow") as Style;
+                if (style != null)
+                {
+                    achievementOptionsHost.Style = style;
+                }
+            }
+            catch
+            {
+            }
+
+            Panel.SetZIndex(achievementOptionsHost, 250);
+            rootGrid.Children.Add(achievementOptionsHost);
+        }
+
+        private bool ShowAchievementOptionsLayer()
+        {
+            EnsureAchievementOptionsHost();
+            if (achievementOptionsHost == null)
+            {
+                return false;
+            }
+
+            HideAchievementCaptureLayer(false);
+            HideAchievementActionsLayer(false);
+
+            isAchievementOptionsVisible = true;
+            controllerFocusedAchievementsElement = null;
+            achievementOptionsHost.Visibility = Visibility.Visible;
+            achievementOptionsHost.Opacity = 1;
+
+            Dispatcher.BeginInvoke(new Action(FocusFirstAchievementOptionsElement), DispatcherPriority.ContextIdle);
+            return true;
+        }
+
+        private void HideAchievementOptionsLayer(bool restoreSettingsFocus = true)
+        {
+            isAchievementOptionsVisible = false;
+            controllerFocusedAchievementsElement = null;
+
+            if (achievementOptionsHost != null)
+            {
+                achievementOptionsHost.Visibility = Visibility.Collapsed;
+            }
+
+            if (restoreSettingsFocus && isAchievementsVisible)
+            {
+                Dispatcher.BeginInvoke(new Action(FocusAchievementSettingsElement), DispatcherPriority.Loaded);
+            }
+        }
+
+        private void EnsureAchievementActionsHost()
+        {
+            if (achievementActionsHost != null || rootGrid == null)
+            {
+                return;
+            }
+
+            achievementActionsHost = new ContentControl
+            {
+                Width = 1920,
+                Height = 1080,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Focusable = false,
+                Visibility = Visibility.Collapsed
+            };
+
+            try
+            {
+                var style = FindThemeResource("AchievementActionsWindowStyle") as Style;
+                if (style != null)
+                {
+                    achievementActionsHost.Style = style;
+                }
+            }
+            catch
+            {
+            }
+
+            Panel.SetZIndex(achievementActionsHost, 260);
+            rootGrid.Children.Add(achievementActionsHost);
+        }
+
+        private void EnsureAchievementCaptureHost()
+        {
+            if (achievementCaptureHost != null || rootGrid == null)
+            {
+                return;
+            }
+
+            achievementCaptureHost = new ContentControl
+            {
+                Width = 1920,
+                Height = 1080,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Focusable = false,
+                Visibility = Visibility.Collapsed
+            };
+
+            try
+            {
+                var style = FindThemeResource("AchievementCaptureViewerWindowStyle") as Style;
+                if (style != null)
+                {
+                    achievementCaptureHost.Style = style;
+                }
+            }
+            catch
+            {
+            }
+
+            Panel.SetZIndex(achievementCaptureHost, 280);
+            rootGrid.Children.Add(achievementCaptureHost);
+        }
+
+        private bool ShowAchievementActionsLayer(object achievement)
+        {
+            if (achievement == null || !service.PrepareAchievementActionsForOverlay(achievement))
+            {
+                return false;
+            }
+
+            achievementReturnApiName = GetObjectStringProperty(achievement, "ApiName");
+            achievementReturnName = GetObjectStringProperty(achievement, "Name");
+
+            EnsureAchievementActionsHost();
+            if (achievementActionsHost == null)
+            {
+                return false;
+            }
+
+            HideAchievementCaptureLayer(false);
+            isAchievementActionsVisible = true;
+            controllerFocusedAchievementsElement = null;
+            achievementActionsHost.Visibility = Visibility.Visible;
+            achievementActionsHost.Opacity = 1;
+
+            Dispatcher.BeginInvoke(new Action(FocusFirstAchievementsElement), DispatcherPriority.Loaded);
+            return true;
+        }
+
+        private void HideAchievementActionsLayer(bool restoreAchievementFocus = true)
+        {
+            isAchievementActionsVisible = false;
+            controllerFocusedAchievementsElement = null;
+
+            if (achievementActionsHost != null)
+            {
+                achievementActionsHost.Visibility = Visibility.Collapsed;
+            }
+
+            if (restoreAchievementFocus && isAchievementsVisible)
+            {
+                Dispatcher.BeginInvoke(new Action(RestoreAchievementReturnFocus), DispatcherPriority.Loaded);
+            }
+        }
+
+        private bool ShowAchievementCaptureLayer(object captureKind)
+        {
+            if (!service.PrepareAchievementCaptureForOverlay(captureKind))
+            {
+                return false;
+            }
+
+            EnsureAchievementCaptureHost();
+            if (achievementCaptureHost == null)
+            {
+                return false;
+            }
+
+            isAchievementCaptureVisible = true;
+            controllerFocusedAchievementsElement = null;
+            achievementCaptureHost.Visibility = Visibility.Visible;
+            achievementCaptureHost.Opacity = 1;
+            return true;
+        }
+
+        private void HideAchievementCaptureLayer(bool restoreActionFocus = true)
+        {
+            isAchievementCaptureVisible = false;
+            controllerFocusedAchievementsElement = null;
+
+            if (achievementCaptureHost != null)
+            {
+                achievementCaptureHost.Visibility = Visibility.Collapsed;
+            }
+
+            if (restoreActionFocus && isAchievementActionsVisible)
+            {
+                Dispatcher.BeginInvoke(new Action(FocusFirstAchievementsElement), DispatcherPriority.Loaded);
+            }
+        }
+
+        private void RestoreAchievementReturnFocus()
+        {
+            var elements = GetAchievementsControllerElements();
+            if (elements.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var element in elements)
+            {
+                var data = element?.DataContext;
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var apiName = GetObjectStringProperty(data, "ApiName");
+                var name = GetObjectStringProperty(data, "Name");
+                if ((!string.IsNullOrWhiteSpace(achievementReturnApiName) &&
+                     string.Equals(apiName, achievementReturnApiName, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(achievementReturnName) &&
+                     string.Equals(name, achievementReturnName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    FocusAchievementsElement(element);
+                    return;
+                }
+            }
+
+            var cards = GetAchievementCardElements();
+            if (cards.Length > 0)
+            {
+                FocusAchievementsElement(cards[0]);
+            }
+            else
+            {
+                FocusAchievementSettingsElement();
+            }
         }
 
         private void HideAchievements(bool restoreControlCenterChrome = true)
@@ -3903,6 +5432,10 @@ namespace AnikiHelper.Services.InGameOverlay
             {
                 isAchievementsVisible = false;
                 controllerFocusedAchievementsElement = null;
+
+                HideAchievementCaptureLayer(false);
+                HideAchievementActionsLayer(false);
+                HideAchievementOptionsLayer(false);
 
                 if (achievementsHost != null)
                 {
@@ -3946,6 +5479,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 HideUniPlaySong(false);
                 HideFriends(false);
                 HideLastCaptures(false);
+                HideGameLinks(false);
                 HideAchievements(false);
 
                 isAppsVisible = true;
@@ -4035,7 +5569,184 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     SetControlCenterChromeVisible(true);
 
-                    controllerFocusedButton = firstButton;
+                    controllerFocusedButton = appsButton ?? firstButton;
+                    useControllerFocusVisual = true;
+                    FocusSelectedButtonWithoutTraversal();
+                    UpdateAllButtonVisualStates();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        public void ShowGameLinks()
+        {
+            try
+            {
+                EnsureGameLinksHost();
+
+                if (gameLinksHost == null)
+                {
+                    return;
+                }
+
+                HideMusicPlayer(false);
+                HideAudioSwitcher(false);
+                HideUniPlaySong(false);
+                HideFriends(false);
+                HideLastCaptures(false);
+                HideApps(false);
+                HideAchievements(false);
+
+                isGameLinksVisible = true;
+                SetControlCenterChromeVisible(false);
+
+                gameLinksHost.Visibility = Visibility.Visible;
+                gameLinksHost.Opacity = 1;
+
+                ConfigureGameLinksCloseButton();
+
+                Activate();
+                Focus();
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        ConfigureGameLinksCloseButton();
+                        FocusFirstAppsElement();
+                    }
+                    catch
+                    {
+                    }
+                }), DispatcherPriority.Loaded);
+            }
+            catch
+            {
+            }
+        }
+
+        private void EnsureGameLinksHost()
+        {
+            if (gameLinksHost != null || rootGrid == null)
+            {
+                return;
+            }
+
+            gameLinksHost = new ContentControl
+            {
+                Width = 1920,
+                Height = 1080,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Focusable = false,
+                Visibility = Visibility.Collapsed
+            };
+
+            try
+            {
+                var style = FindThemeResource("GameLinksWindowStyle") as Style;
+                if (style != null)
+                {
+                    gameLinksHost.Style = style;
+                }
+                else
+                {
+                    gameLinksHost.Content = new TextBlock
+                    {
+                        Text = "GameLinksWindowStyle not found",
+                        FontSize = 30,
+                        Foreground = Brushes.White,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                }
+            }
+            catch
+            {
+            }
+
+            Panel.SetZIndex(gameLinksHost, 200);
+            rootGrid.Children.Add(gameLinksHost);
+        }
+
+        private void ConfigureGameLinksCloseButton()
+        {
+            try
+            {
+                if (gameLinksHost == null)
+                {
+                    return;
+                }
+
+                gameLinksHost.ApplyTemplate();
+                gameLinksHost.UpdateLayout();
+
+                var elements = new List<FrameworkElement>();
+                CollectVisualChildren(gameLinksHost, elements);
+
+                ButtonBase closeButton = null;
+                foreach (var element in elements)
+                {
+                    var buttonBase = element as ButtonBase;
+                    if (buttonBase == null)
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(buttonBase.Tag?.ToString(), "CancelAction", StringComparison.OrdinalIgnoreCase))
+                    {
+                        closeButton = buttonBase;
+                        break;
+                    }
+                }
+
+                if (closeButton == null)
+                {
+                    return;
+                }
+
+                if (!ReferenceEquals(gameLinksCloseButton, closeButton))
+                {
+                    if (gameLinksCloseButton != null)
+                    {
+                        gameLinksCloseButton.Click -= GameLinksCloseButton_Click;
+                    }
+
+                    gameLinksCloseButton = closeButton;
+                    gameLinksCloseButton.Command = null;
+                    gameLinksCloseButton.Click += GameLinksCloseButton_Click;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void GameLinksCloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            HideGameLinks();
+        }
+
+        private void HideGameLinks(bool restoreControlCenterChrome = true)
+        {
+            try
+            {
+                isGameLinksVisible = false;
+                controllerFocusedAppsElement = null;
+
+                if (gameLinksHost != null)
+                {
+                    gameLinksHost.Visibility = Visibility.Collapsed;
+                }
+
+                if (restoreControlCenterChrome)
+                {
+                    SetControlCenterChromeVisible(true);
+
+                    controllerFocusedButton = gameLinksButton ?? firstButton;
                     useControllerFocusVisual = true;
                     FocusSelectedButtonWithoutTraversal();
                     UpdateAllButtonVisualStates();
@@ -4079,6 +5790,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 HideFriends(false);
                 HideLastCaptures(false);
                 HideApps(false);
+                HideGameLinks(false);
                 HideAchievements(false);
 
                 SetControlCenterChromeVisible(false);
@@ -4184,6 +5896,7 @@ namespace AnikiHelper.Services.InGameOverlay
             {
                 bottomHintHost.Visibility = visibility;
             }
+
         }
 
         private void FocusFirstMusicPlayerElement()
@@ -4434,9 +6147,10 @@ namespace AnikiHelper.Services.InGameOverlay
                     return true;
 
                 case ControllerInput.A:
-                    // Hosted overlay views already receive native controller activation
-                    // through Playnite/WPF. Forcing another click here makes buttons/toggles
-                    // execute twice, so we consume only the custom overlay A input.
+                    if (CanProcessControllerAction())
+                    {
+                        ActivateMusicPlayerElement();
+                    }
                     return true;
             }
 
@@ -4677,6 +6391,53 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
+        private bool ActivateAudioSwitcherElement()
+        {
+            var current = GetCurrentAudioSwitcherElement();
+            if (current == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var button = current as Button;
+                if (button != null)
+                {
+                    controllerFocusedButton = button;
+                    ClickForcedControllerFocusedButton();
+                    return true;
+                }
+
+                var buttonBase = current as ButtonBase;
+                if (buttonBase != null)
+                {
+                    if (buttonBase.Command != null && buttonBase.Command.CanExecute(buttonBase.CommandParameter))
+                    {
+                        buttonBase.Command.Execute(buttonBase.CommandParameter);
+                    }
+                    else
+                    {
+                        buttonBase.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, buttonBase));
+                    }
+
+                    return true;
+                }
+
+                // A slider is already controlled by Left / Right in the overlay.
+                if (current is RangeBase)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+
+            return false;
+        }
+
         private bool HandleAudioSwitcherControllerInput(ControllerInput button)
         {
             if (!isAudioSwitcherVisible)
@@ -4725,9 +6486,10 @@ namespace AnikiHelper.Services.InGameOverlay
                     return true;
 
                 case ControllerInput.A:
-                    // Hosted overlay views already receive native controller activation
-                    // through Playnite/WPF. Forcing another click here makes buttons/toggles
-                    // execute twice, so we consume only the custom overlay A input.
+                    if (CanProcessControllerAction())
+                    {
+                        ActivateAudioSwitcherElement();
+                    }
                     return true;
             }
 
@@ -4998,9 +6760,10 @@ namespace AnikiHelper.Services.InGameOverlay
                     return true;
 
                 case ControllerInput.A:
-                    // Hosted overlay views already receive native controller activation
-                    // through Playnite/WPF. Forcing another click here makes buttons/toggles
-                    // execute twice, so we consume only the custom overlay A input.
+                    if (CanProcessControllerAction())
+                    {
+                        ActivateUniPlaySongElement();
+                    }
                     return true;
             }
 
@@ -5058,18 +6821,27 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private FrameworkElement[] GetFriendsControllerElements()
         {
-            if (!isFriendsVisible || friendsHost == null)
+            if (!isFriendsVisible)
+            {
+                return new FrameworkElement[0];
+            }
+
+            var activeHost = isFriendsProfileVisible
+                ? friendsProfileHost
+                : (isFriendsActionVisible ? friendsActionHost : friendsHost);
+
+            if (activeHost == null)
             {
                 return new FrameworkElement[0];
             }
 
             try
             {
-                friendsHost.ApplyTemplate();
-                friendsHost.UpdateLayout();
+                activeHost.ApplyTemplate();
+                activeHost.UpdateLayout();
 
                 var allElements = new List<FrameworkElement>();
-                CollectVisualChildren(friendsHost, allElements);
+                CollectVisualChildren(activeHost, allElements);
 
                 var result = new List<FrameworkElement>();
                 foreach (var element in allElements)
@@ -5179,34 +6951,52 @@ namespace AnikiHelper.Services.InGameOverlay
 
             try
             {
-                var button = current as Button;
-                if (button != null)
+                var buttonBase = current as ButtonBase;
+                if (buttonBase == null)
                 {
-                    controllerFocusedButton = button;
-                    ClickForcedControllerFocusedButton();
+                    return false;
+                }
+
+                if (isFriendsActionVisible)
+                {
+                    var actionTag = buttonBase.Tag?.ToString();
+                    if (string.Equals(actionTag, "ChatAction", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(actionTag, "X", StringComparison.OrdinalIgnoreCase))
+                    {
+                        service.OpenSelectedFriendChatFromOverlay();
+                        HideFriendActionsLayer(true);
+                        return true;
+                    }
+
+                    if (string.Equals(actionTag, "B", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(actionTag, "CancelAction", StringComparison.OrdinalIgnoreCase))
+                    {
+                        HideFriendActionsLayer(true);
+                        return true;
+                    }
+                }
+                else if (!isFriendsProfileVisible)
+                {
+                    // Reuse the exact same routed Click path as mouse/touch. This avoids having
+                    // separate activation logic for controller A and keeps both inputs in sync.
+                    buttonBase.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, buttonBase));
                     return true;
                 }
 
-                var buttonBase = current as ButtonBase;
-                if (buttonBase != null)
+                if (buttonBase.Command != null && buttonBase.Command.CanExecute(buttonBase.CommandParameter))
                 {
-                    if (buttonBase.Command != null && buttonBase.Command.CanExecute(buttonBase.CommandParameter))
-                    {
-                        buttonBase.Command.Execute(buttonBase.CommandParameter);
-                    }
-                    else
-                    {
-                        buttonBase.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, buttonBase));
-                    }
-                    return true;
+                    buttonBase.Command.Execute(buttonBase.CommandParameter);
                 }
+                else
+                {
+                    buttonBase.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, buttonBase));
+                }
+                return true;
             }
             catch
             {
                 return true;
             }
-
-            return false;
         }
 
         private bool HandleFriendsControllerInput(ControllerInput button)
@@ -5239,14 +7029,24 @@ namespace AnikiHelper.Services.InGameOverlay
                     return true;
 
                 case ControllerInput.A:
-                    // Hosted overlay views already receive native controller activation
-                    // through Playnite/WPF. Forcing another click here makes buttons/toggles
-                    // execute twice, so we consume only the custom overlay A input.
+                    // Friends is a read-only status view in the in-game overlay.
+                    // Consume A so Playnite cannot activate anything behind the overlay.
                     return true;
 
                 case ControllerInput.B:
                 case ControllerInput.Back:
-                    HideFriends();
+                    if (isFriendsProfileVisible)
+                    {
+                        HideFriendProfileLayer(true);
+                    }
+                    else if (isFriendsActionVisible)
+                    {
+                        HideFriendActionsLayer(true);
+                    }
+                    else
+                    {
+                        HideFriends();
+                    }
                     return true;
             }
 
@@ -5282,16 +7082,26 @@ namespace AnikiHelper.Services.InGameOverlay
 
             if (e.Key == Key.Enter || e.Key == Key.Space)
             {
-                // Stop the overlay global Enter/Space handler, but keep the event unhandled
-                // so the focused hosted control can process its native activation once.
-                e.Handled = false;
+                // Keep the Friends overlay read-only for keyboard/controller mirror input too.
+                e.Handled = true;
                 return true;
             }
 
             if (e.Key == Key.Escape || e.Key == Key.Back)
             {
                 e.Handled = true;
-                HideFriends();
+                if (isFriendsProfileVisible)
+                {
+                    HideFriendProfileLayer(true);
+                }
+                else if (isFriendsActionVisible)
+                {
+                    HideFriendActionsLayer(true);
+                }
+                else
+                {
+                    HideFriends();
+                }
                 return true;
             }
 
@@ -5300,39 +7110,204 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private void FocusFirstAchievementsElement()
         {
-            var elements = GetAchievementsControllerElements();
-            if (elements.Length == 0)
+            if (isAchievementOptionsVisible)
+            {
+                FocusFirstAchievementOptionsElement();
+                return;
+            }
+
+            if (isAchievementActionsVisible)
+            {
+                var actionElements = GetAchievementsControllerElements();
+                if (actionElements.Length > 0)
+                {
+                    FocusAchievementsElement(actionElements[0]);
+                }
+                return;
+            }
+
+            if (isAchievementCaptureVisible)
             {
                 return;
             }
 
-            FocusAchievementsElement(elements[0]);
+            var cards = GetAchievementCardElements();
+            if (cards.Length > 0)
+            {
+                FocusAchievementsElement(cards[0]);
+                return;
+            }
+
+            FocusAchievementSettingsElement();
         }
 
-        private FrameworkElement[] GetAchievementsControllerElements()
+        private FrameworkElement GetAchievementSettingsElement()
         {
-            if (!isAchievementsVisible || achievementsHost == null)
+            if (achievementsHost == null)
             {
-                return new FrameworkElement[0];
+                return null;
             }
 
             try
             {
                 achievementsHost.ApplyTemplate();
                 achievementsHost.UpdateLayout();
+                return achievementsHost.Template?.FindName("TrophiesMenuToggle", achievementsHost) as FrameworkElement;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
+        private FrameworkElement GetAchievementListElement()
+        {
+            if (achievementsHost == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                achievementsHost.ApplyTemplate();
+                achievementsHost.UpdateLayout();
+                return achievementsHost.Template?.FindName("DynamicAchievementList", achievementsHost) as FrameworkElement;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private FrameworkElement[] GetAchievementCardElements()
+        {
+            var listElement = GetAchievementListElement();
+            if (listElement == null)
+            {
+                return new FrameworkElement[0];
+            }
+
+            try
+            {
                 var allElements = new List<FrameworkElement>();
-                CollectVisualChildren(achievementsHost, allElements);
+                CollectVisualChildren(listElement, allElements);
 
                 var result = new List<FrameworkElement>();
                 foreach (var element in allElements)
                 {
-                    if (!CanElementReceiveControllerFocus(element))
+                    if (!CanElementReceiveControllerFocus(element) || element is RepeatButton)
                     {
                         continue;
                     }
 
-                    if (element is RepeatButton)
+                    var buttonBase = element as ButtonBase;
+                    if (buttonBase == null)
+                    {
+                        continue;
+                    }
+
+                    var achievement = buttonBase.CommandParameter ?? buttonBase.DataContext;
+                    if (achievement != null && HasObjectProperty(achievement, "ToggleAchievementGoalCommand"))
+                    {
+                        result.Add(element);
+                    }
+                }
+
+                return result.ToArray();
+            }
+            catch
+            {
+                return new FrameworkElement[0];
+            }
+        }
+
+        private FrameworkElement[] GetAchievementOptionsElements()
+        {
+            if (!isAchievementOptionsVisible || achievementOptionsHost == null)
+            {
+                return new FrameworkElement[0];
+            }
+
+            try
+            {
+                achievementOptionsHost.ApplyTemplate();
+                achievementOptionsHost.UpdateLayout();
+
+                var allElements = new List<FrameworkElement>();
+                CollectVisualChildren(achievementOptionsHost, allElements);
+
+                var result = new List<FrameworkElement>();
+                foreach (var element in allElements)
+                {
+                    if (!CanElementReceiveControllerFocus(element) || element is RepeatButton)
+                    {
+                        continue;
+                    }
+
+                    if (element is ComboBox || element is ToggleButton)
+                    {
+                        result.Add(element);
+                        continue;
+                    }
+
+                    var buttonBase = element as ButtonBase;
+                    if (buttonBase != null && buttonBase.Command != null)
+                    {
+                        result.Add(element);
+                    }
+                }
+
+                return result.ToArray();
+            }
+            catch
+            {
+                return new FrameworkElement[0];
+            }
+        }
+
+        private FrameworkElement[] GetAchievementsControllerElements()
+        {
+            if (!isAchievementsVisible)
+            {
+                return new FrameworkElement[0];
+            }
+
+            if (isAchievementOptionsVisible)
+            {
+                return GetAchievementOptionsElements();
+            }
+
+            if (!isAchievementActionsVisible && !isAchievementCaptureVisible)
+            {
+                var result = new List<FrameworkElement>();
+                var settingsElement = GetAchievementSettingsElement();
+                if (CanElementReceiveControllerFocus(settingsElement))
+                {
+                    result.Add(settingsElement);
+                }
+
+                result.AddRange(GetAchievementCardElements());
+                return result.ToArray();
+            }
+
+            var activeHost = isAchievementCaptureVisible ? achievementCaptureHost : achievementActionsHost;
+            if (activeHost == null)
+            {
+                return new FrameworkElement[0];
+            }
+
+            try
+            {
+                activeHost.ApplyTemplate();
+                activeHost.UpdateLayout();
+
+                var allElements = new List<FrameworkElement>();
+                CollectVisualChildren(activeHost, allElements);
+
+                var result = new List<FrameworkElement>();
+                foreach (var element in allElements)
+                {
+                    if (!CanElementReceiveControllerFocus(element) || element is RepeatButton)
                     {
                         continue;
                     }
@@ -5351,6 +7326,12 @@ namespace AnikiHelper.Services.InGameOverlay
             }
         }
 
+        private bool IsAchievementSettingsElement(FrameworkElement element)
+        {
+            var settingsElement = GetAchievementSettingsElement();
+            return element != null && settingsElement != null && ReferenceEquals(element, settingsElement);
+        }
+
         private void FocusAchievementsElement(FrameworkElement element)
         {
             try
@@ -5364,6 +7345,22 @@ namespace AnikiHelper.Services.InGameOverlay
                 controllerFocusedButton = element as Button;
                 useControllerFocusVisual = true;
 
+                if (!isAchievementOptionsVisible && !isAchievementActionsVisible && !isAchievementCaptureVisible &&
+                    !IsAchievementSettingsElement(element))
+                {
+                    var data = (element as ButtonBase)?.CommandParameter ?? element.DataContext;
+                    var apiName = GetObjectStringProperty(data, "ApiName");
+                    var name = GetObjectStringProperty(data, "Name");
+                    if (!string.IsNullOrWhiteSpace(apiName))
+                    {
+                        achievementReturnApiName = apiName;
+                    }
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        achievementReturnName = name;
+                    }
+                }
+
                 element.Focus();
                 Keyboard.Focus(element);
                 element.BringIntoView();
@@ -5371,6 +7368,24 @@ namespace AnikiHelper.Services.InGameOverlay
             }
             catch
             {
+            }
+        }
+
+        private void FocusAchievementSettingsElement()
+        {
+            var settingsElement = GetAchievementSettingsElement();
+            if (CanElementReceiveControllerFocus(settingsElement))
+            {
+                FocusAchievementsElement(settingsElement);
+            }
+        }
+
+        private void FocusFirstAchievementOptionsElement()
+        {
+            var elements = GetAchievementOptionsElements();
+            if (elements.Length > 0)
+            {
+                FocusAchievementsElement(elements[0]);
             }
         }
 
@@ -5395,6 +7410,15 @@ namespace AnikiHelper.Services.InGameOverlay
                 CanElementReceiveControllerFocus(controllerFocusedAchievementsElement))
             {
                 return controllerFocusedAchievementsElement;
+            }
+
+            if (!isAchievementOptionsVisible && !isAchievementActionsVisible && !isAchievementCaptureVisible)
+            {
+                var cards = GetAchievementCardElements();
+                if (cards.Length > 0)
+                {
+                    return cards[0];
+                }
             }
 
             return elements[0];
@@ -5422,7 +7446,109 @@ namespace AnikiHelper.Services.InGameOverlay
             FocusAchievementsElement(elements[index]);
         }
 
-        private bool ActivateAchievementsElement()
+        private void MoveAchievementCardFocus(int direction)
+        {
+            var cards = GetAchievementCardElements();
+            if (cards.Length == 0)
+            {
+                FocusAchievementSettingsElement();
+                return;
+            }
+
+            var current = GetCurrentAchievementsElement();
+            var index = Array.IndexOf(cards, current);
+            if (index < 0)
+            {
+                index = direction < 0 ? cards.Length - 1 : 0;
+            }
+            else
+            {
+                index = (index + direction + cards.Length) % cards.Length;
+            }
+
+            FocusAchievementsElement(cards[index]);
+        }
+
+        private void FocusAchievementCardFromSettings()
+        {
+            var cards = GetAchievementCardElements();
+            if (cards.Length == 0)
+            {
+                return;
+            }
+
+            if (controllerFocusedAchievementsElement != null &&
+                Array.IndexOf(cards, controllerFocusedAchievementsElement) >= 0 &&
+                CanElementReceiveControllerFocus(controllerFocusedAchievementsElement))
+            {
+                FocusAchievementsElement(controllerFocusedAchievementsElement);
+                return;
+            }
+
+            foreach (var card in cards)
+            {
+                var data = (card as ButtonBase)?.CommandParameter ?? card.DataContext;
+                var apiName = GetObjectStringProperty(data, "ApiName");
+                var name = GetObjectStringProperty(data, "Name");
+                if ((!string.IsNullOrWhiteSpace(achievementReturnApiName) &&
+                     string.Equals(apiName, achievementReturnApiName, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(achievementReturnName) &&
+                     string.Equals(name, achievementReturnName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    FocusAchievementsElement(card);
+                    return;
+                }
+            }
+
+            FocusAchievementsElement(cards[0]);
+        }
+
+        private void MoveAchievementOptionsFocus(int direction)
+        {
+            var current = GetCurrentAchievementsElement();
+            var openCombo = current as ComboBox;
+            if (openCombo != null && openCombo.IsDropDownOpen)
+            {
+                AdjustAchievementComboSelection(openCombo, direction);
+                return;
+            }
+
+            MoveAchievementsFocus(direction);
+        }
+
+        private bool AdjustAchievementOptionsValue(int direction)
+        {
+            var combo = GetCurrentAchievementsElement() as ComboBox;
+            if (combo == null)
+            {
+                return false;
+            }
+
+            AdjustAchievementComboSelection(combo, direction);
+            return true;
+        }
+
+        private static void AdjustAchievementComboSelection(ComboBox combo, int direction)
+        {
+            if (combo == null || combo.Items.Count <= 0 || direction == 0)
+            {
+                return;
+            }
+
+            var index = combo.SelectedIndex;
+            if (index < 0)
+            {
+                index = 0;
+            }
+            else
+            {
+                index = Math.Max(0, Math.Min(combo.Items.Count - 1, index + direction));
+            }
+
+            combo.SelectedIndex = index;
+        }
+
+        private bool ActivateAchievementOptionsElement()
         {
             var current = GetCurrentAchievementsElement();
             if (current == null)
@@ -5432,34 +7558,167 @@ namespace AnikiHelper.Services.InGameOverlay
 
             try
             {
-                var button = current as Button;
-                if (button != null)
+                var combo = current as ComboBox;
+                if (combo != null)
                 {
-                    controllerFocusedButton = button;
-                    ClickForcedControllerFocusedButton();
+                    combo.IsDropDownOpen = !combo.IsDropDownOpen;
+                    return true;
+                }
+
+                var toggle = current as ToggleButton;
+                if (toggle != null)
+                {
+                    toggle.IsChecked = toggle.IsChecked != true;
                     return true;
                 }
 
                 var buttonBase = current as ButtonBase;
-                if (buttonBase != null)
+                if (buttonBase == null)
                 {
-                    if (buttonBase.Command != null && buttonBase.Command.CanExecute(buttonBase.CommandParameter))
-                    {
-                        buttonBase.Command.Execute(buttonBase.CommandParameter);
-                    }
-                    else
-                    {
-                        buttonBase.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, buttonBase));
-                    }
-                    return true;
+                    return false;
                 }
+
+                if (buttonBase.Command != null && buttonBase.Command.CanExecute(buttonBase.CommandParameter))
+                {
+                    buttonBase.Command.Execute(buttonBase.CommandParameter);
+                }
+                else
+                {
+                    buttonBase.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, buttonBase));
+                }
+
+                return true;
             }
             catch
             {
                 return true;
             }
+        }
 
-            return false;
+        private bool ActivateAchievementsElement()
+        {
+            if (isAchievementOptionsVisible)
+            {
+                return ActivateAchievementOptionsElement();
+            }
+
+            var current = GetCurrentAchievementsElement();
+            if (current == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (isAchievementCaptureVisible)
+                {
+                    return true;
+                }
+
+                var buttonBase = current as ButtonBase;
+                if (buttonBase == null)
+                {
+                    return false;
+                }
+
+                if (isAchievementActionsVisible)
+                {
+                    var tag = buttonBase.Tag?.ToString();
+                    if (string.Equals(tag, "CancelAction", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(tag, "B", StringComparison.OrdinalIgnoreCase))
+                    {
+                        HideAchievementActionsLayer(true);
+                        return true;
+                    }
+
+                    var captureKind = buttonBase.CommandParameter?.ToString();
+                    if (string.Equals(captureKind, "Clean", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(captureKind, "Notification", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(captureKind, "Framed", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(captureKind, "Video", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return ShowAchievementCaptureLayer(captureKind);
+                    }
+                }
+                else
+                {
+                    if (IsAchievementSettingsElement(current))
+                    {
+                        return ShowAchievementOptionsLayer();
+                    }
+
+                    var achievement = buttonBase.CommandParameter ?? buttonBase.DataContext;
+                    if (HasObjectProperty(achievement, "ToggleAchievementGoalCommand") &&
+                        ShowAchievementActionsLayer(achievement))
+                    {
+                        return true;
+                    }
+                }
+
+                if (buttonBase.Command != null && buttonBase.Command.CanExecute(buttonBase.CommandParameter))
+                {
+                    buttonBase.Command.Execute(buttonBase.CommandParameter);
+                }
+                else
+                {
+                    buttonBase.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, buttonBase));
+                }
+                return true;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private void EnsureAchievementsMainFocus()
+        {
+            if (!isAchievementsVisible || isAchievementOptionsVisible || isAchievementActionsVisible ||
+                isAchievementCaptureVisible)
+            {
+                return;
+            }
+
+            var settingsElement = GetAchievementSettingsElement();
+            var cards = GetAchievementCardElements();
+
+            if (controllerFocusedAchievementsElement != null &&
+                CanElementReceiveControllerFocus(controllerFocusedAchievementsElement) &&
+                (ReferenceEquals(controllerFocusedAchievementsElement, settingsElement) ||
+                 Array.IndexOf(cards, controllerFocusedAchievementsElement) >= 0))
+            {
+                FocusAchievementsElement(controllerFocusedAchievementsElement);
+                return;
+            }
+
+            FocusAchievementCardFromSettings();
+        }
+
+        private void ScheduleAchievementFocusRestore()
+        {
+            if (!isAchievementsVisible || isAchievementOptionsVisible || isAchievementActionsVisible ||
+                isAchievementCaptureVisible || !IsActive)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (!isAchievementsVisible || isAchievementOptionsVisible || isAchievementActionsVisible ||
+                        isAchievementCaptureVisible || !IsActive || achievementsHost == null ||
+                        achievementsHost.IsKeyboardFocusWithin)
+                    {
+                        return;
+                    }
+
+                    EnsureAchievementsMainFocus();
+                }
+                catch
+                {
+                }
+            }), DispatcherPriority.Input);
         }
 
         private bool HandleAchievementsControllerInput(ControllerInput button)
@@ -5473,28 +7732,120 @@ namespace AnikiHelper.Services.InGameOverlay
             {
                 case ControllerInput.DPadLeft:
                 case ControllerInput.LeftStickLeft:
-                case ControllerInput.DPadUp:
-                case ControllerInput.LeftStickUp:
-                    if (CanProcessControllerNavigation(-1))
+                    if (isAchievementOptionsVisible)
                     {
-                        MoveAchievementsFocus(-1);
+                        if (CanProcessControllerNavigation(-1))
+                        {
+                            AdjustAchievementOptionsValue(-1);
+                        }
+                    }
+                    else if (isAchievementActionsVisible)
+                    {
+                        if (CanProcessControllerNavigation(-1))
+                        {
+                            MoveAchievementsFocus(-1);
+                        }
+                    }
+                    else if (!isAchievementCaptureVisible && CanProcessControllerNavigation(-1))
+                    {
+                        FocusAchievementSettingsElement();
                     }
                     return true;
 
                 case ControllerInput.DPadRight:
                 case ControllerInput.LeftStickRight:
+                    if (isAchievementOptionsVisible)
+                    {
+                        if (CanProcessControllerNavigation(1))
+                        {
+                            AdjustAchievementOptionsValue(1);
+                        }
+                    }
+                    else if (isAchievementActionsVisible)
+                    {
+                        if (CanProcessControllerNavigation(1))
+                        {
+                            MoveAchievementsFocus(1);
+                        }
+                    }
+                    else if (!isAchievementCaptureVisible && IsAchievementSettingsElement(GetCurrentAchievementsElement()) &&
+                             CanProcessControllerNavigation(1))
+                    {
+                        FocusAchievementCardFromSettings();
+                    }
+                    return true;
+
+                case ControllerInput.DPadUp:
+                case ControllerInput.LeftStickUp:
+                    if (!isAchievementCaptureVisible && CanProcessControllerNavigation(-1))
+                    {
+                        if (isAchievementOptionsVisible)
+                        {
+                            MoveAchievementOptionsFocus(-1);
+                        }
+                        else if (isAchievementActionsVisible)
+                        {
+                            MoveAchievementsFocus(-1);
+                        }
+                        else
+                        {
+                            MoveAchievementCardFocus(-1);
+                        }
+                    }
+                    return true;
+
                 case ControllerInput.DPadDown:
                 case ControllerInput.LeftStickDown:
-                    if (CanProcessControllerNavigation(1))
+                    if (!isAchievementCaptureVisible && CanProcessControllerNavigation(1))
                     {
-                        MoveAchievementsFocus(1);
+                        if (isAchievementOptionsVisible)
+                        {
+                            MoveAchievementOptionsFocus(1);
+                        }
+                        else if (isAchievementActionsVisible)
+                        {
+                            MoveAchievementsFocus(1);
+                        }
+                        else
+                        {
+                            MoveAchievementCardFocus(1);
+                        }
                     }
                     return true;
 
                 case ControllerInput.A:
-                    // Hosted overlay views already receive native controller activation
-                    // through Playnite/WPF. Forcing another click here makes buttons/toggles
-                    // execute twice, so we consume only the custom overlay A input.
+                    if (CanProcessControllerAction())
+                    {
+                        ActivateAchievementsElement();
+                    }
+                    return true;
+
+                case ControllerInput.B:
+                case ControllerInput.Back:
+                    if (isAchievementCaptureVisible)
+                    {
+                        HideAchievementCaptureLayer(true);
+                    }
+                    else if (isAchievementOptionsVisible)
+                    {
+                        var combo = GetCurrentAchievementsElement() as ComboBox;
+                        if (combo != null && combo.IsDropDownOpen)
+                        {
+                            combo.IsDropDownOpen = false;
+                        }
+                        else
+                        {
+                            HideAchievementOptionsLayer(true);
+                        }
+                    }
+                    else if (isAchievementActionsVisible)
+                    {
+                        HideAchievementActionsLayer(true);
+                    }
+                    else
+                    {
+                        HideAchievements();
+                    }
                     return true;
             }
 
@@ -5508,31 +7859,107 @@ namespace AnikiHelper.Services.InGameOverlay
                 return false;
             }
 
-            if (e.Key == Key.Left || e.Key == Key.Up)
+            if (e.Key == Key.Left)
             {
                 e.Handled = true;
                 if (CanProcessControllerNavigation(-1))
                 {
-                    MoveAchievementsFocus(-1);
+                    if (isAchievementOptionsVisible)
+                    {
+                        AdjustAchievementOptionsValue(-1);
+                    }
+                    else if (isAchievementActionsVisible)
+                    {
+                        MoveAchievementsFocus(-1);
+                    }
+                    else if (!isAchievementCaptureVisible)
+                    {
+                        FocusAchievementSettingsElement();
+                    }
                 }
                 return true;
             }
 
-            if (e.Key == Key.Right || e.Key == Key.Down)
+            if (e.Key == Key.Right)
             {
                 e.Handled = true;
                 if (CanProcessControllerNavigation(1))
                 {
-                    MoveAchievementsFocus(1);
+                    if (isAchievementOptionsVisible)
+                    {
+                        AdjustAchievementOptionsValue(1);
+                    }
+                    else if (isAchievementActionsVisible)
+                    {
+                        MoveAchievementsFocus(1);
+                    }
+                    else if (!isAchievementCaptureVisible && IsAchievementSettingsElement(GetCurrentAchievementsElement()))
+                    {
+                        FocusAchievementCardFromSettings();
+                    }
+                }
+                return true;
+            }
+
+            if (e.Key == Key.Up || e.Key == Key.Down)
+            {
+                e.Handled = true;
+                var direction = e.Key == Key.Up ? -1 : 1;
+                if (!isAchievementCaptureVisible && CanProcessControllerNavigation(direction))
+                {
+                    if (isAchievementOptionsVisible)
+                    {
+                        MoveAchievementOptionsFocus(direction);
+                    }
+                    else if (isAchievementActionsVisible)
+                    {
+                        MoveAchievementsFocus(direction);
+                    }
+                    else
+                    {
+                        MoveAchievementCardFocus(direction);
+                    }
                 }
                 return true;
             }
 
             if (e.Key == Key.Enter || e.Key == Key.Space)
             {
-                // Stop the overlay global Enter/Space handler, but keep the event unhandled
-                // so the focused hosted control can process its native activation once.
-                e.Handled = false;
+                e.Handled = true;
+                if (CanProcessControllerAction())
+                {
+                    ActivateAchievementsElement();
+                }
+                return true;
+            }
+
+            if (e.Key == Key.Escape || e.Key == Key.Back)
+            {
+                e.Handled = true;
+                if (isAchievementCaptureVisible)
+                {
+                    HideAchievementCaptureLayer(true);
+                }
+                else if (isAchievementOptionsVisible)
+                {
+                    var combo = GetCurrentAchievementsElement() as ComboBox;
+                    if (combo != null && combo.IsDropDownOpen)
+                    {
+                        combo.IsDropDownOpen = false;
+                    }
+                    else
+                    {
+                        HideAchievementOptionsLayer(true);
+                    }
+                }
+                else if (isAchievementActionsVisible)
+                {
+                    HideAchievementActionsLayer(true);
+                }
+                else
+                {
+                    HideAchievements();
+                }
                 return true;
             }
 
@@ -5552,18 +7979,22 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private FrameworkElement[] GetAppsControllerElements()
         {
-            if (!isAppsVisible || appsHost == null)
+            var activeHost = isAppsVisible
+                ? appsHost
+                : (isGameLinksVisible ? gameLinksHost : null);
+
+            if (activeHost == null)
             {
                 return new FrameworkElement[0];
             }
 
             try
             {
-                appsHost.ApplyTemplate();
-                appsHost.UpdateLayout();
+                activeHost.ApplyTemplate();
+                activeHost.UpdateLayout();
 
                 var allElements = new List<FrameworkElement>();
-                CollectVisualChildren(appsHost, allElements);
+                CollectVisualChildren(activeHost, allElements);
 
                 var result = new List<FrameworkElement>();
                 foreach (var element in allElements)
@@ -5705,7 +8136,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private bool HandleAppsControllerInput(ControllerInput button)
         {
-            if (!isAppsVisible)
+            if (!isAppsVisible && !isGameLinksVisible)
             {
                 return false;
             }
@@ -5733,9 +8164,13 @@ namespace AnikiHelper.Services.InGameOverlay
                     return true;
 
                 case ControllerInput.A:
-                    // Hosted overlay views already receive native controller activation
-                    // through Playnite/WPF. Forcing another click here makes buttons/toggles
-                    // execute twice, so we consume only the custom overlay A input.
+                    // While the overlay is visible, Playnite's standard controller processing
+                    // is intentionally disabled. Activate the focused hosted control explicitly
+                    // from the public SDK button event instead of relying on a second input path.
+                    if (CanProcessControllerAction())
+                    {
+                        ActivateAppsElement();
+                    }
                     return true;
             }
 
@@ -5744,7 +8179,7 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private bool HandleAppsPreviewKeyDown(KeyEventArgs e)
         {
-            if (!isAppsVisible || e == null)
+            if ((!isAppsVisible && !isGameLinksVisible) || e == null)
             {
                 return false;
             }
@@ -5974,9 +8409,10 @@ namespace AnikiHelper.Services.InGameOverlay
                     return true;
 
                 case ControllerInput.A:
-                    // Hosted overlay views already receive native controller activation
-                    // through Playnite/WPF. Forcing another click here makes buttons/toggles
-                    // execute twice, so we consume only the custom overlay A input.
+                    if (CanProcessControllerAction())
+                    {
+                        ActivateLastCapturesElement();
+                    }
                     return true;
             }
 
@@ -6019,6 +8455,40 @@ namespace AnikiHelper.Services.InGameOverlay
             }
 
             return false;
+        }
+
+        private static bool HasObjectProperty(object instance, string propertyName)
+        {
+            if (instance == null || string.IsNullOrWhiteSpace(propertyName))
+            {
+                return false;
+            }
+
+            try
+            {
+                return instance.GetType().GetProperty(propertyName) != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string GetObjectStringProperty(object instance, string propertyName)
+        {
+            if (instance == null || string.IsNullOrWhiteSpace(propertyName))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return instance.GetType().GetProperty(propertyName)?.GetValue(instance)?.ToString() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static void CollectVisualChildren<T>(DependencyObject parent, List<T> result)
@@ -6139,15 +8609,10 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
-            var isChildViewVisible = IsOverlayChildViewVisible();
-
-            // In hosted overlay views, A is already handled by the focused Playnite/WPF control.
-            // Do not mark it as a direct overlay input, otherwise OnPreviewKeyDown may block
-            // the native Enter/Space event or the custom click can execute a second time.
-            if (!(isChildViewVisible && button == ControllerInput.A))
-            {
-                lastDirectOverlayControllerInputTime = DateTime.Now;
-            }
+            // Hosted overlay views explicitly activate their focused control from the
+            // Playnite controller event. Remember the press so any WPF Enter/Space mirror of
+            // the same physical A press is swallowed instead of activating the control twice.
+            lastDirectOverlayControllerInputTime = DateTime.Now;
 
             if ((button == ControllerInput.B || button == ControllerInput.Back) &&
                 (DateTime.Now - lastCapturePreviewClosedTime).TotalMilliseconds < 250)
@@ -6155,7 +8620,11 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
-            if ((isMusicPlayerVisible || isAudioSwitcherVisible || isUniPlaySongVisible || isFriendsVisible || isLastCapturesVisible || isAppsVisible || isAchievementsVisible) && (button == ControllerInput.B || button == ControllerInput.Back))
+            // Friends and Achievements have their own nested overlay navigation (list ->
+            // action/profile and list -> action/capture), so let their dedicated handlers
+            // decide what B means instead of closing the whole child view here.
+            if ((isMusicPlayerVisible || isAudioSwitcherVisible || isUniPlaySongVisible || isLastCapturesVisible || isAppsVisible || isGameLinksVisible) &&
+                (button == ControllerInput.B || button == ControllerInput.Back))
             {
                 if (isMusicPlayerVisible)
                 {
@@ -6169,10 +8638,6 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     HideUniPlaySong();
                 }
-                else if (isFriendsVisible)
-                {
-                    HideFriends();
-                }
                 else if (isLastCapturesVisible)
                 {
                     HideLastCaptures();
@@ -6181,9 +8646,9 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     HideApps();
                 }
-                else
+                else if (isGameLinksVisible)
                 {
-                    HideAchievements();
+                    HideGameLinks();
                 }
 
                 return;
@@ -6270,6 +8735,10 @@ namespace AnikiHelper.Services.InGameOverlay
                         service.HideOverlay();
                     }
                     break;
+
+                case ControllerInput.Guide:
+                    service.HideOverlay();
+                    break;
             }
         }
 
@@ -6298,7 +8767,8 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
-            if ((isMusicPlayerVisible || isAudioSwitcherVisible || isUniPlaySongVisible || isFriendsVisible || isLastCapturesVisible || isAppsVisible || isAchievementsVisible) && (args.Button == ControllerInput.B || args.Button == ControllerInput.Back))
+            if ((isMusicPlayerVisible || isAudioSwitcherVisible || isUniPlaySongVisible || isLastCapturesVisible || isAppsVisible || isGameLinksVisible) &&
+                (args.Button == ControllerInput.B || args.Button == ControllerInput.Back))
             {
                 if (isMusicPlayerVisible)
                 {
@@ -6312,10 +8782,6 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     HideUniPlaySong();
                 }
-                else if (isFriendsVisible)
-                {
-                    HideFriends();
-                }
                 else if (isLastCapturesVisible)
                 {
                     HideLastCaptures();
@@ -6324,9 +8790,9 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     HideApps();
                 }
-                else
+                else if (isGameLinksVisible)
                 {
-                    HideAchievements();
+                    HideGameLinks();
                 }
 
                 return;
@@ -6420,7 +8886,7 @@ namespace AnikiHelper.Services.InGameOverlay
             var now = DateTime.Now;
             var elapsed = (now - lastControllerNavigationTime).TotalMilliseconds;
 
-            // SDL and WPF can report the same press; share a short duplicate-input gate.
+            // Playnite controller events and WPF key mirroring can report the same physical press; share a short duplicate-input gate.
             if (elapsed < 160)
             {
                 return false;
@@ -6490,7 +8956,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
-            if (isAppsVisible)
+            if (isAppsVisible || isGameLinksVisible)
             {
                 MoveAppsFocus(direction);
                 return;
@@ -6539,11 +9005,11 @@ namespace AnikiHelper.Services.InGameOverlay
 
             if (service.IsGameRunning)
             {
-                return new[] { returnButton, keyboardButton, achievementsSectionButton, friendsButton, mediaSectionButton, musicButton, uniPlaySongButton, audioSectionButton, quitButton }
+                return new[] { resumeButton, returnButton, keyboardButton, achievementsSectionButton, friendsButton, mediaSectionButton, gameLinksButton, musicButton, audioSectionButton, appsButton, quitButton }
                     .WhereButtonCanReceiveControllerFocus();
             }
 
-            return new[] { musicButton, uniPlaySongButton, audioSectionButton, friendsButton, mediaSectionButton, keyboardButton }
+            return new[] { musicButton, audioSectionButton, appsButton, friendsButton, mediaSectionButton, keyboardButton }
                 .WhereButtonCanReceiveControllerFocus();
         }
 
@@ -6584,15 +9050,17 @@ namespace AnikiHelper.Services.InGameOverlay
                 }
 
 
+                if (button == resumeButton)
+                {
+                    service.ReturnToGame();
+                    return;
+                }
+
                 if (button == returnButton)
                 {
                     if (!service.IsGameRunning)
                     {
                         service.HideOverlay();
-                    }
-                    else if (service.OverlayOpenedFromPlaynite)
-                    {
-                        service.ReturnToGame();
                     }
                     else
                     {
@@ -6626,12 +9094,6 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
-                if (button == uniPlaySongButton)
-                {
-                    service.OpenUniPlaySongWindow();
-                    return;
-                }
-
                 if (button == musicButton)
                 {
                     service.OpenMusicPlayerWindow();
@@ -6641,6 +9103,18 @@ namespace AnikiHelper.Services.InGameOverlay
                 if (button == achievementsSectionButton)
                 {
                     service.OpenAchievementsWindow();
+                    return;
+                }
+
+                if (button == appsButton)
+                {
+                    service.OpenAppsWindow();
+                    return;
+                }
+
+                if (button == gameLinksButton)
+                {
+                    service.OpenGameLinksWindow();
                     return;
                 }
 
@@ -6856,6 +9330,7 @@ namespace AnikiHelper.Services.InGameOverlay
             if (e.Key == Key.Enter || e.Key == Key.Space)
             {
                 e.Handled = true;
+
                 ClickForcedControllerFocusedButton();
                 return;
             }
@@ -6887,6 +9362,10 @@ namespace AnikiHelper.Services.InGameOverlay
                 else if (isAppsVisible)
                 {
                     HideApps();
+                }
+                else if (isGameLinksVisible)
+                {
+                    HideGameLinks();
                 }
                 else if (isAchievementsVisible)
                 {

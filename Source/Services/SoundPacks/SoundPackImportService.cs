@@ -89,7 +89,7 @@ namespace AnikiHelper.Services.SoundPacks
         public const int MaximumLibraryPacks = 20;
 
         private const int SupportedFormatVersion = 1;
-        private const int MaximumArchiveEntries = 24;
+        private const int MaximumArchiveEntries = 26;
         private const long MaximumManifestBytes = 64L * 1024L;
         private const long MaximumSingleAudioBytes = 100L * 1024L * 1024L;
         private const long MaximumTotalAudioBytes = 300L * 1024L * 1024L;
@@ -103,8 +103,11 @@ namespace AnikiHelper.Services.SoundPacks
             "Noti.wav",
             "EnterGameDetails.wav",
             "ExitGameDetails.wav",
+            "LoginConfirm.wav",
+            "OpenPanel.wav",
             "OpenAdditionalView.wav",
-            "ChangeDisplay.wav",
+            "CloseAdditionalView.wav",
+            "HomeHubOpen.wav",
             "HomeHubClose.wav",
             "SessionSummary.wav",
             "Warning.wav",
@@ -132,8 +135,11 @@ namespace AnikiHelper.Services.SoundPacks
                 ["Noti.wav"] = "audio/Noti.wav",
                 ["EnterGameDetails.wav"] = "audio/EnterGameDetails.wav",
                 ["ExitGameDetails.wav"] = "audio/ExitGameDetails.wav",
+                ["LoginConfirm.wav"] = "audio/LoginConfirm.wav",
+                ["OpenPanel.wav"] = "audio/OpenPanel.wav",
                 ["OpenAdditionalView.wav"] = "audio/OpenAdditionalView.wav",
-                ["ChangeDisplay.wav"] = "audio/ChangeDisplay.wav",
+                ["CloseAdditionalView.wav"] = "audio/CloseAdditionalView.wav",
+                ["HomeHubOpen.wav"] = "audio/HomeHubOpen.wav",
                 ["HomeHubClose.wav"] = "audio/HomeHubClose.wav",
                 ["SessionSummary.wav"] = "audio/SessionSummary.wav",
                 ["Warning.wav"] = "audio/Warning.wav",
@@ -152,6 +158,15 @@ namespace AnikiHelper.Services.SoundPacks
 
         private static readonly HashSet<string> SupportedAudioRelativePathSet =
             new HashSet<string>(SupportedAudioRelativePathByFileName.Values, StringComparer.OrdinalIgnoreCase);
+
+        // Compatibility only: older Sound Packs / Creator builds may still contain this file.
+        // It is accepted during import so existing packs do not suddenly fail, but it is no
+        // longer exposed as a runtime sound and is omitted when a pack is exported again.
+        private static readonly HashSet<string> ImportAcceptedAudioRelativePathSet =
+            new HashSet<string>(SupportedAudioRelativePathSet, StringComparer.OrdinalIgnoreCase)
+            {
+                "audio/ChangeDisplay.wav"
+            };
 
         private readonly ILogger logger;
         private readonly string soundPacksRoot;
@@ -217,7 +232,7 @@ namespace AnikiHelper.Services.SoundPacks
 
                     audioEntries = archive.Entries
                         .Where(x => !string.IsNullOrEmpty(x.Name) &&
-                                    SupportedAudioRelativePathSet.Contains(NormalizeArchivePath(x.FullName)))
+                                    ImportAcceptedAudioRelativePathSet.Contains(NormalizeArchivePath(x.FullName)))
                         .ToList();
 
                     ValidateAudioEntries(audioEntries);
@@ -572,7 +587,7 @@ namespace AnikiHelper.Services.SoundPacks
 
                 if (!string.Equals(normalized, ManifestFileName, StringComparison.OrdinalIgnoreCase) &&
                     !isEmbeddedPreview &&
-                    !SupportedAudioRelativePathSet.Contains(normalized))
+                    !ImportAcceptedAudioRelativePathSet.Contains(normalized))
                 {
                     throw new InvalidDataException("The Sound Pack contains an unsupported file: " + normalized);
                 }

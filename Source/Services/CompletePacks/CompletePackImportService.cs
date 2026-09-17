@@ -42,6 +42,27 @@ namespace AnikiHelper.Services.CompletePacks
         public bool HasSoundPack => !string.IsNullOrWhiteSpace(SoundPackLocalId);
     }
 
+    public sealed class CompletePackComponentPackIds
+    {
+        public string VisualPackId { get; set; }
+        public string ColorPackId { get; set; }
+        public string LoginPackId { get; set; }
+        public string SoundPackId { get; set; }
+
+        [JsonIgnore]
+        public int Count => new[] { VisualPackId, ColorPackId, LoginPackId, SoundPackId }
+            .Count(x => !string.IsNullOrWhiteSpace(x));
+    }
+
+    public sealed class CompletePackDeleteAnalysis
+    {
+        public CompletePackComponentPackIds ComponentPackIds { get; set; } = new CompletePackComponentPackIds();
+        public List<string> SharedWithCompletePackNames { get; set; } = new List<string>();
+
+        [JsonIgnore]
+        public bool HasSharedComponents => SharedWithCompletePackNames != null && SharedWithCompletePackNames.Count > 0;
+    }
+
     public sealed class CompletePackLibrarySnapshot
     {
         public int MaximumPacks { get; set; }
@@ -115,6 +136,12 @@ namespace AnikiHelper.Services.CompletePacks
 
         [JsonProperty("components")]
         public CompletePackComponentsManifest Components { get; set; }
+    }
+
+    internal sealed class CompletePackComponentIdentityManifest
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
     }
 
     internal sealed class CompletePackComponentsManifest
@@ -361,6 +388,146 @@ namespace AnikiHelper.Services.CompletePacks
             }
 
             return selection;
+        }
+
+        public CompletePackComponentPackIds GetComponentPackIds(string localId)
+        {
+            EnsureLibraryFolders();
+            var index = LoadIndex();
+            if (RemoveMissingLibraryEntries(index))
+            {
+                SaveIndex(index);
+            }
+
+            var record = FindPack(index, localId);
+            return GetComponentPackIds(record);
+        }
+
+        public CompletePackDeleteAnalysis AnalyzeDelete(string localId)
+        {
+            EnsureLibraryFolders();
+            var index = LoadIndex();
+            if (RemoveMissingLibraryEntries(index))
+            {
+                SaveIndex(index);
+            }
+
+            var record = FindPack(index, localId);
+            var targetComponents = GetComponentPackIds(record);
+            var sharedNames = new List<string>();
+
+            foreach (var other in index.Packs.Where(x =>
+                x != null &&
+                !string.Equals(x.LocalId, record.LocalId, StringComparison.OrdinalIgnoreCase)))
+            {
+                CompletePackComponentPackIds otherComponents;
+                try
+                {
+                    otherComponents = GetComponentPackIds(other);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][CompletePack] Failed to inspect components for '" + (other.Name ?? other.LocalId) + "'.");
+                    continue;
+                }
+
+                if (SharesAnyComponent(targetComponents, otherComponents))
+                {
+                    var name = string.IsNullOrWhiteSpace(other.Name) ? other.LocalId : other.Name;
+                    if (!string.IsNullOrWhiteSpace(name) &&
+                        !sharedNames.Contains(name, StringComparer.CurrentCultureIgnoreCase))
+                    {
+                        sharedNames.Add(name);
+                    }
+                }
+            }
+
+            return new CompletePackDeleteAnalysis
+            {
+                ComponentPackIds = targetComponents,
+                SharedWithCompletePackNames = sharedNames
+                    .OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList()
+            };
+        }
+
+        private CompletePackComponentPackIds GetComponentPackIds(CompletePackLibraryPack record)
+        {
+            var result = new CompletePackComponentPackIds();
+            if (record == null || string.IsNullOrWhiteSpace(record.LocalId))
+            {
+                return result;
+            }
+
+            var folder = Path.Combine(libraryRoot, record.LocalId);
+            var manifest = LoadStoredManifest(folder);
+            ValidateManifest(manifest);
+
+            result.VisualPackId = ReadComponentPackId(folder, manifest.Components?.Visual, "visualpack.json");
+            result.ColorPackId = ReadComponentPackId(folder, manifest.Components?.Color, "colorpack.json");
+            result.LoginPackId = ReadComponentPackId(folder, manifest.Components?.Login, "loginpack.json");
+            result.SoundPackId = ReadComponentPackId(folder, manifest.Components?.Sound, "soundpack.json");
+            return result;
+        }
+
+        private string ReadComponentPackId(string completePackFolder, string componentRelativePath, string manifestFileName)
+        {
+            if (string.IsNullOrWhiteSpace(componentRelativePath))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                var archivePath = GetStoredComponentPath(completePackFolder, NormalizeComponentPath(componentRelativePath));
+                if (!File.Exists(archivePath))
+                {
+                    return string.Empty;
+                }
+
+                using (var archive = ZipFile.OpenRead(archivePath))
+                {
+                    var entry = archive.Entries.FirstOrDefault(x =>
+                        !string.IsNullOrEmpty(x.Name) &&
+                        string.Equals(NormalizeArchivePath(x.FullName), manifestFileName, StringComparison.OrdinalIgnoreCase));
+                    if (entry == null || entry.Length <= 0 || entry.Length > MaximumManifestBytes)
+                    {
+                        return string.Empty;
+                    }
+
+                    using (var stream = entry.Open())
+                    using (var reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true))
+                    {
+                        var componentManifest = JsonConvert.DeserializeObject<CompletePackComponentIdentityManifest>(reader.ReadToEnd());
+                        return componentManifest?.Id?.Trim() ?? string.Empty;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][CompletePack] Failed to read component identity from '" + componentRelativePath + "'.");
+                return string.Empty;
+            }
+        }
+
+        private static bool SharesAnyComponent(CompletePackComponentPackIds left, CompletePackComponentPackIds right)
+        {
+            if (left == null || right == null)
+            {
+                return false;
+            }
+
+            return SameNonEmptyId(left.VisualPackId, right.VisualPackId) ||
+                   SameNonEmptyId(left.ColorPackId, right.ColorPackId) ||
+                   SameNonEmptyId(left.LoginPackId, right.LoginPackId) ||
+                   SameNonEmptyId(left.SoundPackId, right.SoundPackId);
+        }
+
+        private static bool SameNonEmptyId(string left, string right)
+        {
+            return !string.IsNullOrWhiteSpace(left) &&
+                   !string.IsNullOrWhiteSpace(right) &&
+                   string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
         }
 
         public void SetActivePack(string localId)

@@ -1,4 +1,5 @@
 ﻿using AnikiHelper.Services.Achievements;
+using AnikiHelper.Services.Controller;
 using AnikiHelper.Services.MediaGallery;
 using AnikiHelper.Services.WebBrowser;
 using Playnite.SDK;
@@ -33,6 +34,21 @@ namespace AnikiHelper.Services.InGameOverlay
 
         private InGameOverlayHotkeyService hotkeyService;
         private AnikiOverlayInputListener inputListener;
+
+        // Playnite normally disables its native WPF controller processing when the app loses
+        // activation. A manual Win32 focus handoff from the overlay can leave that internal
+        // state enabled even though the game is foreground, which makes the next controller
+        // input navigate/activate Playnite behind the game. Keep Playnite's native processing
+        // explicitly synchronized with the real foreground window. SDK ButtonChanged events
+        // still fire when StandardProcessingEnabled is false, so Aniki's in-game shortcuts
+        // continue to work.
+        private System.Windows.Threading.DispatcherTimer playniteControllerProcessingGuardTimer;
+        private object playniteGameControllerManager;
+        private PropertyInfo playniteStandardProcessingEnabledProperty;
+        private bool? lastAppliedPlayniteStandardProcessingState;
+        private bool playniteControllerManagerResolutionFailedLogged;
+        private const int PlayniteControllerProcessingGuardIntervalMs = 75;
+
         private GamepadMouseService gamepadMouseService;
         private AnikiInGameOverlayWindow overlayWindow;
         private bool overlayOpenedFromPlaynite;
@@ -45,8 +61,22 @@ namespace AnikiHelper.Services.InGameOverlay
         private int overlayForegroundRecoveryGeneration;
         private int controllerOverlayOpenGeneration;
         private int controllerVirtualKeyboardOpenGeneration;
+        private int returnToGameReleaseGeneration;
         private const int ControllerShortcutFocusHandoffDelayMs = 140;
         private const int OverlayDPadFallbackDelayMs = 65;
+
+        // Some overlay entries intentionally hand control to a normal Playnite/extension WPF
+        // window (for example PlayniteAchievements or the Steam friend action/profile windows).
+        // Keep that handoff console-like: do not let Playnite's main page steal controller focus,
+        // and reopen the in-game overlay automatically when the external window chain is finished.
+        private bool externalOverlayHandoffPending;
+        private int externalOverlayHandoffGeneration;
+        private string externalOverlayHandoffSource;
+        private DateTime externalOverlayHandoffLastActivityUtc = DateTime.MinValue;
+        private HashSet<Window> externalOverlayHandoffBaselineWindows = new HashSet<Window>();
+        private HashSet<Window> externalOverlayHandoffTrackedWindows = new HashSet<Window>();
+        private EventHandler externalOverlayMainWindowActivatedHandler;
+        private const int ExternalOverlayHandoffTransitionGraceMs = 350;
 
         private Game currentGame;
         private DateTime? currentSessionStartTime;
@@ -111,11 +141,70 @@ namespace AnikiHelper.Services.InGameOverlay
             logger = LogManager.GetLogger();
             playniteAchievementsReader = new PlayniteAchievementsReader(playniteApi, logger);
             gamepadMouseService = new GamepadMouseService(logger);
+            DeleteLegacyOverlayDiagnosticTraceFile();
+        }
+
+        private void DeleteLegacyOverlayDiagnosticTraceFile()
+        {
+            try
+            {
+                var extensionsDataPath = playniteApi?.Paths?.ExtensionsDataPath;
+                if (string.IsNullOrWhiteSpace(extensionsDataPath))
+                {
+                    return;
+                }
+
+                var tracePath = Path.Combine(
+                    extensionsDataPath,
+                    "96a983a3-3f13-4dce-a474-4052b718bb52",
+                    "overlay-first-open-trace.log");
+
+                if (File.Exists(tracePath))
+                {
+                    File.Delete(tracePath);
+                }
+            }
+            catch
+            {
+                // Legacy diagnostic cleanup must never affect plugin startup.
+            }
         }
 
         public bool IsGameRunning
         {
             get { return currentGame != null; }
+        }
+
+        public int CoverArtWidthRatio
+        {
+            get
+            {
+                try
+                {
+                    var value = playniteApi?.ApplicationSettings?.GridItemWidthRatio ?? 3;
+                    return value > 0 ? value : 3;
+                }
+                catch
+                {
+                    return 3;
+                }
+            }
+        }
+
+        public int CoverArtHeightRatio
+        {
+            get
+            {
+                try
+                {
+                    var value = playniteApi?.ApplicationSettings?.GridItemHeightRatio ?? 4;
+                    return value > 0 ? value : 4;
+                }
+                catch
+                {
+                    return 4;
+                }
+            }
         }
 
         internal bool IsWindowsVirtualKeyboardSelected
@@ -267,6 +356,10 @@ namespace AnikiHelper.Services.InGameOverlay
                 return string.Empty;
             }
         }
+
+        // Exposes the running game to overlay-hosted theme views that normally
+        // receive Playnite's SelectedGame binding context. Read-only on purpose.
+        internal Game CurrentGameForThemeBindings => currentGame;
 
         public string CurrentGameName
         {
@@ -578,6 +671,7 @@ namespace AnikiHelper.Services.InGameOverlay
             hotkeyService.Start();
 
             inputListener = new AnikiOverlayInputListener(
+                playniteApi,
                 settings,
                 logger,
                 QueueControllerOverlayOpen,
@@ -587,18 +681,24 @@ namespace AnikiHelper.Services.InGameOverlay
                 state => gamepadMouseService?.ProcessInput(state),
                 () => gamepadMouseService?.SuspendInput(),
                 () => settings == null || settings.InGameOverlayEnabled,
-                () => overlayWindow != null && overlayWindow.IsVisible,
+                // Input events may arrive from a non-WPF thread. Do not read Window.IsVisible
+                // from that thread; overlayOpenOrOpening is the thread-safe routing state.
+                () => overlayOpenOrOpening,
                 HandleOverlayControllerInput,
                 () => false,
                 isWebBrowserActive,
                 onWebBrowserInput);
 
             inputListener.Start();
+            StartPlayniteControllerProcessingGuard();
 
         }
 
         public void Stop()
         {
+            CancelExternalOverlayHandoff(false);
+            StopPlayniteControllerProcessingGuard();
+            SetPlayniteStandardControllerProcessing(true, "ServiceStop");
             ResumeSuspendedGameProcess();
             Interlocked.Increment(ref controllerOverlayOpenGeneration);
             Interlocked.Increment(ref controllerVirtualKeyboardOpenGeneration);
@@ -644,6 +744,321 @@ namespace AnikiHelper.Services.InGameOverlay
         }
 
 
+        private void StartPlayniteControllerProcessingGuard()
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+
+                Action start = () =>
+                {
+                    if (playniteControllerProcessingGuardTimer != null ||
+                        dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                    {
+                        return;
+                    }
+
+                    playniteControllerProcessingGuardTimer =
+                        new System.Windows.Threading.DispatcherTimer(
+                            System.Windows.Threading.DispatcherPriority.Background,
+                            dispatcher)
+                        {
+                            Interval = TimeSpan.FromMilliseconds(PlayniteControllerProcessingGuardIntervalMs)
+                        };
+
+                    playniteControllerProcessingGuardTimer.Tick += PlayniteControllerProcessingGuardTimer_Tick;
+                    playniteControllerProcessingGuardTimer.Start();
+                    SyncPlayniteNativeControllerProcessing("GuardStart");
+                };
+
+                if (dispatcher.CheckAccess())
+                {
+                    start();
+                }
+                else
+                {
+                    dispatcher.Invoke(start);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][Overlay][ControllerGuard] Failed to start native Playnite controller guard.");
+            }
+        }
+
+        private void StopPlayniteControllerProcessingGuard()
+        {
+            var timer = playniteControllerProcessingGuardTimer;
+            playniteControllerProcessingGuardTimer = null;
+
+            if (timer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var dispatcher = timer.Dispatcher;
+                Action stop = () =>
+                {
+                    try { timer.Stop(); } catch { }
+                    try { timer.Tick -= PlayniteControllerProcessingGuardTimer_Tick; } catch { }
+                };
+
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+
+                if (dispatcher.CheckAccess())
+                {
+                    stop();
+                }
+                else
+                {
+                    dispatcher.Invoke(stop);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void PlayniteControllerProcessingGuardTimer_Tick(object sender, EventArgs e)
+        {
+            SyncPlayniteNativeControllerProcessing("ForegroundPoll");
+        }
+
+        private void SyncPlayniteNativeControllerProcessing(string reason)
+        {
+            try
+            {
+                // The Aniki overlay owns controller routing while visible, even though it is
+                // a window in the Playnite process.
+                if (overlayWindow != null && overlayWindow.IsVisible)
+                {
+                    SetPlayniteStandardControllerProcessing(false, reason + ".Overlay");
+                    return;
+                }
+
+                var playniteForeground = IsForegroundWindowOwnedByPlayniteProcess();
+
+                // When Playnite owns foreground, respect AnikiControllerShortcutControl.
+                // Those controls deliberately disable Playnite native processing and then
+                // forward normal navigation themselves. Forcing native processing back on
+                // here makes one physical D-pad press get handled twice.
+                if (playniteForeground)
+                {
+                    SetPlayniteStandardControllerProcessing(
+                        !AnikiControllerShortcutControl.HasActiveShortcutControls,
+                        reason + ".PlayniteForeground");
+                    return;
+                }
+
+                // Outside Playnite (game or any external foreground process), keep native
+                // Playnite navigation disabled so the next controller press cannot steal focus.
+                // With no running game there is no reason for this guard to own the state.
+                if (currentGame != null)
+                {
+                    SetPlayniteStandardControllerProcessing(false, reason + ".ExternalForeground");
+                }
+            }
+            catch (Exception ex)
+            {
+                global::AnikiHelper.AnikiLog.Debug(
+                    logger,
+                    ex,
+                    "[AnikiHelper][Overlay][ControllerGuard] Foreground sync failed.");
+            }
+        }
+
+        private bool IsForegroundWindowOwnedByPlayniteProcess()
+        {
+            try
+            {
+                var foregroundWindow = GetForegroundWindow();
+                if (foregroundWindow == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                uint foregroundPid;
+                GetWindowThreadProcessId(foregroundWindow, out foregroundPid);
+                return foregroundPid != 0 && foregroundPid == (uint)Process.GetCurrentProcess().Id;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool TryResolvePlayniteGameControllerManager()
+        {
+            if (playniteGameControllerManager != null &&
+                playniteStandardProcessingEnabledProperty != null)
+            {
+                return true;
+            }
+
+            try
+            {
+                // Runtime path in Playnite 10.57+:
+                // Playnite.API.PlayniteAPI.RootApi -> private mainModel -> App -> GameController.
+                // This uses reflection only for the manager switch; actual controller state/input
+                // continues to use the public SDK 6.17 APIs.
+                var apiType = playniteApi?.GetType();
+                var rootProperty = apiType?.GetProperty(
+                    "RootApi",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var root = rootProperty?.GetValue(playniteApi, null);
+                if (root == null)
+                {
+                    return false;
+                }
+
+                object mainModel = null;
+                var rootType = root.GetType();
+                var mainModelField = rootType.GetField(
+                    "mainModel",
+                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (mainModelField != null)
+                {
+                    mainModel = mainModelField.GetValue(root);
+                }
+
+                // Small compatibility fallback in case the private field name changes while
+                // the RootApi structure stays equivalent.
+                if (mainModel == null)
+                {
+                    foreach (var field in rootType.GetFields(
+                        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
+                    {
+                        object candidate = null;
+                        try { candidate = field.GetValue(root); } catch { }
+                        if (candidate == null)
+                        {
+                            continue;
+                        }
+
+                        var candidateAppProperty = candidate.GetType().GetProperty(
+                            "App",
+                            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (candidateAppProperty != null)
+                        {
+                            mainModel = candidate;
+                            break;
+                        }
+                    }
+                }
+
+                if (mainModel == null)
+                {
+                    return false;
+                }
+
+                var appProperty = mainModel.GetType().GetProperty(
+                    "App",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var app = appProperty?.GetValue(mainModel, null);
+                if (app == null)
+                {
+                    return false;
+                }
+
+                var controllerProperty = app.GetType().GetProperty(
+                    "GameController",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var controllerManager = controllerProperty?.GetValue(app, null);
+                if (controllerManager == null)
+                {
+                    return false;
+                }
+
+                var processingProperty = controllerManager.GetType().GetProperty(
+                    "StandardProcessingEnabled",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (processingProperty == null ||
+                    processingProperty.PropertyType != typeof(bool) ||
+                    !processingProperty.CanRead ||
+                    !processingProperty.CanWrite)
+                {
+                    return false;
+                }
+
+                playniteGameControllerManager = controllerManager;
+                playniteStandardProcessingEnabledProperty = processingProperty;
+                playniteControllerManagerResolutionFailedLogged = false;
+
+                OverlayDebugLog(
+                    "[Overlay][ControllerGuard] Playnite native GameControllerManager resolved. " +
+                    "StandardProcessingEnabled can now be synchronized with foreground state.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (!playniteControllerManagerResolutionFailedLogged)
+                {
+                    playniteControllerManagerResolutionFailedLogged = true;
+                    logger?.Warn(ex, "[AnikiHelper][Overlay][ControllerGuard] Failed to resolve Playnite GameControllerManager.");
+                }
+
+                return false;
+            }
+        }
+
+        private void SetPlayniteStandardControllerProcessing(bool enabled, string reason)
+        {
+            try
+            {
+                if (!TryResolvePlayniteGameControllerManager())
+                {
+                    if (!playniteControllerManagerResolutionFailedLogged)
+                    {
+                        playniteControllerManagerResolutionFailedLogged = true;
+                        logger?.Warn(
+                            "[AnikiHelper][Overlay][ControllerGuard] Playnite GameControllerManager is unavailable; " +
+                            "falling back to the existing WPF input guard.");
+                    }
+                    return;
+                }
+
+                var current = (bool)playniteStandardProcessingEnabledProperty.GetValue(
+                    playniteGameControllerManager,
+                    null);
+
+                // Do not trust only our cached state: Playnite itself updates this property
+                // when its WPF Application Activated/Deactivated state changes.
+                if (current != enabled)
+                {
+                    playniteStandardProcessingEnabledProperty.SetValue(
+                        playniteGameControllerManager,
+                        enabled,
+                        null);
+                }
+
+                if (!lastAppliedPlayniteStandardProcessingState.HasValue ||
+                    lastAppliedPlayniteStandardProcessingState.Value != enabled ||
+                    current != enabled)
+                {
+                    lastAppliedPlayniteStandardProcessingState = enabled;
+                    OverlayDebugLog(
+                        $"[Overlay][ControllerGuard] Native Playnite controller processing = {enabled}. " +
+                        $"Reason={reason}, Was={current}, GameRunning={currentGame != null}, " +
+                        $"OverlayVisible={overlayWindow != null && overlayWindow.IsVisible}, " +
+                        $"PlayniteProcessForeground={IsForegroundWindowOwnedByPlayniteProcess()}");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][Overlay][ControllerGuard] Failed to set Playnite native controller processing state.");
+            }
+        }
+
+
         private void ToggleGamepadMouseMode()
         {
             try
@@ -683,6 +1098,8 @@ namespace AnikiHelper.Services.InGameOverlay
                 OverlayDebugLog($"[Overlay][Process] Playnite reported started PID={startedProcessId.Value}, Game={game?.Name}");
             }
 
+            SyncPlayniteNativeControllerProcessing("SetCurrentGame");
+
             try
             {
                 overlayWindow?.Refresh();
@@ -716,11 +1133,33 @@ namespace AnikiHelper.Services.InGameOverlay
                 overlayNonActivatingControllerMode = false;
             }
 
+            SyncPlayniteNativeControllerProcessing("ClearCurrentGame");
             HideOverlayWithoutRestoringGameFocus();
         }
 
         public void ToggleOverlay()
         {
+            // Keyboard/controller hotkeys are not guaranteed to run on the WPF UI thread.
+            // Reading/closing the overlay Window from another thread can throw and used to
+            // leave a visible orphaned overlay behind. Route the whole toggle to WPF first.
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
+            if (!dispatcher.CheckAccess())
+            {
+                dispatcher.BeginInvoke(new Action(ToggleOverlay), System.Windows.Threading.DispatcherPriority.Send);
+                return;
+            }
+
+            if (overlayWindow != null && overlayWindow.IsVisible)
+            {
+                HideOverlay();
+                return;
+            }
+
             OpenOverlayInternal(ignoreEnabledSetting: false, source: "Shortcut");
         }
 
@@ -768,7 +1207,6 @@ namespace AnikiHelper.Services.InGameOverlay
             OverlayDebugLog(
                 $"[Overlay][ControllerShortcut] Overlay handoff queued. " +
                 $"DelayMs={ControllerShortcutFocusHandoffDelayMs}, Target={lastForegroundWindow}, Mode=ActivatingOverlayV2");
-
             try
             {
                 await Task.Delay(ControllerShortcutFocusHandoffDelayMs).ConfigureAwait(false);
@@ -1481,26 +1919,12 @@ namespace AnikiHelper.Services.InGameOverlay
                 return;
             }
 
-            // Outside a game, Quick Access > Extra replaces the old non-game overlay.
-            // The overlay window itself is now reserved for an actively running game.
-            if (currentGame == null && openNonGameExtraMenu != null)
+            // The in-game overlay is only available while a game is actively running.
+            // Outside a game, ignore overlay requests instead of redirecting the shortcut
+            // to Quick Access > Extra.
+            if (currentGame == null)
             {
-                if (HasOpenCustomWindow())
-                {
-                    OverlayDebugLog($"[Overlay] Non-game Extra redirect blocked because a custom window is already open. Source={source}");
-                    return;
-                }
-
-                try
-                {
-                    OverlayDebugLog($"[Overlay] No game running; redirecting to Quick Access Extra. Source={source}");
-                    openNonGameExtraMenu();
-                }
-                catch (Exception ex)
-                {
-                    logger?.Warn(ex, "[AnikiHelper][Overlay] Non-game Extra redirect failed.");
-                }
-
+                OverlayDebugLog($"[Overlay] Open ignored because no game is running. Source={source}");
                 return;
             }
 
@@ -1614,7 +2038,35 @@ namespace AnikiHelper.Services.InGameOverlay
         {
             OverlayDebugLog($"[OverlayInput] HandleOverlayControllerInput: {button}");
 
-            // Let native D-pad input win, then use SDL as a short fallback.
+            // B/Back/Guide are overlay-level close inputs. Route them even if a transient
+            // focus handoff left the overlay visible but not currently foreground; otherwise
+            // B can be sent to Playnite behind the overlay and the overlay becomes impossible
+            // to close from the controller.
+            if ((button == ControllerInput.B ||
+                 button == ControllerInput.Back ||
+                 button == ControllerInput.Guide) &&
+                overlayWindow != null &&
+                overlayWindow.IsVisible)
+            {
+                try
+                {
+                    var visibleWindow = overlayWindow;
+                    visibleWindow.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (ReferenceEquals(overlayWindow, visibleWindow) && visibleWindow.IsVisible)
+                        {
+                            visibleWindow.HandleOverlayControllerInput(button);
+                        }
+                    }), System.Windows.Threading.DispatcherPriority.Send);
+                }
+                catch
+                {
+                }
+
+                return;
+            }
+
+            // Let native D-pad input win, then use the short fallback.
             if (IsDPadButton(button))
             {
                 QueueOverlayDPadFallback(button);
@@ -1781,9 +2233,8 @@ namespace AnikiHelper.Services.InGameOverlay
 
         public bool HandleControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
         {
-            // All digital controller handling for Browser, Overlay, virtual-keyboard and
-            // Gamepad Mouse shortcuts now comes from Playnite's public P10 button-state API.
-            // AnikiOverlayInputListener only touches SDL for continuous analog axis reads.
+            // All controller state used by Aniki comes from Playnite's public SDK events /
+            // GetConnectedControllers2(). The service no longer reads SDL controller handles.
             return inputListener?.HandleControllerButtonStateChanged(args) == true;
         }
 
@@ -1843,6 +2294,7 @@ namespace AnikiHelper.Services.InGameOverlay
                     {
                     }
                 }
+
             }
         }
 
@@ -2166,6 +2618,13 @@ namespace AnikiHelper.Services.InGameOverlay
 
             overlayWindow.Topmost = false;
             overlayWindow.Topmost = true;
+
+            if (currentGame != null)
+            {
+                // Overlay buttons are routed through Aniki's SDK listener. Prevent the native
+                // Fullscreen UI underneath from reacting to the same controller press.
+                SetPlayniteStandardControllerProcessing(false, "OverlayVisible");
+            }
 
             if (!overlayNonActivatingControllerMode)
             {
@@ -2491,12 +2950,65 @@ namespace AnikiHelper.Services.InGameOverlay
         {
             try
             {
-                // Recreate the overlay after close so stale frames cannot flash on reopen.
+                // Closing the overlay must return to the context it was opened from.
+                // If Playnite was already foreground when the overlay opened, B/Escape
+                // must only close the overlay and keep Playnite in front. Previously this
+                // always called RestoreGameFocus() whenever a game was running, which
+                // could unexpectedly throw the user back into the game.
+                if (overlayOpenedFromPlaynite)
+                {
+                    // Destination is Playnite itself, so native navigation must be restored
+                    // before the overlay window closes.
+                    SetPlayniteStandardControllerProcessing(true, "CloseOverlay.ToPlaynite");
+                    var keepGameSuspended = IsGameProcessSuspended();
+
+                    // If the game was intentionally suspended while browsing Playnite,
+                    // keep it suspended when merely closing the overlay back to Playnite.
+                    HideOverlayImmediate(resumeSuspendedGame: !keepGameSuspended);
+
+                    var playniteWindow = Application.Current?.MainWindow;
+                    if (playniteWindow != null)
+                    {
+                        RestoreAndFocusPlayniteWindow(playniteWindow, keepGameSuspended);
+                    }
+
+                    OverlayDebugLog(
+                        $"[Overlay][Close] Returned to Playnite origin. KeepGameSuspended={keepGameSuspended}");
+                    return;
+                }
+
+                // Overlay opened over the game: lock the validated target before
+                // closing the overlay so the focus handoff cannot race against Playnite
+                // becoming foreground during Window.Close().
+                var gameWindow = IntPtr.Zero;
+                var gameProcessId = 0;
+                var gameTargetSource = string.Empty;
+                var gameWasSuspended = IsGameProcessSuspended();
+                var hasValidatedGameTarget = currentGame != null &&
+                    TryResolveValidatedGameTarget(out gameWindow, out gameProcessId, out gameTargetSource);
+
+                // Disable Playnite's own controller routing before Window.Close() hands focus
+                // back to the game. ButtonChanged events remain available to Aniki.
+                SetPlayniteStandardControllerProcessing(false, "CloseOverlay.ToGame");
                 HideOverlayImmediate();
-                RestoreGameFocus();
+
+                if (hasValidatedGameTarget)
+                {
+                    BeginReturnToGameFocus(
+                        gameWindow,
+                        gameProcessId,
+                        "CloseOverlay:" + gameTargetSource,
+                        gameWasSuspended);
+                }
+                else
+                {
+                    OverlayDebugLog("[Overlay][Close] No validated game target was available before close.");
+                    RestoreGameFocus();
+                }
             }
-            catch
+            catch (Exception ex)
             {
+                global::AnikiHelper.AnikiLog.Debug(logger, ex, "[AnikiHelper][Overlay] HideOverlay failed.");
             }
         }
 
@@ -2953,23 +3465,94 @@ namespace AnikiHelper.Services.InGameOverlay
                 OverlayDebugLog("[Overlay][Suspend] Closing overlay without resuming suspended game.");
             }
 
-            try
+            var windowToClose = overlayWindow;
+            if (windowToClose == null)
             {
-                if (overlayWindow != null)
+                closeOverlayShouldResumeSuspendedGame = true;
+                return;
+            }
+
+            Action closeOnUiThread = () =>
+            {
+                // A newer overlay may have been created while this close was queued. Never
+                // close the replacement window by mistake.
+                if (!ReferenceEquals(overlayWindow, windowToClose))
+                {
+                    return;
+                }
+
+                try
                 {
                     closeOverlayShouldResumeSuspendedGame = resumeSuspendedGame;
-                    overlayWindow.Close();
-                    overlayWindow = null;
+                    OverlayDebugLog(
+                        $"[Overlay][Close] Closing WPF overlay. IsVisible={windowToClose.IsVisible}, " +
+                        $"IsActive={windowToClose.IsActive}, DispatcherAccess={windowToClose.Dispatcher.CheckAccess()}");
+
+                    windowToClose.Close();
+
+                    // Normally OverlayWindow_Closed clears overlayWindow. If WPF ever returns
+                    // from Close() while the same window is still visible, hide it immediately
+                    // instead of leaving a topmost orphan over the game.
+                    if (ReferenceEquals(overlayWindow, windowToClose) && windowToClose.IsVisible)
+                    {
+                        OverlayDebugLog("[Overlay][Close] Close() returned but overlay is still visible. Forcing HideImmediately().");
+                        windowToClose.HideImmediately();
+                        overlayOpenOrOpening = false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][Overlay] Window.Close failed. Falling back to HideImmediately so the overlay cannot remain orphaned.");
+
+                    try
+                    {
+                        windowToClose.HideImmediately();
+                        overlayOpenOrOpening = false;
+                        OverlayDebugLog("[Overlay][Close] HideImmediately fallback succeeded after Close() failure.");
+                    }
+                    catch (Exception hideEx)
+                    {
+                        logger?.Warn(hideEx, "[AnikiHelper][Overlay] HideImmediately fallback also failed.");
+                    }
+                }
+            };
+
+            try
+            {
+                var dispatcher = windowToClose.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    OverlayDebugLog("[Overlay][Close] Overlay dispatcher is unavailable; close skipped.");
+                    return;
+                }
+
+                if (dispatcher.CheckAccess())
+                {
+                    closeOnUiThread();
                 }
                 else
                 {
-                    closeOverlayShouldResumeSuspendedGame = true;
+                    // HideOverlayImmediate is also called from game/session callbacks. Close the
+                    // WPF Window synchronously on its owning dispatcher so focus restoration does
+                    // not race ahead while the overlay is still physically visible.
+                    dispatcher.Invoke(closeOnUiThread, System.Windows.Threading.DispatcherPriority.Send);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                closeOverlayShouldResumeSuspendedGame = true;
-                overlayWindow = null;
+                logger?.Warn(ex, "[AnikiHelper][Overlay] Failed to marshal overlay close to the WPF dispatcher.");
+
+                try
+                {
+                    var dispatcher = windowToClose.Dispatcher;
+                    if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+                    {
+                        dispatcher.BeginInvoke(closeOnUiThread, System.Windows.Threading.DispatcherPriority.Send);
+                    }
+                }
+                catch
+                {
+                }
             }
         }
 
@@ -3633,19 +4216,22 @@ namespace AnikiHelper.Services.InGameOverlay
         private void BeginReturnToGameFocus(
             IntPtr initialWindowHandle,
             int processId,
-            string sourceName)
+            string sourceName,
+            bool gameWasSuspended = true)
         {
             _ = FocusGameWindowWithRetriesAsync(
                 initialWindowHandle,
                 processId,
-                sourceName);
+                sourceName,
+                gameWasSuspended: gameWasSuspended);
         }
 
         private async Task<bool> FocusGameWindowWithRetriesAsync(
             IntPtr initialWindowHandle,
             int processId,
             string sourceName,
-            bool updateCurrentGameProcessId = true)
+            bool updateCurrentGameProcessId = true,
+            bool gameWasSuspended = true)
         {
             var targetWindow = initialWindowHandle;
             var playniteWindow = IntPtr.Zero;
@@ -3670,9 +4256,12 @@ namespace AnikiHelper.Services.InGameOverlay
 
             try
             {
-                // The game has just been resumed after being suspended by the overlay.
-                // Give its UI thread a brief moment to process window activation messages.
-                await Task.Delay(ReturnToGameInitialFocusDelayMs);
+                // A suspended game needs a little longer for its UI thread to wake up.
+                // When it was already running (for example Return to Game from Playnite),
+                // only wait for the WPF overlay close/focus transition to settle.
+                await Task.Delay(gameWasSuspended
+                    ? ReturnToGameInitialFocusDelayMs
+                    : ReturnToGameFastInitialFocusDelayMs);
 
                 for (var attempt = 1; attempt <= ReturnToGameFocusMaxAttempts; attempt++)
                 {
@@ -3683,8 +4272,28 @@ namespace AnikiHelper.Services.InGameOverlay
                         if (!TryGetRunningProcess(processId, out process))
                         {
                             OverlayDebugLog(
-                                $"[Overlay][ReturnToGame] Target process is no longer running. PID={processId}"
+                                $"[Overlay][ReturnToGame] Target process is no longer running. PID={processId}. Trying to resolve a replacement game process."
                             );
+
+                            IntPtr replacementWindow;
+                            int replacementProcessId;
+                            string replacementSource;
+
+                            if (TryResolveValidatedGameTarget(
+                                out replacementWindow,
+                                out replacementProcessId,
+                                out replacementSource))
+                            {
+                                targetWindow = replacementWindow;
+                                processId = replacementProcessId;
+                                sourceName = sourceName + "->" + replacementSource;
+
+                                OverlayDebugLog(
+                                    $"[Overlay][ReturnToGame] Replacement target resolved. " +
+                                    $"PID={processId}, Source={sourceName}, Window={targetWindow}");
+                                continue;
+                            }
+
                             return false;
                         }
 
@@ -3856,28 +4465,132 @@ namespace AnikiHelper.Services.InGameOverlay
 
         public void ReturnToGame()
         {
-            OverlayDebugLog("[Overlay][ReturnToGame] START");
+            // Controller buttons are global input on Windows. Some games keep polling A
+            // while they are unfocused, and handing focus back while the activation press is
+            // still physically held can replay that same A inside the game. Keep the current
+            // overlay/Playnite surface visible until A is physically released, then give the
+            // controller state a short neutral-settle window before restoring game focus.
+            var generation = Interlocked.Increment(ref returnToGameReleaseGeneration);
+            _ = ReturnToGameAfterControllerReleaseAsync(generation);
+        }
 
-            HideOverlayImmediate();
+        private async Task ReturnToGameAfterControllerReleaseAsync(int generation)
+        {
+            try
+            {
+                var startedUtc = DateTime.UtcNow;
+                var sawHeldA = false;
+
+                while (generation == Volatile.Read(ref returnToGameReleaseGeneration))
+                {
+                    var aPressed = inputListener?.IsButtonCurrentlyPressed(ControllerInput.A) == true;
+                    if (!aPressed)
+                    {
+                        break;
+                    }
+
+                    sawHeldA = true;
+
+                    if ((DateTime.UtcNow - startedUtc).TotalMilliseconds >= ReturnToGameButtonReleaseTimeoutMs)
+                    {
+                        OverlayDebugLog("[Overlay][ReturnToGame] A-release wait timed out; continuing with focus handoff.");
+                        break;
+                    }
+
+                    await Task.Delay(ReturnToGameButtonReleasePollMs);
+                }
+
+                if (generation != Volatile.Read(ref returnToGameReleaseGeneration))
+                {
+                    return;
+                }
+
+                // Even after the SDK reports Released, give the physical controller / game
+                // one short polling interval to observe the neutral state before focus changes.
+                await Task.Delay(ReturnToGameButtonReleaseSettleMs);
+
+                if (generation != Volatile.Read(ref returnToGameReleaseGeneration))
+                {
+                    return;
+                }
+
+                if (sawHeldA)
+                {
+                    OverlayDebugLog("[Overlay][ReturnToGame] Physical A released; controller state settled before focus handoff.");
+                }
+
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+                {
+                    if (dispatcher.CheckAccess())
+                    {
+                        ReturnToGameCore();
+                    }
+                    else
+                    {
+                        await dispatcher.InvokeAsync(ReturnToGameCore, System.Windows.Threading.DispatcherPriority.Input);
+                    }
+                }
+                else
+                {
+                    ReturnToGameCore();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper] Deferred ReturnToGame failed.");
+            }
+        }
+
+        private void ReturnToGameCore()
+        {
+            OverlayDebugLog("[Overlay][ReturnToGame] START");
 
             try
             {
+                if (currentGame == null)
+                {
+                    OverlayDebugLog("[Overlay][ReturnToGame] Ignored because no game is running.");
+                    return;
+                }
+
+                // Resolve and validate the exact game target BEFORE closing the overlay.
+                // Closing first briefly gives Playnite foreground again and used to make
+                // process/window resolution race against that focus transition.
                 IntPtr targetWindow;
                 int targetProcessId;
                 string sourceName;
 
-                if (TryResolveValidatedGameTarget(out targetWindow, out targetProcessId, out sourceName))
+                if (!TryResolveValidatedGameTarget(out targetWindow, out targetProcessId, out sourceName))
                 {
-                    OverlayDebugLog(
-                        $"[Overlay][ReturnToGame] Using validated target. " +
-                        $"PID={targetProcessId}, Source={sourceName}, Window={targetWindow}");
-
-                    BeginReturnToGameFocus(targetWindow, targetProcessId, sourceName);
+                    OverlayDebugLog("[Overlay][ReturnToGame] No validated game window found; overlay kept open.");
+                    logger?.Warn("[AnikiHelper] Return to Game could not find a validated game window/process. Overlay was left open.");
                     return;
                 }
 
-                OverlayDebugLog("[Overlay][ReturnToGame] No validated game window found.");
-                logger?.Warn("[AnikiHelper] Return to Game could not find a validated game window/process.");
+                var gameWasSuspended = IsGameProcessSuspended();
+
+                OverlayDebugLog(
+                    $"[Overlay][ReturnToGame] Target locked before close. " +
+                    $"PID={targetProcessId}, Source={sourceName}, Window={targetWindow}, " +
+                    $"OpenedFromPlaynite={overlayOpenedFromPlaynite}, Suspended={gameWasSuspended}");
+
+                // IMPORTANT: Playnite's GameControllerManager processes native WPF input
+                // before plugins receive ButtonChanged. Explicitly disable that native path
+                // before closing the overlay, otherwise the next in-game controller press can
+                // reactivate Playnite even after the game successfully received focus.
+                SetPlayniteStandardControllerProcessing(false, "ReturnToGame.PreClose");
+
+                // Resume first if the overlay had suspended the game, then close. The
+                // focus routine uses a longer wake-up delay only when suspension occurred.
+                HideOverlayImmediate(resumeSuspendedGame: true);
+                overlayOpenedFromPlaynite = false;
+
+                BeginReturnToGameFocus(
+                    targetWindow,
+                    targetProcessId,
+                    sourceName,
+                    gameWasSuspended);
             }
             catch (Exception ex)
             {
@@ -4343,6 +5056,8 @@ namespace AnikiHelper.Services.InGameOverlay
 
             var keepGameSuspended = IsGameProcessSuspended();
 
+            // We intentionally return to Playnite, so restore its native controller routing.
+            SetPlayniteStandardControllerProcessing(true, "ReturnToPlaynite");
             HideOverlayImmediate(resumeSuspendedGame: false);
 
             // Do not minimize the game. Minimizing/restoring fullscreen or Xbox-hosted
@@ -4422,6 +5137,54 @@ namespace AnikiHelper.Services.InGameOverlay
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[AnikiHelper][Overlay] OpenAppsWindow failed.");
+            }
+        }
+
+        public void OpenGameLinksWindow()
+        {
+            try
+            {
+                if (currentGame == null || settings == null)
+                {
+                    return;
+                }
+
+                if (!settings.PrepareGameLinksWindow(currentGame))
+                {
+                    return;
+                }
+
+                if (overlayWindow != null && overlayWindow.IsVisible)
+                {
+                    overlayWindow.ShowGameLinks();
+                    return;
+                }
+
+                var dispatcher = Application.Current != null ? Application.Current.Dispatcher : null;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var command = settings.OpenWindow?["GameLinksWindowStyle|FocusFirst|SecondaryMusic|AdditionalViewSound"];
+                        if (command != null && command.CanExecute(null))
+                        {
+                            command.Execute(null);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.Warn(ex, "[AnikiHelper][Overlay] Failed to open GameLinksWindowStyle.");
+                    }
+                }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn(ex, "[AnikiHelper][Overlay] OpenGameLinksWindow failed.");
             }
         }
 
@@ -4559,7 +5322,7 @@ namespace AnikiHelper.Services.InGameOverlay
                 {
                     try
                     {
-                        var command = settings?.OpenChildWindow?["AudioSwitcherWindowStyle|FocusFirst|NoDim"];
+                        var command = settings?.OpenChildWindow?["AudioSwitcherWindowStyle|FocusFirst|NoDim|OpenPanelSound"];
                         if (command != null && command.CanExecute(null))
                         {
                             command.Execute(null);
@@ -4774,32 +5537,379 @@ namespace AnikiHelper.Services.InGameOverlay
                     return false;
                 }
 
-                // JDD's dedicated command resolves the currently running Playnite game and
-                // republishes all DynamicAchievements theme properties for that game.
-                var gameApplied = ExecutePlayniteAchievementsCommand(
+                // Resolve the currently running Playnite game and republish the same
+                // DynamicAchievements properties used by the normal GameAchievementsWindow.
+                // Do not override PA's sort/filter here: the overlay now reuses that real page.
+                return ExecutePlayniteAchievementsCommand(
                     pluginSettings,
                     "FilterDynamicAchievementsByRunningGameCommand");
-
-                if (!gameApplied)
-                {
-                    return false;
-                }
-
-                // The old Aniki overlay always displayed every achievement. Do not inherit a
-                // filter that may have been selected previously in the normal achievement view.
-                ExecutePlayniteAchievementsCommand(
-                    pluginSettings,
-                    "SetDynamicAchievementsFilterCommand",
-                    "All");
-
-                ApplyOverlayAchievementSortToPlayniteAchievements();
-                return true;
             }
             catch (Exception ex)
             {
                 logger?.Warn(ex, "[AnikiHelper][Overlay] Failed to prepare PlayniteAchievements for the running game.");
                 return false;
             }
+        }
+
+        private void BeginExternalOverlayHandoff(string source, Action openExternalView)
+        {
+            if (openExternalView == null || currentGame == null)
+            {
+                return;
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                return;
+            }
+
+            Action begin = () =>
+            {
+                try
+                {
+                    CancelExternalOverlayHandoff(false);
+
+                    var app = Application.Current;
+                    var mainWindow = app?.MainWindow;
+                    var generation = Interlocked.Increment(ref externalOverlayHandoffGeneration);
+
+                    externalOverlayHandoffPending = true;
+                    externalOverlayHandoffSource = string.IsNullOrWhiteSpace(source) ? "ExternalView" : source;
+                    externalOverlayHandoffLastActivityUtc = DateTime.UtcNow;
+                    externalOverlayHandoffBaselineWindows = new HashSet<Window>(
+                        app?.Windows
+                            .OfType<Window>()
+                            .Where(window => window != null && window.IsVisible) ?? Enumerable.Empty<Window>());
+                    externalOverlayHandoffTrackedWindows.Clear();
+
+                    if (mainWindow != null)
+                    {
+                        externalOverlayMainWindowActivatedHandler = (sender, args) =>
+                        {
+                            if (!externalOverlayHandoffPending || generation != externalOverlayHandoffGeneration)
+                            {
+                                return;
+                            }
+
+                            // Main-window activation can be a very short transition between two
+                            // external views (Friend actions -> Friend profile). Give the next view
+                            // time to appear before deciding that the chain is finished.
+                            externalOverlayHandoffLastActivityUtc = DateTime.UtcNow;
+                            EvaluateExternalOverlayHandoff(generation, true);
+                        };
+
+                        mainWindow.Activated += externalOverlayMainWindowActivatedHandler;
+                    }
+
+                    var keepGameSuspended = IsGameProcessSuspended();
+                    SetPlayniteStandardControllerProcessing(true, "ExternalOverlayHandoff:" + externalOverlayHandoffSource);
+
+                    if (overlayWindow != null && overlayWindow.IsVisible)
+                    {
+                        // The external view needs normal Playnite controller routing. Keep the game
+                        // suspended while the user is inside the view, exactly like a console overlay.
+                        HideOverlayImmediate(resumeSuspendedGame: false);
+                    }
+
+                    if (mainWindow != null)
+                    {
+                        RestoreAndFocusPlayniteWindow(mainWindow, keepGameSuspended);
+                    }
+
+                    // Open in the same dispatcher pass. MainWindow.Activated can fire during the
+                    // handoff, but the transition grace below prevents the overlay from reopening
+                    // before the destination window has had time to materialize.
+                    openExternalView();
+                    externalOverlayHandoffLastActivityUtc = DateTime.UtcNow;
+                    EvaluateExternalOverlayHandoff(generation, false);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Warn(ex, "[AnikiHelper][Overlay] External overlay handoff failed.");
+                    CancelExternalOverlayHandoff(true);
+                }
+            };
+
+            if (dispatcher.CheckAccess())
+            {
+                begin();
+            }
+            else
+            {
+                dispatcher.BeginInvoke(begin, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            }
+        }
+
+        private void EvaluateExternalOverlayHandoff(int generation, bool mainWindowJustActivated)
+        {
+            if (!externalOverlayHandoffPending || generation != externalOverlayHandoffGeneration)
+            {
+                return;
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
+            try
+            {
+                var app = Application.Current;
+                var mainWindow = app?.MainWindow;
+                var candidates = (app?.Windows
+                    .OfType<Window>() ?? Enumerable.Empty<Window>())
+                    .Where(window =>
+                        window != null &&
+                        window.IsVisible &&
+                        !ReferenceEquals(window, mainWindow) &&
+                        !ReferenceEquals(window, overlayWindow) &&
+                        !externalOverlayHandoffBaselineWindows.Contains(window))
+                    .ToList();
+
+                foreach (var candidate in candidates)
+                {
+                    TrackExternalOverlayHandoffWindow(candidate, generation);
+                }
+
+                if (candidates.Count > 0)
+                {
+                    externalOverlayHandoffLastActivityUtc = DateTime.UtcNow;
+
+                    // If Playnite's main page stole focus while a modal/external surface is still
+                    // visible, put focus back on that surface before controller input can continue
+                    // navigating the page behind it.
+                    if (mainWindowJustActivated || candidates.All(window => !window.IsActive))
+                    {
+                        var target = candidates.FirstOrDefault(window => window.IsActive) ?? candidates.Last();
+                        TryRestoreExternalHandoffFocus(target);
+                    }
+
+                    return;
+                }
+
+                var elapsed = DateTime.UtcNow - externalOverlayHandoffLastActivityUtc;
+                if (elapsed.TotalMilliseconds < ExternalOverlayHandoffTransitionGraceMs)
+                {
+                    var delay = ExternalOverlayHandoffTransitionGraceMs - (int)elapsed.TotalMilliseconds + 40;
+                    QueueExternalOverlayHandoffEvaluation(generation, Math.Max(80, delay));
+                    return;
+                }
+
+                // Only return once Playnite itself is active again. If the external action launched
+                // another application (for example Steam chat), do not steal foreground from it.
+                if (mainWindow != null && !mainWindow.IsActive)
+                {
+                    return;
+                }
+
+                CompleteExternalOverlayHandoff(generation);
+            }
+            catch (Exception ex)
+            {
+                global::AnikiHelper.AnikiLog.Debug(logger, ex, "[AnikiHelper][Overlay] External handoff evaluation failed.");
+            }
+        }
+
+        private void TrackExternalOverlayHandoffWindow(Window window, int generation)
+        {
+            if (window == null || externalOverlayHandoffTrackedWindows.Contains(window))
+            {
+                return;
+            }
+
+            externalOverlayHandoffTrackedWindows.Add(window);
+
+            EventHandler closed = null;
+            closed = (sender, args) =>
+            {
+                try
+                {
+                    window.Closed -= closed;
+                }
+                catch
+                {
+                }
+
+                externalOverlayHandoffTrackedWindows.Remove(window);
+                externalOverlayHandoffLastActivityUtc = DateTime.UtcNow;
+                QueueExternalOverlayHandoffEvaluation(generation, ExternalOverlayHandoffTransitionGraceMs);
+            };
+
+            window.Closed += closed;
+        }
+
+        private void TryRestoreExternalHandoffFocus(Window window)
+        {
+            if (window == null || !window.IsVisible)
+            {
+                return;
+            }
+
+            try
+            {
+                if (window.WindowState == WindowState.Minimized)
+                {
+                    window.WindowState = WindowState.Normal;
+                }
+
+                window.Activate();
+                window.Focus();
+
+                var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+                if (handle != IntPtr.Zero)
+                {
+                    SetForegroundWindow(handle);
+                }
+            }
+            catch (Exception ex)
+            {
+                global::AnikiHelper.AnikiLog.Debug(logger, ex, "[AnikiHelper][Overlay] Failed to restore external handoff focus.");
+            }
+        }
+
+        private void QueueExternalOverlayHandoffEvaluation(int generation, int delayMs)
+        {
+            Task.Delay(Math.Max(1, delayMs)).ContinueWith(_ =>
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(() => EvaluateExternalOverlayHandoff(generation, false)),
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            });
+        }
+
+        private void CompleteExternalOverlayHandoff(int generation)
+        {
+            if (!externalOverlayHandoffPending || generation != externalOverlayHandoffGeneration)
+            {
+                return;
+            }
+
+            var source = externalOverlayHandoffSource;
+            CancelExternalOverlayHandoff(false);
+
+            if (currentGame == null)
+            {
+                return;
+            }
+
+            // Re-enter the overlay as a game-origin overlay even though Playnite necessarily had
+            // foreground while the external view was displayed.
+            OpenOverlayInternal(
+                ignoreEnabledSetting: true,
+                source: "ExternalViewReturn:" + source,
+                preserveCapturedTarget: true,
+                openedFromPlayniteOverride: false,
+                nonActivatingControllerMode: false);
+        }
+
+        private void CancelExternalOverlayHandoff(bool reopenOverlay)
+        {
+            var mainWindow = Application.Current?.MainWindow;
+            if (mainWindow != null && externalOverlayMainWindowActivatedHandler != null)
+            {
+                try
+                {
+                    mainWindow.Activated -= externalOverlayMainWindowActivatedHandler;
+                }
+                catch
+                {
+                }
+            }
+
+            externalOverlayMainWindowActivatedHandler = null;
+            externalOverlayHandoffPending = false;
+            externalOverlayHandoffSource = null;
+            externalOverlayHandoffBaselineWindows.Clear();
+            externalOverlayHandoffTrackedWindows.Clear();
+            Interlocked.Increment(ref externalOverlayHandoffGeneration);
+
+            if (reopenOverlay && currentGame != null)
+            {
+                OpenOverlayInternal(
+                    ignoreEnabledSetting: true,
+                    source: "ExternalViewRecovery",
+                    preserveCapturedTarget: true,
+                    openedFromPlayniteOverride: false,
+                    nonActivatingControllerMode: false);
+            }
+        }
+
+        public bool OpenFriendActionsFromOverlay(string steamId)
+        {
+            if (string.IsNullOrWhiteSpace(steamId))
+            {
+                return false;
+            }
+
+            var command = settings?.OpenFriendActionsMenuCommand;
+            if (command == null || !command.CanExecute(steamId))
+            {
+                return false;
+            }
+
+            command.Execute(steamId);
+            return true;
+        }
+
+        public bool OpenSelectedFriendProfileFromOverlay()
+        {
+            var steamId = settings?.SelectedFriendForActions?.steamid;
+            var command = settings?.OpenFriendProfileCommand;
+            if (string.IsNullOrWhiteSpace(steamId) || command == null || !command.CanExecute(steamId))
+            {
+                return false;
+            }
+
+            command.Execute(steamId);
+            return true;
+        }
+
+        public void CloseFriendActionsFromOverlay()
+        {
+            var command = settings?.CloseFriendActionsMenuCommand;
+            if (command != null && command.CanExecute(null))
+            {
+                command.Execute(null);
+            }
+        }
+
+        public void ClearFriendProfileFromOverlay()
+        {
+            var command = settings?.ClearFriendProfileCommand;
+            if (command != null && command.CanExecute(null))
+            {
+                command.Execute(null);
+            }
+        }
+
+        public bool OpenSelectedFriendChatFromOverlay()
+        {
+            var steamId = settings?.SelectedFriendForActions?.steamid;
+            var command = settings?.OpenFriendChatCommand;
+            if (string.IsNullOrWhiteSpace(steamId) || command == null || !command.CanExecute(steamId))
+            {
+                return false;
+            }
+
+            command.Execute(steamId);
+            return true;
+        }
+
+        public bool PrepareAchievementActionsForOverlay(object achievement)
+        {
+            return settings?.PrepareAchievementActionsForOverlay(achievement) == true;
+        }
+
+        public bool PrepareAchievementCaptureForOverlay(object captureKind)
+        {
+            return settings?.PrepareSelectedAchievementCaptureForOverlay(captureKind) == true;
         }
 
         public void OpenAchievementsWindow()
@@ -4812,35 +5922,24 @@ namespace AnikiHelper.Services.InGameOverlay
                     return;
                 }
 
-                var dispatcher = Application.Current?.Dispatcher;
-                if (dispatcher == null)
+                if (currentGame == null || currentGame.Id == Guid.Empty)
                 {
+                    logger?.Warn("[AnikiHelper][Overlay] Achievements button requested without a running game.");
                     return;
                 }
 
-                dispatcher.BeginInvoke(new Action(() =>
+                // Publish the running game's DynamicAchievements data, but keep the whole
+                // experience inside the in-game overlay instead of opening a Playnite window.
+                if (!PreparePlayniteAchievementsForRunningGame())
                 {
-                    try
-                    {
-                        PreparePlayniteAchievementsForRunningGame();
+                    logger?.Warn("[AnikiHelper][Overlay] Failed to prepare achievements for the running game.");
+                    return;
+                }
 
-                        if (overlayWindow != null && overlayWindow.IsVisible)
-                        {
-                            overlayWindow.ShowAchievements();
-                            return;
-                        }
-
-                        var command = settings?.OpenChildWindow?["AchievementsWindowStyle|FocusFirst|NoDim"];
-                        if (command != null && command.CanExecute(null))
-                        {
-                            command.Execute(null);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger?.Warn(ex, "[AnikiHelper][Overlay] Failed to open AchievementsWindowStyle.");
-                    }
-                }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                if (overlayWindow != null && overlayWindow.IsVisible)
+                {
+                    overlayWindow.ShowAchievements();
+                }
             }
             catch (Exception ex)
             {
@@ -4897,12 +5996,50 @@ namespace AnikiHelper.Services.InGameOverlay
 
                 return settings.OverlayLastCaptureItems
                     .Where(item => item != null)
-                    .Where(item => !string.IsNullOrWhiteSpace(GetCapturePreviewImagePath(item)))
+                    .Where(item =>
+                        item.IsVideo
+                            ? !string.IsNullOrWhiteSpace(GetCapturePreviewVideoPath(item)) ||
+                              !string.IsNullOrWhiteSpace(GetCapturePreviewImagePath(item))
+                            : !string.IsNullOrWhiteSpace(GetCapturePreviewImagePath(item)))
                     .ToList();
             }
             catch
             {
                 return new List<AnikiMediaItem>();
+            }
+        }
+
+        public string GetCapturePreviewVideoPath(AnikiMediaItem mediaItem)
+        {
+            if (mediaItem?.IsVideo != true)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(mediaItem.FilePath) &&
+                    File.Exists(mediaItem.FilePath))
+                {
+                    return mediaItem.FilePath;
+                }
+            }
+            catch
+            {
+            }
+
+            return string.Empty;
+        }
+
+        public double GetCapturePreviewVideoVolume()
+        {
+            try
+            {
+                return Math.Max(0.0, Math.Min(1.0, settings?.MediaGalleryVideoVolume ?? 0.80));
+            }
+            catch
+            {
+                return 0.80;
             }
         }
 
@@ -6076,7 +7213,11 @@ namespace AnikiHelper.Services.InGameOverlay
         private const int SW_RESTORE = 9;
         private const int SW_SHOW = 5;
         private const int SW_MINIMIZE = 6;
+        private const int ReturnToGameButtonReleasePollMs = 16;
+        private const int ReturnToGameButtonReleaseSettleMs = 120;
+        private const int ReturnToGameButtonReleaseTimeoutMs = 2500;
         private const int ReturnToGameInitialFocusDelayMs = 180;
+        private const int ReturnToGameFastInitialFocusDelayMs = 60;
         private const int ReturnToGameFocusVerificationDelayMs = 120;
         private const int ReturnToGameFocusRetryDelayMs = 140;
         private const int ReturnToGameFocusMaxAttempts = 8;

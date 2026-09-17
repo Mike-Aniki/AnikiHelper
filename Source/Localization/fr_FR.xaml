@@ -294,6 +294,7 @@
     <sys:String x:Key="LOCInGameOverlayBackHint">B / Retour pour fermer</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToPlaynite">Retour à Playnite</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToGame">Retour au jeu</sys:String>
+    <sys:String x:Key="LOCInGameOverlayResumeGame">Reprendre le jeu</sys:String>
     <sys:String x:Key="LOCInGameOverlayQuitGame">Quitter le jeu</sys:String>
     <sys:String x:Key="LOCInGameOverlayGame">Jeu</sys:String>
     <sys:String x:Key="LOCInGameOverlayLastCaptures">Dernières captures</sys:String>
@@ -360,18 +361,26 @@
     <sys:String x:Key="GameLaunchSplash_ShowLogo">Afficher le logo du jeu sur l’écran de splash</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Durée du splash</sys:String>
-    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Le splash reste visible au moins pendant la durée minimale, puis se ferme automatiquement dès que la vraie fenêtre du jeu est prête. Si la détection n’aboutit jamais, une sécurité fixe de 90 secondes le ferme. Un timer personnalisé par jeu remplace uniquement la durée minimale.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Le splash reste visible au moins pendant la durée minimale, puis se ferme automatiquement dès que la vraie fenêtre du jeu est prête. Si la détection n’aboutit pas, il se ferme après le temps d’attente maximum configuré. Un timer personnalisé par jeu remplace uniquement la durée minimale.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Durée minimale d’affichage</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Définit le temps minimum pendant lequel le splash reste visible. Augmentez cette valeur si le splash disparaît trop vite.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Détecter automatiquement quand la fenêtre du jeu est prête</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Quand cette option est activée, Aniki Helper garde le splash visible pendant au moins la durée minimale configurée, puis le ferme lorsque la vraie fenêtre du jeu est détectée. Les timers personnalisés par jeu remplacent la durée minimale, mais continuent d’utiliser la détection automatique.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Sécurité de fermeture automatique</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Définit le temps maximum pendant lequel Aniki Helper attend la vraie fenêtre du jeu. Si aucune fenêtre de jeu n’est détectée, le splash se ferme automatiquement après ce délai.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Title">Jeux avec le splash désactivé</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Help">Les jeux pour lesquels le splash a été désactivé depuis clic droit → Aniki Helper → Splash Screen apparaissent ici. Décochez un jeu pour réactiver son splash.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Clear">Vider la liste des jeux désactivés</sys:String>
+    <sys:String x:Key="LOCAnikiHelperDisableSplashThisGame">Désactiver le splash pour ce jeu</sys:String>
+    <sys:String x:Key="LOCAnikiHelperEnableSplashThisGame">Réactiver le splash pour ce jeu</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Réinitialiser</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Définir le timer minimum pour ce jeu</sys:String>
     <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Réinitialiser le timer minimum pour ce jeu</sys:String>
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Durée minimum du splash pour ce jeu, en secondes :</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWait">Set maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMaximumWait">Reset maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWaitPrompt">Maximum automatic-detection wait for this game, in seconds:</sys:String>
     <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Valeur de timer invalide.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Activer le son des vidéos splash</sys:String>
@@ -1602,6 +1611,9 @@
     <sys:String x:Key="CompletePack_ExportSuccess">Le Complete Pack « {0} » a été exporté avec succès.</sys:String>
     <sys:String x:Key="CompletePack_ExportError">Impossible d’exporter le Complete Pack :</sys:String>
     <sys:String x:Key="CompletePack_DeleteConfirm">Supprimer le Complete Pack « {0} » de la bibliothèque ? Ses packs individuels resteront installés.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteChoice">Supprimer le Complete Pack « {0} » ?&#10;&#10;OUI = Supprimer le Complete Pack ainsi que tous ses packs Visual, Color, Login et Sound installés.&#10;&#10;NON = Supprimer uniquement le Complete Pack et conserver ses packs inclus.&#10;&#10;ANNULER = Ne rien supprimer.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSharedWarning">Certains packs inclus sont également utilisés par les Complete Packs installés suivants :&#10;&#10;{0}&#10;&#10;La suppression des packs inclus supprimera aussi ces composants installés. Les autres Complete Packs resteront dans votre bibliothèque et pourront réinstaller leurs composants si vous les appliquez de nouveau.&#10;&#10;Continuer ?</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSuccessWithComponents">Le Complete Pack « {0} » et ses packs inclus ont été supprimés.</sys:String>
     <sys:String x:Key="CompletePack_DeleteSuccess">Le Complete Pack « {0} » a été supprimé.</sys:String>
     <sys:String x:Key="CompletePack_DeleteError">Impossible de supprimer le Complete Pack :</sys:String>
     <sys:String x:Key="CompletePack_ComponentVisual">Visual</sys:String>
@@ -1636,6 +1648,7 @@
     <sys:String x:Key="CommunityPack_Refresh">Actualiser</sys:String>
     <sys:String x:Key="CommunityPack_NoPreview">Aucun aperçu</sys:String>
     <sys:String x:Key="CommunityPack_Featured">À LA UNE</sys:String>
+    <sys:String x:Key="CommunityPack_IncludedInComplete">✦ Inclus dans le Complete Pack : {0}</sys:String>
     <sys:String x:Key="CommunityPack_Updating">Mise à jour...</sys:String>
     <sys:String x:Key="CommunityPack_Installing">Installation...</sys:String>
     <sys:String x:Key="CommunityPack_UpdatingStatus">Mise à jour de {0}...</sys:String>
@@ -1654,6 +1667,13 @@
     <sys:String x:Key="CommunityPack_UninstallingStatus">Désinstallation de {0}...</sys:String>
     <sys:String x:Key="CommunityPack_UninstallSuccess">« {0} » a été désinstallé.</sys:String>
     <sys:String x:Key="CommunityPack_UninstallError">Le Community Pack n’a pas pu être désinstallé :</sys:String>
+    <sys:String x:Key="CommunityPack_DetailsTitle">Détails du pack</sys:String>
+    <sys:String x:Key="CommunityPack_Report">Signaler le pack</sys:String>
+    <sys:String x:Key="CommunityPack_ViewDetails">Détails</sys:String>
+    <sys:String x:Key="CommunityPack_ByAuthorFormat">Par {0}</sys:String>
+    <sys:String x:Key="CommunityPack_DownloadsFormat">{0:N0} téléchargements</sys:String>
+    <sys:String x:Key="CommunityPack_ReportConfirm">Signaler « {0} » ?&#10;&#10;Les signalements sont réservés aux contenus gravement inappropriés : contenu pornographique/sexuel, raciste/haineux, violent/choquant, volé/trompeur ou autre contenu gravement inapproprié.&#10;&#10;Ne signalez pas les images en basse résolution, la mauvaise qualité, les préférences personnelles, les éléments manquants ou d’autres problèmes mineurs.</sys:String>
+    <sys:String x:Key="CommunityPack_ReportOpenError">Impossible d’ouvrir le formulaire de signalement du Community Pack :</sys:String>
 
     <sys:String x:Key="SettingsNav_PackCreator">Créateur de packs</sys:String>
     <sys:String x:Key="SettingsPage_PackCreatorDesc">Créez, configurez et partagez vos packs pour Aniki ReMake depuis un seul endroit.</sys:String>
@@ -1675,4 +1695,54 @@
     <sys:String x:Key="PackCreator_CompleteDesc">Regroupez plusieurs types de packs pour appliquer une expérience coordonnée en une seule fois.</sys:String>
     <sys:String x:Key="PackCreator_CommunityTitle">Partager avec la communauté</sys:String>
     <sys:String x:Key="PackCreator_CommunityDesc">Lorsque votre pack est prêt, utilisez Share Community Pack dans le Creator pour ouvrir le formulaire GitHub correspondant. Une fois approuvés, les packs peuvent être installés directement depuis Aniki Helper.</sys:String>
+
+    <!-- Unified Community Packs Hub -->
+    <sys:String x:Key="CommunityPack_IncludesLabel">Ce pack comprend :</sys:String>
+    <sys:String x:Key="CommunityHub_MenuTitle">Packs communautaires</sys:String>
+    <sys:String x:Key="CommunityHub_MenuDescription">Parcourez, installez, mettez à jour et gérez les Complete, Visual, Login, Color et Sound Packs partagés par la communauté Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_BrowseButton">✦ Parcourir les packs communautaires</sys:String>
+    <sys:String x:Key="CommunityHub_Title">Packs communautaires</sys:String>
+    <sys:String x:Key="CommunityHub_Description">Parcourez, installez et gérez les Complete, Visual, Login, Color et Sound Packs partagés par la communauté Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_TabComplete">Complets</sys:String>
+    <sys:String x:Key="CommunityHub_TabVisual">Visuels</sys:String>
+    <sys:String x:Key="CommunityHub_TabLogin">Login</sys:String>
+    <sys:String x:Key="CommunityHub_TabColor">Couleurs</sys:String>
+    <sys:String x:Key="CommunityHub_TabSound">Sons</sys:String>
+    <sys:String x:Key="CommunityHub_SortFormat">Tri : {0}</sys:String>
+    <sys:String x:Key="CommunityHub_SortNewest">Plus récents</sys:String>
+    <sys:String x:Key="CommunityHub_SortUpdated">Récemment mis à jour</sys:String>
+    <sys:String x:Key="CommunityHub_SortPopular">Les plus populaires</sys:String>
+    <sys:String x:Key="CommunityHub_SortName">Nom A-Z</sys:String>
+    <sys:String x:Key="CommunityHub_SortNameDesc">Nom Z-A</sys:String>
+    <sys:String x:Key="CommunityHub_FilterFormat">Afficher : {0}</sys:String>
+    <sys:String x:Key="CommunityHub_FilterAll">Tous</sys:String>
+    <sys:String x:Key="CommunityHub_FilterNew">Nouveaux</sys:String>
+    <sys:String x:Key="CommunityHub_FilterUpdates">Mises à jour</sys:String>
+    <sys:String x:Key="CommunityHub_FilterInstalled">Installés</sys:String>
+    <sys:String x:Key="CommunityHub_NoFilterMatches">Aucun pack ne correspond au filtre actuel.</sys:String>
+    <sys:String x:Key="CommunityHub_ReleasedFormat">Publié le {0}</sys:String>
+    <sys:String x:Key="CommunityHub_UpdatedFormat">Mis à jour le {0}</sys:String>
+    <sys:String x:Key="CommunityHub_NewBadge">NOUVEAU</sys:String>
+    <sys:String x:Key="CommunityHub_PopularBadge">POPULAIRE</sys:String>
+    <sys:String x:Key="CommunityPack_InstallConfirm">Voulez-vous installer « {0} » ?</sys:String>
+
+    <!-- Random Login Pool -->
+    <sys:String x:Key="LoginRandomPool_ConfigureButton">Configurer la sélection aléatoire</sys:String>
+    <sys:String x:Key="LoginRandomPool_Title">Sélection Login aléatoire</sys:String>
+    <sys:String x:Key="LoginRandomPool_Description">Choisissez les arrière-plans de connexion installés pouvant être sélectionnés aléatoirement au démarrage.</sys:String>
+    <sys:String x:Key="LoginRandomPool_DefaultNote">Les nouveaux arrière-plans installés sont activés par défaut. Lucky Day reste séparé.</sys:String>
+    <sys:String x:Key="LoginRandomPool_SelectAll">Tout sélectionner</sys:String>
+    <sys:String x:Key="LoginRandomPool_ClearAll">Tout désélectionner</sys:String>
+    <sys:String x:Key="LoginRandomPool_Toggle">Activer / désactiver</sys:String>
+    <sys:String x:Key="LoginRandomPool_BuiltIn">INTÉGRÉ</sys:String>
+    <sys:String x:Key="LoginRandomPool_Community">COMMUNAUTÉ</sys:String>
+    <sys:String x:Key="LoginRandomPool_Empty">Aucun arrière-plan de connexion éligible n’est installé.</sys:String>
+    <sys:String x:Key="LoginRandomPool_CountFormat">{0} / {1} sélectionnés</sys:String>
+    <sys:String x:Key="SettingsNav_Notifications">Notifications</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Enable">Overlay global des notifications</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Help">Affiche les notifications Aniki au-dessus de toutes les applications au lieu de les afficher dans le thème.</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestButton">Tester la notification</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestMessage">Ceci est une notification de test Aniki.</sys:String>
+    <sys:String x:Key="LOCNotificationTitleCommunityPacks">Packs communautaires</sys:String>
+    <sys:String x:Key="CommunityPack_NewNotification">De nouveaux packs communautaires sont disponibles.</sys:String>
 </ResourceDictionary>

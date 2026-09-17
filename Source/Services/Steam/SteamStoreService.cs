@@ -62,7 +62,7 @@ namespace AnikiHelper.Services
         public SteamStoreService(IPlayniteAPI playniteApi, string pluginUserDataPath)
         {
             this.playniteApi = playniteApi;
-            steamStoreRootFolder = Path.Combine(pluginUserDataPath, "SteamStore");
+            steamStoreRootFolder = global::AnikiHelper.AnikiCacheLayout.SteamStoreRoot(pluginUserDataPath);
             storeCacheFolder = Path.Combine(steamStoreRootFolder, "StoreCache");
             detailsCacheFolder = Path.Combine(steamStoreRootFolder, "DetailsCache");
             imageCacheFolder = Path.Combine(steamStoreRootFolder, "ImageCache");

@@ -32,7 +32,7 @@ namespace AnikiHelper.Services.SteamFriends
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Playnite", "AnikiHelper")
                 : pluginUserDataPath;
 
-            cacheDir = Path.Combine(root, "SteamFriendCache", "GameHeaderCache");
+            cacheDir = Path.Combine(global::AnikiHelper.AnikiCacheLayout.SteamFriendsRoot(root), "GameHeaderCache");
             Directory.CreateDirectory(cacheDir);
 
             http = new HttpClient
@@ -147,6 +147,10 @@ namespace AnikiHelper.Services.SteamFriends
 
         private IEnumerable<string> BuildDirectCandidates(int appId)
         {
+            // Steam currently serves Store assets primarily through Fastly.
+            // Keep the older Cloudflare/Akamai endpoints as fallbacks for compatibility.
+            yield return $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
+            yield return $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_616x353.jpg";
             yield return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
             yield return $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_616x353.jpg";
             yield return $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
@@ -163,7 +167,7 @@ namespace AnikiHelper.Services.SteamFriends
 
             try
             {
-                var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&filters=basic";
+                var url = $"https://store.steampowered.com/api/appdetails?appids={appId}";
                 var json = await http.GetStringAsync(url).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(json))
                 {
@@ -289,7 +293,7 @@ namespace AnikiHelper.Services.SteamFriends
 
         private static string GetPrimaryRemoteFallback(int appId)
         {
-            return appId <= 0 ? null : $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
+            return appId <= 0 ? null : $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
         }
 
         private static bool IsUsableImageFile(string path)

@@ -60,8 +60,15 @@ namespace AnikiHelperFullscreen.Views
         private static object currentSettingsContext;
         private static int currentThemeSettingsSectionKey;
         private static int currentCommunityVisualPacksSectionKey;
+        private static int currentLoginRandomPoolSectionKey;
+        private static int currentThemeColorRandomPoolSectionKey;
+        private static int currentVisualPackRandomPoolSectionKey;
         private static bool communityVisualPacksSectionOpen;
+        private static bool loginRandomPoolSectionOpen;
+        private static bool themeColorRandomPoolSectionOpen;
+        private static bool visualPackRandomPoolSectionOpen;
         private static global::AnikiHelper.AnikiCommunityVisualPacksFullscreenController communityVisualPacksController;
+        private static Window communityPacksWindow;
 
 
         public static RelayCommand<object> AnikiThemeTextInputCommand { get; } =
@@ -79,6 +86,30 @@ namespace AnikiHelperFullscreen.Views
 
         public static RelayCommand CommunityVisualPacksBackCommand { get; } =
             new RelayCommand(() => ReturnFromCommunityVisualPacks());
+
+        public static RelayCommand OpenLoginRandomPoolCommand { get; } =
+            new RelayCommand(() => OpenLoginRandomPool());
+
+        public static RelayCommand LoginRandomPoolBackCommand { get; } =
+            new RelayCommand(() => ReturnFromLoginRandomPool());
+
+        public static RelayCommand OpenThemeColorRandomPoolCommand { get; } =
+            new RelayCommand(() => OpenThemeColorRandomPool());
+
+        public static RelayCommand ThemeColorRandomPoolBackCommand { get; } =
+            new RelayCommand(() => ReturnFromThemeColorRandomPool());
+
+        public static RelayCommand OpenVisualPackRandomPoolCommand { get; } =
+            new RelayCommand(() => OpenVisualPackRandomPool());
+
+        public static RelayCommand VisualPackRandomPoolBackCommand { get; } =
+            new RelayCommand(() => ReturnFromVisualPackRandomPool());
+
+        // Public entry point used by Quick Access > Extras.
+        public static void OpenCommunityPacksHub()
+        {
+            OpenCommunityPacks("CommunityHub");
+        }
 
         public static void Init()
         {
@@ -178,15 +209,30 @@ namespace AnikiHelperFullscreen.Views
                 sectionViews,
                 new Func<UserControl>(LoadFullscreenSettingsView));
 
-            int communityVisualPacksSectionKey = CreateHiddenSettingsSection(
+            int loginRandomPoolSectionKey = CreateHiddenSettingsSection(
                 assembly,
                 sectionViews,
-                new Func<UserControl>(LoadCommunityVisualPacksFullscreenView),
-                setDefaultDataContext: false);
+                new Func<UserControl>(LoadLoginRandomPoolFullscreenView));
 
+            int themeColorRandomPoolSectionKey = CreateHiddenSettingsSection(
+                assembly,
+                sectionViews,
+                new Func<UserControl>(LoadThemeColorRandomPoolFullscreenView));
+
+            int visualPackRandomPoolSectionKey = CreateHiddenSettingsSection(
+                assembly,
+                sectionViews,
+                new Func<UserControl>(LoadVisualPackRandomPoolFullscreenView));
+
+            // Community Packs now opens in its own fullscreen window instead of being
+            // hosted as another Settings section. This keeps the controller focus tree
+            // independent from Playnite's Settings menu.
             currentSettingsContext = ctx;
             currentThemeSettingsSectionKey = anikiThemeSettingsCategorySectionKey;
-            currentCommunityVisualPacksSectionKey = communityVisualPacksSectionKey;
+            currentCommunityVisualPacksSectionKey = 0;
+            currentLoginRandomPoolSectionKey = loginRandomPoolSectionKey;
+            currentThemeColorRandomPoolSectionKey = themeColorRandomPoolSectionKey;
+            currentVisualPackRandomPoolSectionKey = visualPackRandomPoolSectionKey;
 
             InjectThemeSettingsMenuButton(
                 assembly,
@@ -205,7 +251,23 @@ namespace AnikiHelperFullscreen.Views
                 currentSettingsContext = null;
                 currentThemeSettingsSectionKey = 0;
                 currentCommunityVisualPacksSectionKey = 0;
+                currentLoginRandomPoolSectionKey = 0;
+                currentThemeColorRandomPoolSectionKey = 0;
+                currentVisualPackRandomPoolSectionKey = 0;
                 communityVisualPacksSectionOpen = false;
+                loginRandomPoolSectionOpen = false;
+                themeColorRandomPoolSectionOpen = false;
+                visualPackRandomPoolSectionOpen = false;
+
+                try
+                {
+                    if (communityPacksWindow != null)
+                    {
+                        communityPacksWindow.Close();
+                    }
+                }
+                catch { }
+                communityPacksWindow = null;
 
                 try { communityVisualPacksController?.Dispose(); } catch { }
                 communityVisualPacksController = null;
@@ -691,6 +753,63 @@ namespace AnikiHelperFullscreen.Views
             }
         }
 
+        private static UserControl LoadLoginRandomPoolFullscreenView()
+        {
+            string pluginAssemblyName = Assembly.GetExecutingAssembly().GetName().Name;
+            var resourceUri = new Uri(
+                $"pack://application:,,,/{pluginAssemblyName};component/Views/LoginRandomPoolFullscreenView.xaml",
+                UriKind.Absolute);
+
+            var resource = Application.GetResourceStream(resourceUri);
+            if (resource == null || resource.Stream == null)
+            {
+                throw new Exception("LoginRandomPoolFullscreenView.xaml resource not found.");
+            }
+
+            using (var stream = resource.Stream)
+            {
+                return (UserControl)XamlReader.Load(stream);
+            }
+        }
+
+        private static UserControl LoadThemeColorRandomPoolFullscreenView()
+        {
+            string pluginAssemblyName = Assembly.GetExecutingAssembly().GetName().Name;
+            var resourceUri = new Uri(
+                $"pack://application:,,,/{pluginAssemblyName};component/Views/ThemeColorRandomPoolFullscreenView.xaml",
+                UriKind.Absolute);
+
+            var resource = Application.GetResourceStream(resourceUri);
+            if (resource == null || resource.Stream == null)
+            {
+                throw new Exception("ThemeColorRandomPoolFullscreenView.xaml resource not found.");
+            }
+
+            using (var stream = resource.Stream)
+            {
+                return (UserControl)XamlReader.Load(stream);
+            }
+        }
+
+        private static UserControl LoadVisualPackRandomPoolFullscreenView()
+        {
+            string pluginAssemblyName = Assembly.GetExecutingAssembly().GetName().Name;
+            var resourceUri = new Uri(
+                $"pack://application:,,,/{pluginAssemblyName};component/Views/VisualPackRandomPoolFullscreenView.xaml",
+                UriKind.Absolute);
+
+            var resource = Application.GetResourceStream(resourceUri);
+            if (resource == null || resource.Stream == null)
+            {
+                throw new Exception("VisualPackRandomPoolFullscreenView.xaml resource not found.");
+            }
+
+            using (var stream = resource.Stream)
+            {
+                return (UserControl)XamlReader.Load(stream);
+            }
+        }
+
         private static UserControl LoadCommunityVisualPacksFullscreenView()
         {
             var plugin = global::AnikiHelper.AnikiHelper.Instance;
@@ -708,13 +827,140 @@ namespace AnikiHelperFullscreen.Views
             return communityVisualPacksController.Control;
         }
 
+        private static void OpenLoginRandomPool()
+        {
+            try
+            {
+                if (currentSettingsContext == null || currentLoginRandomPoolSectionKey <= 0)
+                {
+                    logger.Warn("[AnikiHelper] Random Login Pool fullscreen section is not available.");
+                    return;
+                }
+
+                global::AnikiHelper.AnikiHelper.Instance?.Settings?.RefreshLoginRandomPoolItems();
+                loginRandomPoolSectionOpen = true;
+
+                dynamic ctx = currentSettingsContext;
+                ctx.OpenSectionCommand.Execute(currentLoginRandomPoolSectionKey.ToString());
+            }
+            catch (Exception ex)
+            {
+                loginRandomPoolSectionOpen = false;
+                logger.Warn(ex, "[AnikiHelper] Failed to open Random Login Pool fullscreen section.");
+            }
+        }
+
+        public static void ReturnFromLoginRandomPool()
+        {
+            try
+            {
+                loginRandomPoolSectionOpen = false;
+                if (currentSettingsContext == null || currentThemeSettingsSectionKey <= 0)
+                {
+                    return;
+                }
+
+                dynamic ctx = currentSettingsContext;
+                ctx.OpenSectionCommand.Execute(currentThemeSettingsSectionKey.ToString());
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to return from Random Login Pool fullscreen section.");
+            }
+        }
+
+        private static void OpenThemeColorRandomPool()
+        {
+            try
+            {
+                if (currentSettingsContext == null || currentThemeColorRandomPoolSectionKey <= 0)
+                {
+                    logger.Warn("[AnikiHelper] Random Theme Color Pool fullscreen section is not available.");
+                    return;
+                }
+
+                global::AnikiHelper.AnikiHelper.Instance?.Settings?.RefreshThemeColorRandomPoolItems();
+                themeColorRandomPoolSectionOpen = true;
+
+                dynamic ctx = currentSettingsContext;
+                ctx.OpenSectionCommand.Execute(currentThemeColorRandomPoolSectionKey.ToString());
+            }
+            catch (Exception ex)
+            {
+                themeColorRandomPoolSectionOpen = false;
+                logger.Warn(ex, "[AnikiHelper] Failed to open Random Theme Color Pool fullscreen section.");
+            }
+        }
+
+        public static void ReturnFromThemeColorRandomPool()
+        {
+            try
+            {
+                themeColorRandomPoolSectionOpen = false;
+                if (currentSettingsContext == null || currentThemeSettingsSectionKey <= 0)
+                {
+                    return;
+                }
+
+                dynamic ctx = currentSettingsContext;
+                ctx.OpenSectionCommand.Execute(currentThemeSettingsSectionKey.ToString());
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to return from Random Theme Color Pool fullscreen section.");
+            }
+        }
+
+        private static void OpenVisualPackRandomPool()
+        {
+            try
+            {
+                if (currentSettingsContext == null || currentVisualPackRandomPoolSectionKey <= 0)
+                {
+                    logger.Warn("[AnikiHelper] Random Visual Pack Pool fullscreen section is not available.");
+                    return;
+                }
+
+                global::AnikiHelper.AnikiHelper.Instance?.Settings?.RefreshVisualPackRandomPoolItems();
+                visualPackRandomPoolSectionOpen = true;
+
+                dynamic ctx = currentSettingsContext;
+                ctx.OpenSectionCommand.Execute(currentVisualPackRandomPoolSectionKey.ToString());
+            }
+            catch (Exception ex)
+            {
+                visualPackRandomPoolSectionOpen = false;
+                logger.Warn(ex, "[AnikiHelper] Failed to open Random Visual Pack Pool fullscreen section.");
+            }
+        }
+
+        public static void ReturnFromVisualPackRandomPool()
+        {
+            try
+            {
+                visualPackRandomPoolSectionOpen = false;
+                if (currentSettingsContext == null || currentThemeSettingsSectionKey <= 0)
+                {
+                    return;
+                }
+
+                dynamic ctx = currentSettingsContext;
+                ctx.OpenSectionCommand.Execute(currentThemeSettingsSectionKey.ToString());
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to return from Random Visual Pack Pool fullscreen section.");
+            }
+        }
+
         private static void OpenCommunityPacks(string presetGroupId)
         {
             try
             {
-                if (currentSettingsContext == null || currentCommunityVisualPacksSectionKey <= 0)
+                var plugin = global::AnikiHelper.AnikiHelper.Instance;
+                if (plugin == null)
                 {
-                    logger.Warn("[AnikiHelper] Community Packs Fullscreen section is not available.");
+                    logger.Warn("[AnikiHelper] Community Packs Fullscreen view is not available.");
                     return;
                 }
 
@@ -725,16 +971,246 @@ namespace AnikiHelperFullscreen.Views
                     return;
                 }
 
-                communityVisualPacksSectionOpen = true;
-                communityVisualPacksController?.PrepareForOpen(packType);
+                // If the window already exists, just switch the requested category and bring it back.
+                if (communityPacksWindow != null)
+                {
+                    communityVisualPacksController?.PrepareForOpen(packType);
+                    if (communityPacksWindow.WindowState == WindowState.Minimized)
+                    {
+                        communityPacksWindow.WindowState = WindowState.Normal;
+                    }
+                    communityPacksWindow.Activate();
+                    communityVisualPacksController?.FocusInitial();
+                    return;
+                }
 
-                dynamic ctx = currentSettingsContext;
-                ctx.OpenSectionCommand.Execute(currentCommunityVisualPacksSectionKey.ToString());
+                var owner = Application.Current?.Windows
+                    .OfType<Window>()
+                    .FirstOrDefault(w => w != null && w.IsVisible && w.GetType().Name == "SettingsWindow")
+                    ?? Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w != null && w.IsActive)
+                    ?? Application.Current?.MainWindow;
+
+                var window = new Window();
+
+                window.Title = Application.Current?.TryFindResource("CommunityHub_Title") as string ?? "Community Packs";
+                window.WindowStyle = WindowStyle.None;
+                window.ResizeMode = ResizeMode.NoResize;
+                window.ShowInTaskbar = false;
+                window.SizeToContent = SizeToContent.Manual;
+                window.Background = Application.Current?.TryFindResource("BackgroundMenu") as Brush ?? Brushes.Black;
+
+                // IMPORTANT: do not construct the Community Packs controller/XAML before ShowDialog().
+                // XamlReader.Load on the full Community Packs view is one of the expensive parts of
+                // opening this page. Showing this tiny loading surface first gives the button press
+                // immediate visual feedback; the real control is then created on the next dispatcher pass.
+                var openingRoot = new Grid();
+                openingRoot.SetResourceReference(Panel.BackgroundProperty, "BackgroundMenu");
+
+                var loadingStack = new StackPanel
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                var loadingText = new TextBlock
+                {
+                    Text = "Loading Community Packs...",
+                    FontSize = 34,
+                    FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    TextAlignment = TextAlignment.Center
+                };
+                loadingText.SetResourceReference(TextBlock.TextProperty, "CommunityPack_Loading");
+                loadingText.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+                loadingText.SetResourceReference(TextBlock.FontFamilyProperty, "FontMain");
+
+                loadingStack.Children.Add(loadingText);
+                loadingStack.Children.Add(new ProgressBar
+                {
+                    Width = 360,
+                    Height = 6,
+                    Margin = new Thickness(0, 18, 0, 0),
+                    IsIndeterminate = true
+                });
+
+                openingRoot.Children.Add(loadingStack);
+                window.Content = openingRoot;
+
+                if (owner != null)
+                {
+                    window.Owner = owner;
+                    window.WindowStartupLocation = WindowStartupLocation.Manual;
+                    window.Left = owner.Left;
+                    window.Top = owner.Top;
+                    var ownerWidth = owner.ActualWidth;
+                    var ownerHeight = owner.ActualHeight;
+                    if (double.IsNaN(ownerWidth) || ownerWidth <= 100)
+                    {
+                        ownerWidth = SystemParameters.PrimaryScreenWidth;
+                    }
+                    if (double.IsNaN(ownerHeight) || ownerHeight <= 100)
+                    {
+                        ownerHeight = SystemParameters.PrimaryScreenHeight;
+                    }
+                    window.Width = ownerWidth;
+                    window.Height = ownerHeight;
+                }
+                else
+                {
+                    window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                    window.WindowState = WindowState.Maximized;
+                }
+
+                window.PreviewKeyDown += OnCommunityPacksWindowPreviewKeyDown;
+                window.ContentRendered += OnCommunityPacksWindowContentRendered;
+                window.Closed += OnCommunityPacksWindowClosed;
+
+                communityPacksWindow = window;
+                communityVisualPacksSectionOpen = true;
+
+                // Community Packs is a plugin-owned WPF window rather than a normal
+                // OpenWindow style. Register it with AnikiWindowManager so controller B
+                // follows the same central Cancel/Back path as the other Aniki windows.
+                plugin.RegisterExternalFullscreenWindow(
+                    window,
+                    "CommunityPacksWindow",
+                    isChild: true,
+                    secondaryMusic: false);
+
+                // Queue the real view before entering ShowDialog's nested dispatcher loop.
+                // It runs only after the lightweight window has had a chance to render once.
+                window.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!ReferenceEquals(communityPacksWindow, window) || !window.IsVisible)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        communityVisualPacksController = plugin.CreateCommunityVisualPacksFullscreenController();
+                        if (communityVisualPacksController?.Control == null)
+                        {
+                            throw new InvalidOperationException("Community Packs Fullscreen view could not be created.");
+                        }
+
+                        communityVisualPacksController.PrepareForOpen(packType);
+                        window.Content = communityVisualPacksController.Control;
+
+                        // The real page has its own loading state and console zoom/fade animation.
+                        // Queue focus after its first layout pass instead of focusing the temporary shell.
+                        window.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try
+                            {
+                                communityVisualPacksController?.FocusInitial();
+                            }
+                            catch
+                            {
+                            }
+                        }), DispatcherPriority.Loaded);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "[AnikiHelper] Failed to build Community Packs Fullscreen view after opening the window.");
+                        try { window.Close(); } catch { }
+                    }
+                }), DispatcherPriority.Background);
+
+                // Modal ownership gives this Hub an independent focus tree and prevents
+                // focus from escaping back into Theme Customization while it is open.
+                window.ShowDialog();
             }
             catch (Exception ex)
             {
                 communityVisualPacksSectionOpen = false;
-                logger.Warn(ex, "[AnikiHelper] Failed to open Community Packs Fullscreen section.");
+                try { communityPacksWindow?.Close(); } catch { }
+                communityPacksWindow = null;
+                try { communityVisualPacksController?.Dispose(); } catch { }
+                communityVisualPacksController = null;
+                logger.Warn(ex, "[AnikiHelper] Failed to open Community Packs Fullscreen window.");
+            }
+        }
+
+        private static void OnCommunityPacksWindowContentRendered(object sender, EventArgs e)
+        {
+            try
+            {
+                communityVisualPacksController?.FocusInitial();
+            }
+            catch
+            {
+            }
+        }
+
+        private static void OnCommunityPacksWindowPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e == null || e.IsRepeat)
+            {
+                return;
+            }
+
+            if (e.Key == Key.Escape || e.Key == Key.Back)
+            {
+                e.Handled = true;
+
+                try
+                {
+                    if (communityVisualPacksController?.HandleBackFromWindow() == true)
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    (sender as Window)?.Close();
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void OnCommunityPacksWindowClosed(object sender, EventArgs e)
+        {
+            var closedWindow = sender as Window;
+            if (closedWindow != null)
+            {
+                closedWindow.PreviewKeyDown -= OnCommunityPacksWindowPreviewKeyDown;
+                closedWindow.ContentRendered -= OnCommunityPacksWindowContentRendered;
+                closedWindow.Closed -= OnCommunityPacksWindowClosed;
+            }
+
+            communityVisualPacksSectionOpen = false;
+            communityPacksWindow = null;
+
+            try { communityVisualPacksController?.Dispose(); } catch { }
+            communityVisualPacksController = null;
+
+            try
+            {
+                var plugin = global::AnikiHelper.AnikiHelper.Instance;
+                plugin?.RefreshCustomVisualPackThemeSettings();
+                plugin?.RefreshCustomColorPackThemeSettings();
+                plugin?.RefreshLoginPackThemeSettings();
+                plugin?.RefreshSoundPackThemeSettings();
+                plugin?.RefreshCompletePackThemeSettings();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "[AnikiHelper] Failed to refresh Theme Settings after closing Community Packs.");
+            }
+
+            try
+            {
+                closedWindow?.Owner?.Activate();
+            }
+            catch
+            {
             }
         }
 
@@ -742,6 +1218,10 @@ namespace AnikiHelperFullscreen.Views
         {
             switch ((presetGroupId ?? string.Empty).Trim())
             {
+                // New unified Community Hub. It opens on Complete Packs by default.
+                // The legacy per-pack parameters remain supported for compatibility
+                // with older theme/plugin combinations and open the matching tab.
+                case "CommunityHub": return "complete";
                 case "VisualPack": return "visual";
                 case "Interface": return "color";
                 case "LoginBackground": return "login";
@@ -755,6 +1235,14 @@ namespace AnikiHelperFullscreen.Views
         {
             try
             {
+                if (communityPacksWindow != null)
+                {
+                    communityPacksWindow.Close();
+                    return;
+                }
+
+                // Legacy fallback for older theme/plugin combinations that still host
+                // Community Packs as a hidden Settings section.
                 communityVisualPacksSectionOpen = false;
                 var plugin = global::AnikiHelper.AnikiHelper.Instance;
                 plugin?.RefreshCustomVisualPackThemeSettings();
@@ -773,21 +1261,253 @@ namespace AnikiHelperFullscreen.Views
             }
             catch (Exception ex)
             {
-                logger.Warn(ex, "[AnikiHelper] Failed to return from Community Packs Fullscreen section.");
+                logger.Warn(ex, "[AnikiHelper] Failed to return from Community Packs Fullscreen window.");
             }
         }
 
         private static void OnSettingsWindowPreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (!communityVisualPacksSectionOpen || e == null || e.IsRepeat)
+            if (e == null)
             {
                 return;
             }
 
-            if (e.Key == Key.Escape || e.Key == Key.Back)
+            // Handle Up/Down ourselves for Random Pool screens, INCLUDING key-repeat.
+            // Without this, the first press stays in the correct column but a held direction
+            // falls back to WPF's default navigation and starts moving left/right.
+            if ((loginRandomPoolSectionOpen || themeColorRandomPoolSectionOpen || visualPackRandomPoolSectionOpen) &&
+                (e.Key == Key.Up || e.Key == Key.Down) &&
+                TryHandleRandomPoolVerticalNavigation(e.Key))
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // Back/Escape should still fire only once per physical press.
+            if (e.IsRepeat)
+            {
+                return;
+            }
+
+            if (e.Key != Key.Escape && e.Key != Key.Back)
+            {
+                return;
+            }
+
+            if (loginRandomPoolSectionOpen)
+            {
+                e.Handled = true;
+                ReturnFromLoginRandomPool();
+                return;
+            }
+
+            if (themeColorRandomPoolSectionOpen)
+            {
+                e.Handled = true;
+                ReturnFromThemeColorRandomPool();
+                return;
+            }
+
+            if (visualPackRandomPoolSectionOpen)
+            {
+                e.Handled = true;
+                ReturnFromVisualPackRandomPool();
+                return;
+            }
+
+            // The modern Community Hub is its own modal window and handles Back itself.
+            // Keep this branch only for the legacy hidden-settings-section fallback.
+            if (communityVisualPacksSectionOpen && communityPacksWindow == null)
             {
                 e.Handled = true;
                 ReturnFromCommunityVisualPacks();
+            }
+        }
+
+        private static bool TryHandleRandomPoolVerticalNavigation(Key key)
+        {
+            try
+            {
+                var focused = Keyboard.FocusedElement as DependencyObject;
+                if (focused == null)
+                {
+                    return false;
+                }
+
+                Button currentButton = null;
+                var current = focused;
+
+                // Resolve either a pool card OR one of the top action buttons.
+                while (current != null)
+                {
+                    if (current is Button button)
+                    {
+                        currentButton = button;
+                        break;
+                    }
+
+                    current = VisualTreeHelper.GetParent(current);
+                }
+
+                if (currentButton == null)
+                {
+                    return false;
+                }
+
+                var root = FindParentUserControl(currentButton);
+                if (root == null)
+                {
+                    return false;
+                }
+
+                var rootElement = root as UIElement;
+
+                Func<Button, Point> getPosition = button =>
+                {
+                    try
+                    {
+                        return rootElement != null
+                            ? button.TranslatePoint(new Point(0, 0), rootElement)
+                            : new Point(0, 0);
+                    }
+                    catch
+                    {
+                        return new Point(0, 0);
+                    }
+                };
+
+                // UniformGrid is two columns. Sorting by visual Y then X gives:
+                // row 1 left, row 1 right, row 2 left, row 2 right...
+                var candidateButtons = root
+                    .FindVisualChildren<Button>()
+                    .Where(button =>
+                        button.IsVisible &&
+                        button.IsEnabled &&
+                        string.Equals(button.Tag as string, "RandomPoolCandidate", StringComparison.Ordinal))
+                    .Select(button => new
+                    {
+                        Button = button,
+                        Position = getPosition(button)
+                    })
+                    .OrderBy(item => Math.Round(item.Position.Y / 10d) * 10d)
+                    .ThenBy(item => item.Position.X)
+                    .Select(item => item.Button)
+                    .ToList();
+
+                // The only non-candidate Buttons inside Random Pool views are the two
+                // top actions (Select all / Clear all). Sort left-to-right so column 0
+                // maps to Select all and column 1 maps to Clear all.
+                var actionButtons = root
+                    .FindVisualChildren<Button>()
+                    .Where(button =>
+                        button.IsVisible &&
+                        button.IsEnabled &&
+                        !string.Equals(button.Tag as string, "RandomPoolCandidate", StringComparison.Ordinal))
+                    .Select(button => new
+                    {
+                        Button = button,
+                        Position = getPosition(button)
+                    })
+                    .OrderBy(item => item.Position.Y)
+                    .ThenBy(item => item.Position.X)
+                    .Select(item => item.Button)
+                    .ToList();
+
+                Action<Button> focusButton = target =>
+                {
+                    if (target == null)
+                    {
+                        return;
+                    }
+
+                    target.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            target.Focus();
+                            Keyboard.Focus(target);
+                            target.BringIntoView();
+                        }
+                        catch
+                        {
+                        }
+                    }), DispatcherPriority.Input);
+                };
+
+                var candidateIndex = candidateButtons.IndexOf(currentButton);
+                if (candidateIndex >= 0)
+                {
+                    if (key == Key.Down)
+                    {
+                        var targetIndex = candidateIndex + 2;
+
+                        // Bottom of the column: consume the key so WPF cannot jump sideways.
+                        if (targetIndex >= candidateButtons.Count)
+                        {
+                            return true;
+                        }
+
+                        focusButton(candidateButtons[targetIndex]);
+                        return true;
+                    }
+
+                    if (key == Key.Up)
+                    {
+                        var targetIndex = candidateIndex - 2;
+                        if (targetIndex >= 0)
+                        {
+                            focusButton(candidateButtons[targetIndex]);
+                            return true;
+                        }
+
+                        // First row -> top action in the matching column.
+                        // Left card -> Select all, right card -> Clear all.
+                        if (actionButtons.Count > 0)
+                        {
+                            var column = candidateIndex % 2;
+                            var actionIndex = Math.Min(column, actionButtons.Count - 1);
+                            focusButton(actionButtons[actionIndex]);
+                        }
+
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                var actionButtonIndex = actionButtons.IndexOf(currentButton);
+                if (actionButtonIndex >= 0)
+                {
+                    if (key == Key.Down)
+                    {
+                        // Top action -> first card in the same visual column.
+                        if (candidateButtons.Count > 0)
+                        {
+                            var targetIndex = Math.Min(actionButtonIndex, 1);
+                            if (targetIndex >= candidateButtons.Count)
+                            {
+                                targetIndex = 0;
+                            }
+
+                            focusButton(candidateButtons[targetIndex]);
+                        }
+
+                        return true;
+                    }
+
+                    if (key == Key.Up)
+                    {
+                        // Already at the top: consume the direction instead of letting
+                        // WPF escape to another control/window.
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
             }
         }
 

@@ -293,6 +293,7 @@
     <sys:String x:Key="LOCInGameOverlayBackHint">B / Back pro zavření</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToPlaynite">Vrátit se do Playnite</sys:String>
     <sys:String x:Key="LOCInGameOverlayReturnToGame">Zpět do hry</sys:String>
+    <sys:String x:Key="LOCInGameOverlayResumeGame">Pokračovat ve hře</sys:String>
     <sys:String x:Key="LOCInGameOverlayQuitGame">Ukončit hru</sys:String>
     <sys:String x:Key="LOCInGameOverlayGame">Hra</sys:String>
     <sys:String x:Key="LOCInGameOverlayLastCaptures">Poslední záznamy</sys:String>
@@ -359,18 +360,26 @@
     <sys:String x:Key="GameLaunchSplash_ShowLogo">Zobrazit logo hry na splash obrazovce</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_GlobalTimers_Title">Časování úvodní obrazovky</sys:String>
-    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Úvodní obrazovka zůstane viditelná alespoň po minimální dobu a poté se automaticky zavře, jakmile je připravené skutečné okno hry. Pokud se okno nepodaří rozpoznat, obrazovku zavře pevný bezpečnostní limit 90 sekund. Vlastní časovač pro konkrétní hru nahrazuje pouze minimální dobu.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_GlobalTimers_Help">Úvodní obrazovka zůstane viditelná alespoň po minimální dobu a poté se automaticky zavře, jakmile je připravené skutečné okno hry. Pokud se rozpoznání nezdaří, zavře se po nastavené maximální době čekání. Vlastní časovač pro konkrétní hru nahrazuje pouze minimální dobu.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Title">Minimální doba zobrazení</sys:String>
     <sys:String x:Key="GameLaunchSplash_MinDuration_Help">Určuje, jak dlouho zůstane splash obrazovka minimálně viditelná.</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Enable">Automaticky rozpoznat, kdy je okno hry připravené</sys:String>
     <sys:String x:Key="GameLaunchSplash_AutoDetectReady_Help">Je-li zapnuto, Aniki Helper ponechá úvodní obrazovku viditelnou alespoň po nastavenou minimální dobu a poté ji zavře, jakmile rozpozná skutečné okno hry. Vlastní časovače jednotlivých her přepíšou minimální dobu, ale stále používají automatické rozpoznání.</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Title">Bezpečnostní časovač automatického zavření</sys:String>
     <sys:String x:Key="GameLaunchSplash_MaxDuration_Help">Určuje maximální dobu, po kterou Aniki Helper čeká před automatickým zavřením splash obrazovky.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Title">Hry s vypnutou úvodní obrazovkou</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Help">Hry, u kterých byla úvodní obrazovka vypnuta přes pravé tlačítko → Aniki Helper → Splash Screen, se zobrazí zde. Zrušením zaškrtnutí ji pro danou hru znovu povolíte.</sys:String>
+    <sys:String x:Key="GameLaunchSplash_DisabledGames_Clear">Vymazat seznam vypnutých her</sys:String>
+    <sys:String x:Key="LOCAnikiHelperDisableSplashThisGame">Vypnout úvodní obrazovku pro tuto hru</sys:String>
+    <sys:String x:Key="LOCAnikiHelperEnableSplashThisGame">Povolit úvodní obrazovku pro tuto hru</sys:String>
     <sys:String x:Key="GameLaunchSplash_ResetTimer">Resetovat</sys:String>
 
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimer">Nastavit minimální časovač pro tuto hru</sys:String>
     <sys:String x:Key="LOCAnikiHelperResetGameSplashMinimumTimer">Resetovat minimální časovač pro tuto hru</sys:String>
     <sys:String x:Key="LOCAnikiHelperSetGameSplashMinimumTimerPrompt">Minimální doba úvodní obrazovky pro tuto hru v sekundách:</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWait">Set maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperResetGameSplashMaximumWait">Reset maximum wait for this game</sys:String>
+    <sys:String x:Key="LOCAnikiHelperSetGameSplashMaximumWaitPrompt">Maximum automatic-detection wait for this game, in seconds:</sys:String>
     <sys:String x:Key="LOCAnikiHelperInvalidTimerValue">Neplatná hodnota časovače.</sys:String>
 
     <sys:String x:Key="GameLaunchSplash_VideoSound_Enable">Povolit zvuk splash videa</sys:String>
@@ -1601,6 +1610,9 @@
     <sys:String x:Key="CompletePack_ExportSuccess">Kompletní balíček „{0}“ byl úspěšně exportován.</sys:String>
     <sys:String x:Key="CompletePack_ExportError">Kompletní balíček nelze exportovat:</sys:String>
     <sys:String x:Key="CompletePack_DeleteConfirm">Odstranit kompletní balíček „{0}“ z knihovny? Jeho jednotlivé součásti zůstanou nainstalované.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteChoice">Odstranit Complete Pack „{0}“?&#10;&#10;ANO = Odstranit Complete Pack a všechny nainstalované balíčky Visual, Color, Login a Sound, které obsahuje.&#10;&#10;NE = Odstranit pouze Complete Pack a ponechat jeho obsažené balíčky nainstalované.&#10;&#10;ZRUŠIT = Nic neodstraňovat.</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSharedWarning">Některé obsažené balíčky používají také tyto nainstalované Complete Packy:&#10;&#10;{0}&#10;&#10;Odstranění obsažených balíčků odebere i tyto nainstalované kopie komponent. Ostatní Complete Packy zůstanou v knihovně a po opětovném použití mohou své komponenty znovu nainstalovat.&#10;&#10;Pokračovat?</sys:String>
+    <sys:String x:Key="CompletePack_DeleteSuccessWithComponents">Complete Pack „{0}“ a jeho obsažené balíčky byly odstraněny.</sys:String>
     <sys:String x:Key="CompletePack_DeleteSuccess">Kompletní balíček „{0}“ byl odstraněn.</sys:String>
     <sys:String x:Key="CompletePack_DeleteError">Kompletní balíček nelze odstranit:</sys:String>
     <sys:String x:Key="CompletePack_ComponentVisual">Visual</sys:String>
@@ -1635,6 +1647,7 @@
     <sys:String x:Key="CommunityPack_Refresh">Obnovit</sys:String>
     <sys:String x:Key="CommunityPack_NoPreview">Bez náhledu</sys:String>
     <sys:String x:Key="CommunityPack_Featured">DOPORUČENO</sys:String>
+    <sys:String x:Key="CommunityPack_IncludedInComplete">✦ Součást Complete Packu: {0}</sys:String>
     <sys:String x:Key="CommunityPack_Updating">Aktualizace...</sys:String>
     <sys:String x:Key="CommunityPack_Installing">Instalace...</sys:String>
     <sys:String x:Key="CommunityPack_UpdatingStatus">Aktualizace {0}...</sys:String>
@@ -1674,4 +1687,54 @@
     <sys:String x:Key="PackCreator_CompleteDesc">Spojte několik typů balíčků a použijte sladěné nastavení v jediném kroku.</sys:String>
     <sys:String x:Key="PackCreator_CommunityTitle">Sdílet s komunitou</sys:String>
     <sys:String x:Key="PackCreator_CommunityDesc">Až bude váš balíček hotový, použijte v Creatoru Share Community Pack a otevřete odpovídající formulář pro odeslání na GitHub. Schválené balíčky pak lze instalovat přímo z Aniki Helper.</sys:String>
+
+    <!-- Unified Community Packs Hub -->
+    <sys:String x:Key="CommunityPack_IncludesLabel">Tento balíček obsahuje:</sys:String>
+    <sys:String x:Key="CommunityHub_MenuTitle">Komunitní balíčky</sys:String>
+    <sys:String x:Key="CommunityHub_MenuDescription">Procházejte, instalujte, aktualizujte a spravujte balíčky Complete, Visual, Login, Color a Sound sdílené komunitou Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_BrowseButton">✦ Procházet komunitní balíčky</sys:String>
+    <sys:String x:Key="CommunityHub_Title">Komunitní balíčky</sys:String>
+    <sys:String x:Key="CommunityHub_Description">Procházejte, instalujte a spravujte balíčky Complete, Visual, Login, Color a Sound sdílené komunitou Aniki ReMake.</sys:String>
+    <sys:String x:Key="CommunityHub_TabComplete">Kompletní</sys:String>
+    <sys:String x:Key="CommunityHub_TabVisual">Visual</sys:String>
+    <sys:String x:Key="CommunityHub_TabLogin">Login</sys:String>
+    <sys:String x:Key="CommunityHub_TabColor">Barvy</sys:String>
+    <sys:String x:Key="CommunityHub_TabSound">Zvuky</sys:String>
+    <sys:String x:Key="CommunityHub_SortFormat">Řazení: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_SortNewest">Nejnovější</sys:String>
+    <sys:String x:Key="CommunityHub_SortUpdated">Nedávno aktualizované</sys:String>
+    <sys:String x:Key="CommunityHub_SortPopular">Nejoblíbenější</sys:String>
+    <sys:String x:Key="CommunityHub_SortName">Název A-Z</sys:String>
+    <sys:String x:Key="CommunityHub_SortNameDesc">Název Z-A</sys:String>
+    <sys:String x:Key="CommunityHub_FilterFormat">Zobrazit: {0}</sys:String>
+    <sys:String x:Key="CommunityHub_FilterAll">Vše</sys:String>
+    <sys:String x:Key="CommunityHub_FilterNew">Nové</sys:String>
+    <sys:String x:Key="CommunityHub_FilterUpdates">Aktualizace</sys:String>
+    <sys:String x:Key="CommunityHub_FilterInstalled">Nainstalované</sys:String>
+    <sys:String x:Key="CommunityHub_NoFilterMatches">Žádné balíčky neodpovídají aktuálnímu filtru.</sys:String>
+    <sys:String x:Key="CommunityHub_ReleasedFormat">Vydáno {0}</sys:String>
+    <sys:String x:Key="CommunityHub_UpdatedFormat">Aktualizováno {0}</sys:String>
+    <sys:String x:Key="CommunityHub_NewBadge">NOVÉ</sys:String>
+    <sys:String x:Key="CommunityHub_PopularBadge">OBLÍBENÉ</sys:String>
+    <sys:String x:Key="CommunityPack_InstallConfirm">Chcete nainstalovat „{0}“?</sys:String>
+
+    <!-- Random Login Pool -->
+    <sys:String x:Key="LoginRandomPool_ConfigureButton">Nastavit náhodný výběr</sys:String>
+    <sys:String x:Key="LoginRandomPool_Title">Náhodný fond přihlášení</sys:String>
+    <sys:String x:Key="LoginRandomPool_Description">Vyberte nainstalovaná přihlašovací pozadí, která může náhodný režim použít při spuštění.</sys:String>
+    <sys:String x:Key="LoginRandomPool_DefaultNote">Nově nainstalovaná pozadí jsou ve výchozím nastavení povolena. Lucky Day zůstává oddělený.</sys:String>
+    <sys:String x:Key="LoginRandomPool_SelectAll">Vybrat vše</sys:String>
+    <sys:String x:Key="LoginRandomPool_ClearAll">Zrušit výběr</sys:String>
+    <sys:String x:Key="LoginRandomPool_Toggle">Přepnout</sys:String>
+    <sys:String x:Key="LoginRandomPool_BuiltIn">VESTAVĚNÉ</sys:String>
+    <sys:String x:Key="LoginRandomPool_Community">KOMUNITA</sys:String>
+    <sys:String x:Key="LoginRandomPool_Empty">Nejsou nainstalována žádná vhodná přihlašovací pozadí.</sys:String>
+    <sys:String x:Key="LoginRandomPool_CountFormat">Vybráno {0} / {1}</sys:String>
+    <sys:String x:Key="SettingsNav_Notifications">Oznámení</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Enable">Globální překryv oznámení</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_Help">Zobrazuje oznámení Aniki nad všemi aplikacemi místo uvnitř motivu.</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestButton">Otestovat oznámení</sys:String>
+    <sys:String x:Key="GlobalNotificationOverlay_TestMessage">Toto je testovací oznámení Aniki.</sys:String>
+    <sys:String x:Key="LOCNotificationTitleCommunityPacks">Komunitní balíčky</sys:String>
+    <sys:String x:Key="CommunityPack_NewNotification">Jsou k dispozici nové komunitní balíčky.</sys:String>
 </ResourceDictionary>

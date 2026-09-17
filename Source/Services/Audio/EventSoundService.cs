@@ -501,6 +501,128 @@ namespace AnikiHelper
             PlaySound("FullscreenViewChanged.wav");
         }
 
+        public void PlayLoginConfirm()
+        {
+            PlayUiTransitionSound(
+                "LoginConfirm.wav",
+                settings?.SoundPackLoginConfirmPath);
+        }
+
+        public void PlayOpenPanel()
+        {
+            PlayUiTransitionSound(
+                "OpenPanel.wav",
+                settings?.SoundPackOpenPanelPath);
+        }
+
+        public void PlayOpenAdditionalView()
+        {
+            PlayUiTransitionSound(
+                "OpenAdditionalView.wav",
+                settings?.SoundPackOpenAdditionalViewPath);
+        }
+
+        public void PlayCloseAdditionalView()
+        {
+            PlayUiTransitionSound(
+                "CloseAdditionalView.wav",
+                settings?.SoundPackCloseAdditionalViewPath);
+        }
+
+        public void PlayHomeHubOpen()
+        {
+            PlayUiTransitionSound(
+                "HomeHubOpen.wav",
+                settings?.SoundPackHomeHubOpenPath);
+        }
+
+        public void PlayHomeHubClose()
+        {
+            PlayUiTransitionSound(
+                "HomeHubClose.wav",
+                settings?.SoundPackHomeHubClosePath);
+        }
+
+        public void PlayNotification()
+        {
+            PlayUiTransitionSound(
+                "Noti.wav",
+                settings?.SoundPackNotiPath);
+        }
+
+        private void PlayUiTransitionSound(string fileName, string runtimePath)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+
+                Action play = () =>
+                {
+                    try
+                    {
+                        if (playniteApi?.ApplicationInfo?.Mode != ApplicationMode.Fullscreen)
+                        {
+                            DebugLog($"[AnikiHelper] UI sound skipped: {fileName} | reason=Playnite is not in fullscreen mode.");
+                            return;
+                        }
+
+                        if (!IsAnikiThemeActive())
+                        {
+                            DebugLog($"[AnikiHelper] UI sound skipped: {fileName} | reason=Aniki theme marker was not found.");
+                            return;
+                        }
+
+                        // UI transition sounds belong to the theme and stay independent from
+                        // the optional Event Sounds setting. Runtime paths already resolve the
+                        // active Sound Pack and fall back to the theme default when absent.
+                        var fullPath = runtimePath;
+
+                        if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
+                        {
+                            var eventsFolder = GetThemeEventsFolder();
+                            var audioRoot = string.IsNullOrWhiteSpace(eventsFolder)
+                                ? null
+                                : Directory.GetParent(eventsFolder)?.FullName;
+                            var fallbackPath = string.IsNullOrWhiteSpace(audioRoot)
+                                ? null
+                                : Path.Combine(audioRoot, fileName);
+
+                            if (!string.IsNullOrWhiteSpace(fallbackPath) && File.Exists(fallbackPath))
+                            {
+                                fullPath = fallbackPath;
+                            }
+                        }
+
+                        if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
+                        {
+                            DebugLog($"[AnikiHelper] UI sound file not found: {fileName} | path={fullPath ?? "<null>"}");
+                            return;
+                        }
+
+                        var volume = GetFullscreenInterfaceVolume();
+                        PlayMediaPlayerOnDispatcher(fullPath, fileName, volume, false);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog(ex, $"[AnikiHelper] Failed to play UI sound: {fileName}");
+                    }
+                };
+
+                if (dispatcher == null || dispatcher.CheckAccess())
+                {
+                    play();
+                }
+                else
+                {
+                    dispatcher.BeginInvoke(play, DispatcherPriority.Send);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex, $"[AnikiHelper] PlayUiTransitionSound failed: {fileName}");
+            }
+        }
+
         private string ResolveLuckyDaySoundFileName()
         {
             try

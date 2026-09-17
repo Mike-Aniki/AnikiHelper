@@ -56,8 +56,8 @@
       <HintPath>packages\SQLNado.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Playnite.SDK, Version=6.16.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>packages\PlayniteSDK.6.16.0\lib\net462\Playnite.SDK.dll</HintPath>
+    <Reference Include="Playnite.SDK, Version=6.17.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>packages\PlayniteSDK.6.17.0\lib\net462\Playnite.SDK.dll</HintPath>
     </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
@@ -143,6 +143,7 @@
     <Compile Include="Services\Controller\AnikiControllerShortcutControl.cs" />
     <Compile Include="Services\UI\DynamicAuto.cs" />
     <Compile Include="Services\Audio\EventSoundService.cs" />
+    <Compile Include="Services\Audio\NativeUiSoundSuppressor.cs" />
     <Compile Include="Services\UI\FastScrollViewerBehavior.cs" />
     <Compile Include="Services\UI\FilterBackgroundService.cs" />
     <Compile Include="Services\UI\ImageMemoryCache.cs" />
@@ -193,12 +194,15 @@
     <Compile Include="Services\SteamFriends\SteamFriendsModels.cs" />
     <Compile Include="Services\SteamFriends\SteamNonGameAppFilter.cs" />
     <Compile Include="Services\SteamFriends\SteamFriendsWebApiClient.cs" />
+    <Compile Include="Services\Storage\AnikiCacheLayout.cs" />
     <Compile Include="Services\News\SteamUpdateLiteService.cs" />
     <Compile Include="Services\UI\VisualPackBackgroundComposer.cs" />
     <Compile Include="Services\VisualPacks\VisualPackImportService.cs" />
     <Compile Include="Services\VisualPacks\CommunityVisualPackService.cs" />
     <Compile Include="Services\ColorPacks\ColorPackImportService.cs" />
     <Compile Include="Services\LoginPacks\LoginPackImportService.cs" />
+    <Compile Include="Services\Randomization\RandomSelectionService.cs" />
+    <Compile Include="Services\Randomization\LoginRandomCandidate.cs" />
     <Compile Include="Services\SoundPacks\SoundPackImportService.cs" />
     <Compile Include="Services\CompletePacks\CompletePackImportService.cs" />
     <Compile Include="Services\CommunityPacks\CommunityPackService.cs" />
@@ -298,6 +302,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <Resource Include="Views\AnikiThemeSettingsFullscreenView.xaml" />
+    <Resource Include="Views\LoginRandomPoolFullscreenView.xaml" />
+    <Resource Include="Views\ThemeColorRandomPoolFullscreenView.xaml" />
+    <Resource Include="Views\VisualPackRandomPoolFullscreenView.xaml" />
     <Resource Include="Views\AnikiHelperFullscreenSettingsView.xaml" />
     <None Include="Localization\pl_PL.xaml">
       <Generator>MSBuild:Compile</Generator>

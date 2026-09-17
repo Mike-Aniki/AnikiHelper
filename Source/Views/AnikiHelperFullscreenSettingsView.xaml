@@ -39,6 +39,28 @@
             <TextBlock Text="{DynamicResource EventSounds_Help}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
 
+            <!-- NOTIFICATIONS -->
+            <StackPanel Style="{DynamicResource AnikiHelperSettingsSectionHeaderStyle}">
+                <TextBlock Text="{DynamicResource SettingsNav_Notifications}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleSectionStyle}"
+                           HorizontalAlignment="Center"/>
+                <Border Style="{DynamicResource AnikiHelperSettingsSectionSeparatorStyle}"/>
+            </StackPanel>
+
+            <pctrls:CheckBoxEx Content="{DynamicResource GlobalNotificationOverlay_Enable}"
+                               IsChecked="{Binding Settings.GlobalNotificationOverlayEnabled}"
+                               Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+
+            <TextBlock Text="{DynamicResource GlobalNotificationOverlay_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <pctrls:ButtonEx Content="{DynamicResource GlobalNotificationOverlay_TestButton}"
+                             Command="{Binding Settings.TestGlobalNotificationCommand}"
+                             Height="52"
+                             MinWidth="360"
+                             HorizontalAlignment="Left"
+                             Margin="10,10,0,14"/>
+
             <pctrls:CheckBoxEx Content="{DynamicResource NewsScan_Enable}"
                                IsChecked="{Binding Settings.NewsScanEnabled}"
                                Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
@@ -845,6 +867,70 @@
 
             <TextBlock Text="{DynamicResource GameLaunchSplash_MinDuration_Help}"
                        Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <Grid Margin="10,20,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="420"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{DynamicResource GameLaunchSplash_MaxDuration_Title}"
+                           Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                           Margin="0"/>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <pctrls:ComboBoxEx Width="260"
+                                       SelectedValue="{Binding Settings.GameLaunchSplashMaximumWaitMs, UpdateSourceTrigger=PropertyChanged}"
+                                       SelectedValuePath="Tag"
+                                       Style="{DynamicResource AnikiHelperSettingsComboBoxStyle}">
+                        <ComboBoxItem Content="10 sec"><ComboBoxItem.Tag><sys:Int32>10000</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="15 sec"><ComboBoxItem.Tag><sys:Int32>15000</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="30 sec"><ComboBoxItem.Tag><sys:Int32>30000</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="45 sec"><ComboBoxItem.Tag><sys:Int32>45000</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="1 min"><ComboBoxItem.Tag><sys:Int32>60000</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="1 min 30 sec (Default)"><ComboBoxItem.Tag><sys:Int32>90000</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="2 min"><ComboBoxItem.Tag><sys:Int32>120000</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
+                    </pctrls:ComboBoxEx>
+
+                    <TextBlock Text="{Binding Settings.GameLaunchSplashMaximumWaitDisplay}"
+                               Margin="14,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="White"
+                               FontSize="18"/>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_MaxDuration_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_DisabledGames_Title}"
+                       Style="{DynamicResource AnikiHelperSettingsSectionTitleOptionComboBoxStyle}"
+                       Margin="10,20,0,6"/>
+
+            <TextBlock Text="{DynamicResource GameLaunchSplash_DisabledGames_Help}"
+                       Style="{DynamicResource TextAnikiHelperSettingsStyleMini}" />
+
+            <ItemsControl ItemsSource="{Binding Settings.GameLaunchSplashDisabledGameItems}"
+                          Margin="10,10,0,8">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <pctrls:CheckBoxEx Content="{Binding Name}"
+                                           IsChecked="{Binding IsSplashDisabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                           Style="{DynamicResource AnikiHelperSettingsCheckBoxStyle}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <pctrls:ButtonEx Content="{DynamicResource GameLaunchSplash_DisabledGames_Clear}"
+                             Command="{Binding Settings.ClearGameLaunchSplashDisabledGamesCommand}"
+                             Height="52"
+                             MinWidth="320"
+                             HorizontalAlignment="Left"
+                             Margin="10,4,0,14"/>
+
             <Grid Margin="10,20,0,14">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
