@@ -134,5 +134,35 @@ If you are a theme developer and want to integrate Aniki Helper into your own fu
 
 ---
 
+```markdown
+
+## ❤️ Support & Community
+
+Aniki Helper is a free plugin developed and maintained during my spare time.
+
+If you enjoy using it and want to support its continued development, you can buy me a coffee on Ko-fi!
+
+### 🎮 ANIKI ReMake Supporters Discord
+
+Every Ko-fi supporter gets access to our private Discord community, whether through a one-time contribution or monthly support.
+
+Follow the development of **ANIKI ReMake and Aniki Helper**, discover upcoming features, share feedback, and discuss improvements directly with the community.
+
+Simply connect your Discord account through Ko-fi to claim your Supporter role and join!
+
+**Aniki Helper and ANIKI ReMake remain completely free for everyone.** Supporting the projects is entirely optional. ❤️
+
+```
+
+<div align="center">
+
+<a href="https://ko-fi.com/W7W1Y9DRB">
+  <img height="36" src="https://storage.ko-fi.com/cdn/kofi5.png?v=3" alt="Support on Ko-fi">
+</a>
+
+</div>
+
+---
+
 > **Note:** Aniki Helper works in **Fullscreen themes only**.  
 > Make sure the plugin is installed and enabled in Playnite.
