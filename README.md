@@ -136,21 +136,21 @@ If you are a theme developer and want to integrate Aniki Helper into your own fu
 
 ```markdown
 
-## ❤️ Support & Community
+❤️ Support & Community
 
 Aniki Helper is a free plugin developed and maintained during my spare time.
 
 If you enjoy using it and want to support its continued development, you can buy me a coffee on Ko-fi!
 
-### 🎮 ANIKI ReMake Supporters Discord
+ANIKI ReMake Supporters Discord
 
 Every Ko-fi supporter gets access to our private Discord community, whether through a one-time contribution or monthly support.
 
-Follow the development of **ANIKI ReMake and Aniki Helper**, discover upcoming features, share feedback, and discuss improvements directly with the community.
+Follow the development of ANIKI ReMake and Aniki Helper, discover upcoming features, share feedback, and discuss improvements directly with the community.
 
 Simply connect your Discord account through Ko-fi to claim your Supporter role and join!
 
-**Aniki Helper and ANIKI ReMake remain completely free for everyone.** Supporting the projects is entirely optional. ❤️
+Aniki Helper and ANIKI ReMake remain completely free for everyone. Supporting the projects is entirely optional. ❤️
 
 ```
 
